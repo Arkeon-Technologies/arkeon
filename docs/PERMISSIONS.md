@@ -1,340 +1,180 @@
 # Entity-Level Permissions
 
-Every entity governs its own view and edit permissions. No inheritance. A commons doesn't make its children public — each entity decides for itself. Permission checks are baked into every query, so unauthorized entities are simply invisible.
+Every entity governs its own access. No inheritance. Permission checks are baked into every query — unauthorized entities are invisible.
 
 ## Role hierarchy
 
-Four roles, each inheriting the capabilities of the roles below it:
+Five roles, each with specific capabilities:
 
-| Role | Can view | Can edit content | Can manage access | Can transfer ownership / delete |
-|------|----------|-----------------|-------------------|-------------------------------|
-| **Owner** | Yes | Yes | Yes | Yes |
-| **Admin** | Yes | Yes | Yes | No |
-| **Editor** | Yes | Yes | No | No |
-| **Viewer** | Yes | No | No | No |
+| Role | View | Edit content | Contribute (add children) | Manage access | Transfer/delete |
+|------|------|-------------|--------------------------|---------------|-----------------|
+| **Owner** | Yes | Yes | Yes | Yes | Yes |
+| **Admin** | Yes | Yes | Yes | Yes | No |
+| **Contributor** | Yes | No | Yes | No | No |
+| **Editor** | Yes | Yes | No | No | No |
+| **Viewer** | Yes | No | No | No | No |
 
-- **Owner**: Singular. Set at creation, transferable only by the current owner. Full control.
-- **Admin**: Can add/remove viewers, editors, and other admins. Can change `view_access` and `edit_access` policies. Cannot transfer ownership or delete the entity.
-- **Editor**: Can modify content (properties). Cannot touch permissions.
+- **Owner**: Singular. Set at creation, transferable only by current owner.
+- **Admin**: Can manage all access grants. Cannot transfer ownership or delete.
+- **Contributor**: Can add children to this entity (containment relationships). Cannot edit the entity itself. Independent from editor.
+- **Editor**: Can modify entity content (properties). Cannot manage access or add children. Independent from contributor.
 - **Viewer**: Can read the entity. Only relevant when `view_access = 'private'`.
 
-Roles are stored in `entity_access.access_type`. Higher roles implicitly include lower ones — an admin doesn't need a separate `edit` grant.
+Admin implicitly includes editor + contributor capabilities. Contributor and editor are independent — having one doesn't grant the other.
 
 ## Permission columns
 
-Three columns on every entity:
+Four columns on every entity:
 
 | Column | Values | Meaning |
 |--------|--------|---------|
-| `owner_id` | Actor ID | The entity's owner. Always has full access. |
+| `owner_id` | Actor ID | Always has full access |
 | `view_access` | `public` / `private` | Who can see this entity |
-| `edit_access` | `public` / `collaborators` / `owner` | Who can edit this entity |
+| `edit_access` | `public` / `collaborators` / `owner` | Who can edit content |
+| `contribute_access` | `public` / `contributors` / `owner` | Who can add children |
 
-Plus the `entity_access` join table for explicit grants.
+Plus the `entity_access` table for explicit grants (view, edit, contribute, admin).
 
-### View permission resolution
+### View resolution
 
 ```
-1. view_access = 'public'                                    → allow
-2. Actor is owner                                            → allow
-3. Actor has any grant in entity_access (view, edit, admin)  → allow
+1. view_access = 'public'                             → allow
+2. Actor is owner                                     → allow
+3. Actor has ANY grant in entity_access                → allow
 4. Deny
 ```
 
-Any grant implies view access — if you can edit, you can see it.
+Any grant implies view access.
 
-### Edit permission resolution
+### Edit resolution
 
 ```
-1. Actor is owner                                            → allow
-2. edit_access = 'public'                                    → allow
+1. Actor is owner                                     → allow
+2. edit_access = 'public'                             → allow
 3. edit_access = 'collaborators' AND actor has 'edit' or 'admin' grant → allow
 4. Deny
 ```
 
-### Admin permission resolution (manage access)
+### Contribute resolution
 
 ```
-1. Actor is owner                                            → allow
-2. Actor has 'admin' grant in entity_access                  → allow
+1. Actor is owner                                     → allow
+2. contribute_access = 'public'                       → allow
+3. contribute_access = 'contributors' AND actor has 'contribute' or 'admin' grant → allow
+4. Deny
+```
+
+### Admin resolution
+
+```
+1. Actor is owner                                     → allow
+2. Actor has 'admin' grant                            → allow
 3. Deny
 ```
 
 ## Query integration
 
-Permission checks are a reusable SQL fragment appended to every listing query. Private entities you can't access simply don't appear in results.
-
-### View check (appended to every SELECT)
+### View check (every SELECT)
 
 ```sql
 AND (
   e.view_access = 'public'
   OR e.owner_id = $actor_id
-  OR EXISTS(
-    SELECT 1 FROM entity_access
-    WHERE entity_id = e.id AND actor_id = $actor_id
-  )
+  OR EXISTS(SELECT 1 FROM entity_access
+            WHERE entity_id = e.id AND actor_id = $actor_id)
 )
 ```
 
-Note: no `access_type` filter needed — any grant (view, edit, admin) implies view access.
-
-For unauthenticated requests, only `view_access = 'public'` matches.
-
-### Edit check (on PUT/PATCH)
+### Edit check (PUT/PATCH)
 
 ```sql
 AND (
   e.owner_id = $actor_id
   OR e.edit_access = 'public'
   OR (e.edit_access = 'collaborators' AND EXISTS(
-    SELECT 1 FROM entity_access
-    WHERE entity_id = e.id AND actor_id = $actor_id
-      AND access_type IN ('edit', 'admin')
+    SELECT 1 FROM entity_access WHERE entity_id = e.id
+      AND actor_id = $actor_id AND access_type IN ('edit', 'admin')
   ))
 )
 ```
 
-### Admin check (on permission management endpoints)
+### Contribute check (add child)
 
 ```sql
 AND (
   e.owner_id = $actor_id
-  OR EXISTS(
-    SELECT 1 FROM entity_access
-    WHERE entity_id = e.id AND actor_id = $actor_id AND access_type = 'admin'
-  )
+  OR e.contribute_access = 'public'
+  OR (e.contribute_access = 'contributors' AND EXISTS(
+    SELECT 1 FROM entity_access WHERE entity_id = e.id
+      AND actor_id = $actor_id AND access_type IN ('contribute', 'admin')
+  ))
 )
 ```
 
-### Application layer
+## How it applies to each kind
 
-```typescript
-function viewCheck(actorId: string | null): SQL {
-  if (!actorId) {
-    return sql`AND e.view_access = 'public'`;
-  }
-  return sql`
-    AND (
-      e.view_access = 'public'
-      OR e.owner_id = ${actorId}
-      OR EXISTS(
-        SELECT 1 FROM entity_access
-        WHERE entity_id = e.id AND actor_id = ${actorId}
-      )
-    )
-  `;
-}
+All kinds use the same entity-level permissions. No specialized tables.
 
-function editCheck(actorId: string): SQL {
-  return sql`
-    AND (
-      e.owner_id = ${actorId}
-      OR e.edit_access = 'public'
-      OR (e.edit_access = 'collaborators' AND EXISTS(
-        SELECT 1 FROM entity_access
-        WHERE entity_id = e.id AND actor_id = ${actorId}
-          AND access_type IN ('edit', 'admin')
-      ))
-    )
-  `;
-}
+### Commons
 
-function adminCheck(actorId: string): SQL {
-  return sql`
-    AND (
-      e.owner_id = ${actorId}
-      OR EXISTS(
-        SELECT 1 FROM entity_access
-        WHERE entity_id = e.id AND actor_id = ${actorId}
-          AND access_type = 'admin'
-      )
-    )
-  `;
-}
+A commons with `contribute_access = 'contributors'` and contributor grants is how you control who can add works. "Members" are just actors with contribute grants.
+
 ```
+POST /entities/:commons_id/contains
+{ "kind": "work", "type": "book", "properties": { "label": "..." } }
+```
+
+Checks contribute on the commons. No separate commons_members table needed.
+
+### Works
+
+A work with `contribute_access = 'contributors'` controls who can add parts. The work owner gets contribute access by default.
+
+### Parts
+
+A part has its own independent permissions. The work owner doesn't automatically get edit access on parts — that must be explicitly granted (done automatically at creation time).
+
+### Relationships
+
+Relationship entities have permissions too. The creator owns the relationship. Editing the relationship's metadata (description, source_text) requires edit on the relationship entity.
 
 ## Endpoints
 
-### Update entity access policy
+| Endpoint | Method | Who | Purpose |
+|----------|--------|-----|---------|
+| `/entities/:id/access` | GET | Owner/Admin | List policy + grants |
+| `/entities/:id/access` | PUT | Owner/Admin | Update access policies |
+| `/entities/:id/access/owner` | PUT | Owner | Transfer ownership |
+| `/entities/:id/access/grants` | POST | Owner/Admin | Add a grant |
+| `/entities/:id/access/grants/:actor_id` | DELETE | Owner/Admin* | Revoke all grants |
+| `/entities/:id/access/grants/:actor_id/:type` | DELETE | Owner/Admin* | Revoke specific grant |
 
-Change who can view/edit the entity. Owner or admin only.
+*Admin can revoke view, edit, contribute. Only owner can revoke admin.
 
-```
-PUT /entities/:id/access
-{
-  "view_access": "private",
-  "edit_access": "collaborators"
-}
-```
-
-Returns the updated access policy. Does not create a new entity version.
-
-### Transfer ownership
-
-Owner only. Previous owner is automatically granted admin access.
-
-```
-PUT /entities/:id/access/owner
-{
-  "owner_id": "new-owner-id"
-}
-```
-
-### List access grants
-
-Owner or admin. Returns all actors with explicit grants on this entity.
-
-```
-GET /entities/:id/access
-```
-
-Response:
-
-```json
-{
-  "owner_id": "01OWNER...",
-  "view_access": "private",
-  "edit_access": "collaborators",
-  "grants": [
-    { "actor_id": "01ALICE...", "access_type": "admin", "granted_at": "2026-03-21T..." },
-    { "actor_id": "01BOB...", "access_type": "edit", "granted_at": "2026-03-21T..." },
-    { "actor_id": "01CAROL...", "access_type": "view", "granted_at": "2026-03-21T..." }
-  ]
-}
-```
-
-### Grant access
-
-Owner or admin. Adds a viewer, editor, or admin to the entity.
-
-```
-POST /entities/:id/access/grants
-{
-  "actor_id": "01ALICE...",
-  "access_type": "admin"
-}
-```
-
-Returns 201 on success. Idempotent — granting the same access twice is a no-op (upsert).
-
-If the actor already has a lower grant (e.g., `view`) and you grant `admin`, the grant is upgraded. If they already have a higher grant, no change.
-
-### Revoke access
-
-Owner or admin. Removes an explicit grant. Cannot revoke the owner's access.
-
-```
-DELETE /entities/:id/access/grants/:actor_id
-```
-
-Removes all grants for that actor on this entity. If you want to downgrade (admin → editor), revoke then re-grant.
-
-An admin cannot revoke another admin's access — only the owner can remove admins. This prevents admin wars.
-
-### Revoke specific access type
-
-Owner or admin. Removes a specific grant level.
-
-```
-DELETE /entities/:id/access/grants/:actor_id/:access_type
-```
-
-Removes only the specified grant. An admin can revoke `edit` and `view` grants but not other `admin` grants.
-
-## Permissions on permission endpoints
-
-Summary of who can call what:
-
-| Endpoint | Owner | Admin | Editor | Viewer |
-|----------|-------|-------|--------|--------|
-| `GET /entities/:id/access` | Yes | Yes | No | No |
-| `PUT /entities/:id/access` | Yes | Yes | No | No |
-| `PUT /entities/:id/access/owner` | Yes | No | No | No |
-| `POST /entities/:id/access/grants` | Yes | Yes | No | No |
-| `DELETE /entities/:id/access/grants/:actor_id` | Yes | Yes* | No | No |
-
-*Admin can remove viewers and editors, but not other admins. Only the owner can remove admins.
-
-## What commons governs
-
-A commons does NOT govern the permissions of entities inside it. Each entity owns its own view/edit permissions.
-
-A commons governs one thing: **who can create new works in it** (contribution access).
-
-| `contribute_access` | Meaning |
-|---------------------|---------|
-| `public` | Any authenticated actor can create works in this commons |
-| `members` | Only commons members can create works |
-
-This is checked when creating a relationship from a work to a commons — it's about the right to place a work in the commons, not about the work's own permissions.
-
-### Commons membership
-
-Commons has its own `entity_access` grants like any entity. But it also has the `contribute_access` concept which is specific to commons (stored on the commons table):
-
-```sql
-CREATE TABLE commons (
-  id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-  contribute_access TEXT NOT NULL DEFAULT 'members'
-);
-```
-
-"Can actor X create a work in commons Y?" →
-
-```sql
--- If contribute_access = 'public' → allow
--- If contribute_access = 'members' → check entity_access for any grant on the commons
-SELECT EXISTS(
-  SELECT 1 FROM commons c
-  JOIN entities e ON c.id = e.id
-  WHERE c.id = $commons_id
-  AND (
-    c.contribute_access = 'public'
-    OR e.owner_id = $actor_id
-    OR EXISTS(
-      SELECT 1 FROM entity_access
-      WHERE entity_id = c.id AND actor_id = $actor_id
-    )
-  )
-);
-```
-
-Any grant on the commons (viewer, editor, admin) implies membership and contribution rights when `contribute_access = 'members'`.
-
-## Defaults on creation
+## Defaults
 
 | Field | Default |
 |-------|---------|
-| `owner_id` | The creating actor |
+| `owner_id` | Creating actor |
 | `view_access` | `private` |
 | `edit_access` | `owner` |
+| `contribute_access` | `owner` |
 
-The client can override at creation time:
+Override at creation:
 
 ```json
 {
-  "kind": "work",
-  "type": "book",
-  "properties": { "label": "My Book" },
+  "kind": "commons",
+  "type": "research_group",
+  "properties": { "label": "My Group" },
   "view_access": "public",
-  "edit_access": "collaborators"
+  "contribute_access": "contributors"
 }
 ```
 
 ## Ownership transfer
 
 When ownership transfers:
-
-1. New owner is set on the entity
-2. Previous owner is automatically granted `admin` access
-3. Previous owner retains full management capability but can no longer transfer ownership or delete
-
-## Performance
-
-The `EXISTS` subquery on `entity_access` is fast:
-
-- Indexed on `(actor_id, access_type)` — Postgres does an index lookup and short-circuits on first match
-- For public entities, the OR evaluates left-to-right and skips the EXISTS entirely
-- Higher roles don't need multiple grants — one `admin` row covers view + edit + admin
-- The worst case (private entity, checking a specific actor) is still sub-millisecond via the primary key index
+1. New owner is set
+2. Previous owner automatically gets admin grant
+3. Previous owner retains full management (except transfer/delete)
