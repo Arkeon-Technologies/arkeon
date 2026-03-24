@@ -38,7 +38,7 @@ The snapshot captures everything needed to reconstruct the entity's state at tha
 ### 1. Entity core
 
 ```sql
-SELECT id, kind, type, ver, properties, owner_id,
+SELECT id, kind, type, ver, properties, owner_id, commons_id,
        view_access, edit_access, contribute_access,
        edited_by, note, created_at, updated_at
 FROM entities WHERE id = $id;
@@ -49,7 +49,7 @@ FROM entities WHERE id = $id;
 All relationships where this entity is the source (things it points to):
 
 ```sql
-SELECT re.target_id, re.position, rel.type, rel.properties
+SELECT re.target_id, rel.type, rel.properties
 FROM relationship_edges re
 JOIN entities rel ON rel.id = re.id
 WHERE re.source_id = $id;
@@ -60,7 +60,7 @@ WHERE re.source_id = $id;
 All relationships where this entity is the target (things pointing at it):
 
 ```sql
-SELECT re.source_id, re.position, rel.type, rel.properties
+SELECT re.source_id, rel.type, rel.properties
 FROM relationship_edges re
 JOIN entities rel ON rel.id = re.id
 WHERE re.target_id = $id;
@@ -82,7 +82,7 @@ The canonical JSON structure that gets CID'd and uploaded:
   "schema": "arke-snapshot-v1",
   "entity": {
     "id": "01ABC...",
-    "kind": "work",
+    "kind": "entity",
     "type": "book",
     "ver": 7,
     "properties": { "label": "My Book", "..." : "..." },
@@ -92,6 +92,7 @@ The canonical JSON structure that gets CID'd and uploaded:
     "contribute_access": "owner",
     "edited_by": "01EDITOR...",
     "note": "Final draft",
+    "commons_id": "01COMMONS...",
     "created_at": "2026-01-15T10:00:00Z",
     "updated_at": "2026-03-21T15:28:00Z"
   },
@@ -100,17 +101,15 @@ The canonical JSON structure that gets CID'd and uploaded:
       "relationship_id": "01REL...",
       "target_id": "01TGT...",
       "type": "cites",
-      "properties": { "source_text": "p.42" },
-      "position": null
+      "properties": { "source_text": "p.42" }
     }
   ],
   "relationships_in": [
     {
       "relationship_id": "01REL...",
-      "source_id": "01COMMONS...",
-      "type": "contains",
-      "properties": {},
-      "position": 3
+      "source_id": "01SRC...",
+      "type": "references",
+      "properties": {}
     }
   ],
   "access": [
@@ -150,17 +149,6 @@ Anyone can verify an archived entity:
 2. Fetch the snapshot from Arweave using the TX ID
 3. Recompute the CID from the fetched document
 4. Compare — if they match, the snapshot is authentic
-
-## Cross-reference with entity_versions
-
-When archiving, the `cid` column on the current `entity_versions` row can optionally be backfilled:
-
-```sql
-UPDATE entity_versions SET cid = $computed_cid
-WHERE entity_id = $id AND ver = $current_ver;
-```
-
-This links the content version to the full snapshot CID, but isn't required. The activity entry is the primary record.
 
 ## Why not automatic?
 

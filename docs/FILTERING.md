@@ -9,13 +9,13 @@ For text search, semantic similarity, and fuzzy matching, use the search infrast
 ### Basic syntax
 
 ```
-GET /commons/:id/works?type=book&filter=language:English,year>2020&sort=updated_at
+GET /commons/:id/entities?type=book&filter=language:English,year>2020&sort=updated_at
 ```
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `type` | Filter by semantic type | `type=book` |
-| `kind` | Filter by structural kind (usually implicit from endpoint) | `kind=work` |
+| `kind` | Filter by structural kind (usually implicit from endpoint) | `kind=entity` |
 | `filter` | Comma-separated property filters | `filter=language:English,year>2020` |
 | `sort` | Sort field (default: `updated_at`) | `sort=created_at` |
 | `order` | Sort direction (default: `desc`) | `order=asc` |
@@ -65,7 +65,7 @@ Postgres JSONB supports arbitrary nesting depth via chained `->` operators.
 
 ## Endpoint examples
 
-Everything is scoped hierarchically. The entry point is always commons — you browse commons, then drill into works, then parts. There is no global raw entity listing endpoint.
+Everything is scoped to commons. The entry point is always commons — you browse commons, then drill into entities. Organization between entities is done through relationships, not hierarchy. There is no global raw entity listing endpoint.
 
 ### List commons (the top-level entry point)
 
@@ -77,30 +77,27 @@ GET /commons?sort=created_at&order=asc
 
 All commons the caller has access to, paginated. Public commons are visible to everyone; private commons are visible only to members.
 
-### List works in a commons
+### List entities in a commons
 
 ```
-GET /commons/:id/works
-GET /commons/:id/works?type=book
-GET /commons/:id/works?type=book&filter=language:English&sort=created_at&order=asc
+GET /commons/:id/entities
+GET /commons/:id/entities?type=book
+GET /commons/:id/entities?type=book&filter=language:English&sort=created_at&order=asc
 ```
 
-### List parts of a work
+### List sub-commons
 
 ```
-GET /works/:id/parts
-GET /works/:id/parts?type=chapter
-GET /works/:id/parts?type=chapter&filter=word_count>1000
+GET /commons/:id/commons
 ```
 
 ### Direct access by ID
 
-Individual entities are always accessible by ID (with permission checks):
+Individual entities and commons are accessible by ID (with permission checks):
 
 ```
+GET /entities/:id
 GET /commons/:id
-GET /works/:id
-GET /works/:id/parts/:partId
 ```
 
 ## SQL generation
@@ -111,8 +108,8 @@ The API layer parses the filter string into a parameterized query. Filters are a
 
 ```sql
 SELECT e.* FROM entities e
-JOIN works w ON e.id = w.id
-WHERE w.commons_id = $1                              -- always scoped
+WHERE e.commons_id = $1                               -- always scoped to a commons
+  AND e.kind = 'entity'                               -- only entities (not sub-commons)
   AND e.type = $2                                     -- type filter (if provided)
   AND e.properties->>'language' = $3                  -- filter: language:English
   AND (e.properties->>'year')::numeric > $4           -- filter: year>2020
@@ -120,7 +117,7 @@ ORDER BY e.updated_at DESC
 LIMIT $5;
 ```
 
-The commons scope + type filter narrows the result set before property filters run. For a commons with a few thousand works, this is sub-millisecond even without property indexes.
+The commons scope + type filter narrows the result set before property filters run. For a commons with a few thousand entities, this is sub-millisecond even without property indexes.
 
 ### Parameterization
 
@@ -180,8 +177,8 @@ CREATE INDEX idx_entities_language ON entities((properties->>'language'));
 CREATE INDEX idx_entities_properties ON entities USING GIN (properties);
 
 -- Partial index (only for a specific kind/type — smaller, faster)
-CREATE INDEX idx_works_language ON entities((properties->>'language'))
-  WHERE kind = 'work';
+CREATE INDEX idx_entity_language ON entities((properties->>'language'))
+  WHERE kind = 'entity';
 ```
 
 Partial indexes are the sweet spot — they're smaller because they only cover a subset of rows, and they match the scoped query patterns we're using.

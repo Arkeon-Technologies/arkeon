@@ -6,7 +6,7 @@ Every entity governs its own access. No inheritance. Permission checks are baked
 
 Five roles, each with specific capabilities:
 
-| Role | View | Edit content | Contribute (add children) | Manage access | Transfer/delete |
+| Role | View | Edit content | Contribute (add to commons) | Manage access | Transfer/delete |
 |------|------|-------------|--------------------------|---------------|-----------------|
 | **Owner** | Yes | Yes | Yes | Yes | Yes |
 | **Admin** | Yes | Yes | Yes | Yes | No |
@@ -16,8 +16,8 @@ Five roles, each with specific capabilities:
 
 - **Owner**: Singular. Set at creation, transferable only by current owner.
 - **Admin**: Can manage all access grants. Cannot transfer ownership or delete.
-- **Contributor**: Can add children to this entity (containment relationships). Cannot edit the entity itself. Independent from editor.
-- **Editor**: Can modify entity content (properties). Cannot manage access or add children. Independent from contributor.
+- **Contributor**: Can add entities to this commons. Cannot edit existing entities. Independent from editor.
+- **Editor**: Can modify entity content (properties). Cannot manage access or contribute. Independent from contributor.
 - **Viewer**: Can read the entity. Only relevant when `view_access = 'private'`.
 
 Admin implicitly includes editor + contributor capabilities. Contributor and editor are independent — having one doesn't grant the other.
@@ -31,7 +31,7 @@ Four columns on every entity:
 | `owner_id` | Actor ID | Always has full access |
 | `view_access` | `public` / `private` | Who can see this entity |
 | `edit_access` | `public` / `collaborators` / `owner` | Who can edit content |
-| `contribute_access` | `public` / `contributors` / `owner` | Who can add children |
+| `contribute_access` | `public` / `contributors` / `owner` | Who can add entities (commons only) |
 
 Plus the `entity_access` table for explicit grants (view, edit, contribute, admin).
 
@@ -98,7 +98,7 @@ AND (
 )
 ```
 
-### Contribute check (add child)
+### Contribute check (add to commons)
 
 ```sql
 AND (
@@ -117,22 +117,20 @@ All kinds use the same entity-level permissions. No specialized tables.
 
 ### Commons
 
-A commons with `contribute_access = 'contributors'` and contributor grants is how you control who can add works. "Members" are just actors with contribute grants.
+A commons with `contribute_access = 'contributors'` and contributor grants is how you control who can add entities. "Members" are just actors with contribute grants.
 
 ```
-POST /entities/:commons_id/contains
-{ "kind": "work", "type": "book", "properties": { "label": "..." } }
+POST /entities
+{ "type": "book", "commons_id": "01COMMONS...", "properties": { "label": "..." } }
 ```
 
 Checks contribute on the commons. No separate commons_members table needed.
 
-### Works
+Commons nest via `commons_id` pointing to the parent commons. Sub-commons are just commons entities whose `commons_id` points to another commons.
 
-A work with `contribute_access = 'contributors'` controls who can add parts. The work owner gets contribute access by default.
+### Entities
 
-### Parts
-
-A part has its own independent permissions. The work owner doesn't automatically get edit access on parts — that must be explicitly granted (done automatically at creation time).
+Entities always belong to a commons (via `commons_id`). Organization between entities is done through relationships, not hierarchy. Create a "folder" or "collection" type entity and link things to it via relationship edges.
 
 ### Relationships
 
@@ -168,9 +166,21 @@ Override at creation:
   "type": "research_group",
   "properties": { "label": "My Group" },
   "view_access": "public",
-  "contribute_access": "contributors"
+  "contribute_access": "contributors",
+  "commons_id": "01PARENT_COMMONS..."
 }
 ```
+
+## Structural changes (commons_id)
+
+`commons_id` is updateable via PUT. This is a structural change — it does NOT bump `ver`. Logged in `entity_activity` instead.
+
+| Action | Permission required |
+|--------|-------------------|
+| Set `commons_id` to a commons | Contribute access on the NEW commons + edit access on self |
+
+Activity log entries:
+- `commons_changed` — detail: `{ from: "01OLD...", to: "01NEW..." }`
 
 ## Ownership transfer
 
