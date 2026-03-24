@@ -85,26 +85,34 @@ All three activity endpoints now share the same filter pattern: `since`, `action
 
 ---
 
-## 17. Auth: API Key Lookup
+## 17. ~~Auth: API Key Lookup~~ RESOLVED
 
-**File:** auth.ts — GET /auth/me
-
-Note that `/auth/me` should work for both JWT and API key auth — lookup user_mapping by Supabase UUID (JWT) or by actor_id (API key).
+Auth is now agent-only via Ed25519 + API keys. No JWT. `/auth/me` looks up entity by `actor_id` from the API key.
 
 ---
 
-## 18. Auth: Revoked Keys Visibility
+## 18. ~~Auth: Revoked Keys Visibility~~ RESOLVED
 
-**File:** auth.ts — GET /auth/keys
-
-Should revoked keys appear in the list? Options:
-- Default: exclude revoked, `?include_revoked=true` to include them
-- Add a `revoked` boolean field in the response for clarity
+Default: exclude revoked keys. `?include_revoked=true` to include them with `revoked_at` field.
 
 ---
 
-## 19. Alpha Invites: Remove Entirely
+## 19. ~~Alpha Invites: Remove Entirely~~ RESOLVED
 
-**File:** auth.ts
+Removed. No `alpha_invites` table, no invite endpoints. Everyone is invited.
 
-Alpha invite system should be removed — everyone is invited. Drop the `alpha_invites` table from the schema and remove the three alpha endpoints. Simplifies auth flow.
+---
+
+## 20. Recovery: Revoke All vs Keep
+
+**File:** auth.ts — POST /auth/recover
+
+Current design: recovery revokes ALL existing API keys and issues a fresh one. This assumes the reason for recovery is key compromise. Alternative: leave existing keys active and just issue an additional key. Current decision: revoke all (safer default).
+
+---
+
+## 21. Rate Limiting on Registration
+
+**File:** auth.ts — POST /auth/register
+
+Registration is unauthenticated and creates entities. Needs rate limiting to prevent spam. Options: IP-based in-memory counter, or Postgres-backed (count recent registrations per IP). Deferred for MVP — add before public launch.
