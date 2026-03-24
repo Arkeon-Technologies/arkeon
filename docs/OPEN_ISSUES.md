@@ -4,16 +4,9 @@ Issues identified during route design review. Organized by area.
 
 ---
 
-## 1. Default Access Policies
+## 1. ~~Default Access Policies~~ RESOLVED
 
-**File:** entities.ts — POST /entities
-
-The default access levels need to change:
-- `view_access` default → `public` (was `private`)
-- `edit_access` default → `collaborators` (was `owner`)
-- `contribute_access` default → `public` (was `owner`)
-
-This also requires updating the `entities` table schema (001-entities.sql) since the defaults are defined there.
+Schema and route already use the correct defaults: `view_access = 'public'`, `edit_access = 'collaborators'`, `contribute_access = 'public'`.
 
 ---
 
@@ -86,17 +79,9 @@ Removed CID from entity_versions entirely. CID is computed at archive time for t
 
 ---
 
-## 16. Activity Filter Consistency
+## 16. ~~Activity Filter Consistency~~ RESOLVED
 
-**File:** activity.ts — GET /activity
-
-All activity endpoints should share the same filter options:
-- `action` — filter by action type
-- `since` — timestamp filter
-- `actor_id` — filter by who did it
-- `entity_type` — filter by entity kind/type (requires JOIN)
-
-Currently only the per-entity endpoint has `action` and `since` filters. The global stream and actor activity endpoints should have the same options.
+All three activity endpoints now share the same filter pattern: `since`, `action`, `actor_id`, `limit`, `cursor`. Global stream switched from ID-based cursoring to timestamp-based to match the others. `entity_type` filter deferred — not needed for v1.
 
 ---
 

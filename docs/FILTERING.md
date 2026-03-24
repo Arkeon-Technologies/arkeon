@@ -1,8 +1,8 @@
-# Property Filtering
+# Filtering & Text Search
 
-Structured filtering on entity properties via query parameters. This covers exact matches, numeric ranges, and existence checks — the things Postgres is fast at without specialized search infrastructure.
+Structured filtering and text search on entity properties via query parameters. Property filters cover exact matches, numeric ranges, and existence checks. Text search (`q` param) covers substring, multi-keyword, and regex search via `pg_trgm`.
 
-For text search, semantic similarity, and fuzzy matching, use the search infrastructure (Pinecone, Argo). Postgres is the source of truth; search indexes handle discovery.
+For semantic similarity (meaning-aware search), see `docs/future/SEMANTIC_SEARCH.md`.
 
 ## Query Parameter API
 
@@ -205,14 +205,76 @@ LIMIT $limit;
 
 Using `(updated_at, id)` as a composite sort key guarantees stable pagination even when multiple entities share the same timestamp.
 
+## Text Search
+
+Text search uses `pg_trgm` (trigram matching) for substring, multi-keyword, and regex search on entity properties. No external search service required.
+
+### The `q` parameter
+
+Available on all listing endpoints and the global `/search` endpoint:
+
+```
+GET /commons?q=neuroscience
+GET /commons/:id/entities?q=neural+network&type=document
+GET /search?q=neural+network&commons_id=01X,01Y
+```
+
+### Query modes
+
+| Syntax | Mode | SQL generated |
+|--------|------|---------------|
+| `q=neural+network` | Multi-keyword (AND) | `properties::text ILIKE '%neural%' AND properties::text ILIKE '%network%'` |
+| `q=neural network` | Multi-keyword (AND) | Same — split on whitespace |
+| `q="exact phrase"` | Phrase | `properties::text ILIKE '%exact phrase%'` |
+| `q=/neuro(sci\|log)/` | Regex | `properties::text ~ 'neuro(sci\|log)'` |
+
+- **Multi-keyword:** Each term must appear somewhere in the properties JSON. Terms are AND'd.
+- **Phrase:** Quoted string matches as an exact substring.
+- **Regex:** Wrapped in `/slashes/`, uses Postgres `~` operator (case-sensitive). Invalid regex returns 400.
+
+### Combining with filters
+
+`q` combines with all existing parameters — `type`, `filter`, `sort`, `cursor`. All conditions are AND'd:
+
+```
+GET /commons/:id/entities?q=neural&type=paper&filter=year>2020&sort=created_at
+```
+
+→ Entities in this commons matching "neural" in properties, of type "paper", where year > 2020, sorted by creation date.
+
+### How it works
+
+`pg_trgm` breaks text into 3-character subsequences and indexes them with a GIN index. This makes `ILIKE` and `~` (regex) queries fast — Postgres uses the index to narrow candidates before doing exact matching.
+
+The index is on `properties::text`, which is the full JSON text representation. This means searches match against both property keys and values. Scoping by `commons_id`, `kind`, or `type` narrows the result set before trigram matching fires.
+
+### Performance
+
+- Within a commons (hundreds to low thousands of entities): sub-millisecond with the GIN index
+- Global search across all visible entities: depends on total corpus size, but RLS + kind/type filters narrow the scan significantly
+- For very large datasets (100K+ entities), consider adding Postgres full-text search (`tsvector`) or semantic search (`pgvector`) as documented in `docs/future/SEMANTIC_SEARCH.md`
+
+### Global search
+
+The `/search` endpoint searches across all commons the actor can see:
+
+```
+GET /search?q=neural+network                           # all visible entities
+GET /search?q=neural+network&commons_id=01X,01Y        # scoped to specific commons
+GET /search?q=neural+network&type=document&kind=entity  # with type and kind filters
+```
+
+Response includes `commons_id` on each result so the caller knows where it lives.
+
 ## What this does NOT cover
 
-These queries require search infrastructure, not Postgres property filtering:
+These queries go beyond property filtering and text search:
 
-- **"Find entities about AI"** → Pinecone semantic search
-- **"Entities with descriptions mentioning 'neural network'"** → Full-text search index or Pinecone
-- **"Similar entities to this one"** → Pinecone vector similarity
+- **"Similar entities to this one"** → Semantic search (future — see `docs/future/SEMANTIC_SEARCH.md`)
 - **Faceted search with counts** → Consider Typesense/Meilisearch if needed
-- **Typo-tolerant search** → Search engine territory
+- **Ranked results by relevance** → Postgres full-text search (`tsvector`) or semantic search (future)
 
-The boundary: if the user knows the exact property name and value (or range), use filters. If they're exploring or searching by content, use the search infrastructure.
+The boundary:
+- Exact property name + value → `filter` param
+- Substring/keyword/regex search → `q` param (pg_trgm)
+- Meaning-aware similarity → semantic search (future)
