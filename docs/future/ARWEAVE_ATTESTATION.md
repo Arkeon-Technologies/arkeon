@@ -49,8 +49,8 @@ Canonical JSON structure that gets CID'd and uploaded:
 {
   "schema": "arke-snapshot-v1",
   "entity": { "id": "...", "kind": "entity", "type": "book", "ver": 7, "..." : "..." },
-  "relationships_out": [{ "relationship_id": "...", "target_id": "...", "type": "cites", "properties": {} }],
-  "relationships_in": [{ "relationship_id": "...", "source_id": "...", "type": "references", "properties": {} }],
+  "relationships_out": [{ "relationship_id": "...", "target_id": "...", "predicate": "cites", "properties": {} }],
+  "relationships_in": [{ "relationship_id": "...", "source_id": "...", "predicate": "references", "properties": {} }],
   "access": [{ "actor_id": "...", "access_type": "edit", "granted_at": "..." }],
   "snapshot_at": "2026-03-21T15:30:00Z",
   "snapshot_by": "01ACTOR..."
