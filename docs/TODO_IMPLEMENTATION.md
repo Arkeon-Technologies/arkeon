@@ -55,10 +55,7 @@ Current status: Worker scaffold is deployed, Neon is connected, and the initial 
 
 - `POST /entities/:id/content/upload-url`
 - `POST /entities/:id/content/complete`
-- `GET /entities/:id/content`
-- `DELETE /entities/:id/content`
-- `PATCH /entities/:id/content`
-- Return `501 not_implemented` for direct `POST /entities/:id/content`
+- Presigned upload signing and completion verification
 
 ## Search / Activity / Inbox
 

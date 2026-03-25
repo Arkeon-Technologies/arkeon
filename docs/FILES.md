@@ -45,22 +45,22 @@ Each entity can have multiple content entries, keyed by a string (e.g. `"v1"`, `
 
 ## Upload Flows
 
-### Direct Upload (future)
+### Direct Upload (implemented)
 
-Reserved for a future endpoint. The initial Worker implementation uses
-presigned uploads only.
+The Worker now supports direct binary uploads for the initial content MVP.
 
 ```
-POST /entities/:id/content
--> not implemented in MVP
+POST /entities/:id/content?key=original&ver=1&filename=paper.pdf
 ```
 
-Cloudflare Workers are a better fit for direct-to-R2 uploads than proxying
-large binary request bodies through the API.
+The Worker checks edit access, computes the CID from the uploaded bytes,
+stores the object at `{entityId}/{cid}` in R2, updates
+`properties.content[key]`, bumps `ver`, inserts `entity_versions`, and logs
+`entity_activity`.
 
-### Presigned URL Upload (MVP)
+### Presigned URL Upload (future)
 
-For bypassing the API and uploading directly to R2:
+Reserved for a later pass when R2 S3 signing credentials are configured:
 
 ```
 1. POST /entities/:id/content/upload-url
@@ -75,7 +75,16 @@ For bypassing the API and uploading directly to R2:
    -> { cid, size, key, ver }
 ```
 
-The client computes the CID locally, gets a presigned URL (15 min expiry), uploads directly to R2, then tells the API to finalize the metadata.
+These endpoints still return `501`.
+
+Required Worker secrets/vars:
+- `R2_ACCOUNT_ID`
+- `R2_BUCKET_NAME`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+
+Once those are present, the Worker can issue signed `PUT` URLs and verify the
+uploaded object with `HEAD` before finalizing metadata.
 
 ## Download
 
