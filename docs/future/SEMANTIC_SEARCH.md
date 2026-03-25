@@ -6,7 +6,8 @@ Vector-based semantic search for entities, replacing simple text matching with m
 
 The MVP uses `pg_trgm` for substring/keyword/regex search on entity properties. This covers the "grep" use case — finding documents by known terms. See `docs/FILTERING.md` § Text Search.
 
-What pg_trgm does NOT do:
+Known issues with pg_trgm:
+- **Matches JSON keys, not just values** — searching "label" matches every entity that has a label property, because the trigram index operates on `properties::text` which includes both keys and values. A generated `search_text` column extracting only searchable fields (label, description, etc.) would fix this, or the tsvector approach in Tier 1 below.
 - **Relevance ranking** — results are match/no-match, not scored
 - **Stemming** — "running" won't match "run"
 - **Meaning-aware search** — "AI" won't match "artificial intelligence"

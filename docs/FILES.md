@@ -38,28 +38,27 @@ Each entity can have multiple content entries, keyed by a string (e.g. `"v1"`, `
 ## R2 Storage
 
 - **Path format**: `{entityId}/{cid}` (content-addressed, immutable)
-- **Bucket isolation**: Test entities (II-prefixed IDs) use `arke-files-test`, others use `arke-files-prod`
+- **Bucket isolation**: Environment-based. MVP uses regular ULID entity IDs only.
 - **CID computation**: SHA-256 multihash, CIDv1, raw codec (`bafkrei...` prefix)
 - **Max file size**: 500 MB
 - **Deduplication**: Same content = same CID = same R2 path (no duplicate storage)
 
 ## Upload Flows
 
-### Direct Upload (small files)
+### Direct Upload (future)
 
-For files up to 500 MB streamed through the API:
+Reserved for a future endpoint. The initial Worker implementation uses
+presigned uploads only.
 
 ```
-POST /entities/:id/content?key=v1
-Content-Type: application/pdf
-<binary body>
-
--> 200 { cid, size, key, ver }
+POST /entities/:id/content
+-> not implemented in MVP
 ```
 
-The API streams the body to R2, computes the CID, and updates the entity's content map.
+Cloudflare Workers are a better fit for direct-to-R2 uploads than proxying
+large binary request bodies through the API.
 
-### Presigned URL Upload (large files)
+### Presigned URL Upload (MVP)
 
 For bypassing the API and uploading directly to R2:
 

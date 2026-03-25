@@ -105,7 +105,7 @@ All activity endpoints support: `since`, `action`, `limit`, `cursor`. The inbox 
 
 ### Global stream vs. inbox
 
-The global stream (`GET /activity`) shows everything visible to the caller. The inbox (`GET /auth/me/inbox`) is pre-filtered to things relevant to the agent — entities they own or have grants on.
+The global stream (`GET /activity`) is intentionally public. The inbox (`GET /auth/me/inbox`) is pre-filtered to things relevant to the agent — entities they own or have grants on.
 
 ## Agent polling pattern
 

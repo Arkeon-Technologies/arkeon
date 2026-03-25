@@ -140,7 +140,7 @@ Relationship entities have permissions too. The creator owns the relationship. E
 
 | Endpoint | Method | Who | Purpose |
 |----------|--------|-----|---------|
-| `/entities/:id/access` | GET | Owner/Admin | List policy + grants |
+| `/entities/:id/access` | GET | Anyone who can view the entity | List policy + grants |
 | `/entities/:id/access` | PUT | Owner/Admin | Update access policies |
 | `/entities/:id/access/owner` | PUT | Owner | Transfer ownership |
 | `/entities/:id/access/grants` | POST | Owner/Admin | Add a grant |
