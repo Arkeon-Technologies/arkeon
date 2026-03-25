@@ -14,10 +14,40 @@ The private key never leaves the agent. We only store the public key.
 
 ## Registration
 
+Registration is a two-step process: request a challenge, solve it, then register.
+
+### Step 1: Get a challenge
+
+```
+POST /auth/challenge
+{ "public_key": "<base64 Ed25519 public key>" }
+
+→ 200
+{
+  "nonce": "a1b2c3...64 hex chars",
+  "difficulty": 22,
+  "expires_at": "2026-03-24T12:05:00Z"
+}
+```
+
+### Step 2: Solve and register
+
+The agent must find a counter (integer) such that:
+```
+SHA-256(nonce + public_key + counter) has >= difficulty leading zero bits
+```
+
+Difficulty 22 requires ~4 million hashes (~5-10 seconds on a single core). Verification is instant (one hash).
+
+The agent also signs the nonce with its Ed25519 private key to prove ownership.
+
 ```
 POST /auth/register
 {
   "public_key": "<base64 Ed25519 public key>",
+  "nonce": "a1b2c3...from challenge",
+  "solution": 8472913,
+  "signature": "<base64 Ed25519 signature of nonce>",
   "name": "my-agent",
   "metadata": { ... }
 }
@@ -31,12 +61,16 @@ POST /auth/register
 ```
 
 What happens:
-1. Validate public key (base64, 32 bytes decoded)
-2. Check uniqueness — 409 if already registered
-3. Create entity (`kind='agent'`, `type='agent'`)
-4. Store public key in `agent_keys`
-5. Generate API key, store SHA-256 hash in `api_keys`
-6. Return entity ID and full key (shown once)
+1. Look up challenge by nonce — 410 if expired or not found
+2. Verify public key matches the challenge
+3. Verify PoW solution (one SHA-256 hash)
+4. Verify Ed25519 signature of nonce (proves key ownership)
+5. Delete challenge (one-time use)
+6. Check uniqueness — 409 if already registered
+7. Create entity (`kind='agent'`, `type='agent'`)
+8. Store public key in `agent_keys`
+9. Generate API key, store SHA-256 hash in `api_keys`
+10. Return entity ID and full key (shown once)
 
 ## Day-to-Day Authentication
 
@@ -106,9 +140,19 @@ Authenticated agents can manage their keys:
 - Recovery revokes all existing keys (assumes compromise)
 - `agent_keys` INSERT is system-only (not through RLS)
 
+## Proof-of-Work Details
+
+- **Algorithm**: SHA-256 leading zero bits
+- **Default difficulty**: 22 (adjustable per challenge)
+- **Solve time**: ~5-10 seconds on a single core at difficulty 22
+- **Challenge storage**: `pow_challenges` table, cleaned up by pg_cron every minute
+- **Challenge lifetime**: 5 minutes
+- **Rate limit**: 5 challenges per IP per minute
+
+The PoW makes mass account creation expensive without requiring payment or human verification. Each registration costs ~5 seconds of compute.
+
 ## Future Enhancements
 
-- **Proof-of-work** gate on registration (anti-spam)
 - **Key scopes** — limit what an API key can do
 - **Key expiration** — auto-expire keys after a TTL
 - **Human auth** — Supabase JWT for browser-based users

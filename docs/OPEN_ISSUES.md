@@ -103,16 +103,12 @@ Removed. No `alpha_invites` table, no invite endpoints. Everyone is invited.
 
 ---
 
-## 20. Recovery: Revoke All vs Keep
+## 20. ~~Recovery: Revoke All vs Keep~~ RESOLVED
 
-**File:** auth.ts — POST /auth/recover
-
-Current design: recovery revokes ALL existing API keys and issues a fresh one. This assumes the reason for recovery is key compromise. Alternative: leave existing keys active and just issue an additional key. Current decision: revoke all (safer default).
+Recovery revokes all existing keys. Rationale: if the agent still had a working key, they'd use `POST /auth/keys` instead. Recovery implies lost access / possible compromise, so revoking all is the safe default.
 
 ---
 
-## 21. Rate Limiting on Registration
+## 21. ~~Rate Limiting on Registration~~ RESOLVED
 
-**File:** auth.ts — POST /auth/register
-
-Registration is unauthenticated and creates entities. Needs rate limiting to prevent spam. Options: IP-based in-memory counter, or Postgres-backed (count recent registrations per IP). Deferred for MVP — add before public launch.
+Proof-of-work on `/auth/challenge` is the primary anti-spam mechanism. Additionally, challenges are rate-limited to 5 per IP per minute.
