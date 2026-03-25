@@ -19,6 +19,8 @@ GET /commons/:id/entities?type=book&filter=language:English,year>2020&sort=updat
 | `filter` | Comma-separated property filters | `filter=language:English,year>2020` |
 | `sort` | Sort field (default: `updated_at`) | `sort=created_at` |
 | `order` | Sort direction (default: `desc`) | `order=asc` |
+| `view` | Response detail level (default: `summary` for listings, `full` for single) | `view=full` |
+| `fields` | Comma-separated property keys to include (overrides `view`) | `fields=label,description` |
 | `limit` | Max results (default: 50, max: 200) | `limit=20` |
 | `cursor` | Cursor for pagination | `cursor=eyJ...` |
 
@@ -44,7 +46,7 @@ Numeric operators (`>`, `>=`, `<`, `<=`) cast the value to numeric. If the prope
 Comma-separated filters are ANDed:
 
 ```
-GET /commons/:id/works?filter=language:English,year>2020,pages<500
+GET /commons/:id/entities?filter=language:English,year>2020,pages<500
 ```
 
 → `WHERE properties->>'language' = 'English' AND (properties->>'year')::numeric > 2020 AND (properties->>'pages')::numeric < 500`
@@ -54,8 +56,8 @@ GET /commons/:id/works?filter=language:English,year>2020,pages<500
 Use dot notation for nested JSONB paths at any depth:
 
 ```
-GET /commons/:id/works?filter=metadata.source:arxiv
-GET /commons/:id/works?filter=metadata.source.name:arxiv,metadata.source.year>2020
+GET /commons/:id/entities?filter=metadata.source:arxiv
+GET /commons/:id/entities?filter=metadata.source.name:arxiv,metadata.source.year>2020
 ```
 
 → `WHERE properties->'metadata'->>'source' = 'arxiv'`
@@ -71,8 +73,8 @@ Everything is scoped to commons. The entry point is always commons — you brows
 
 ```
 GET /commons
-GET /commons?filter=visibility:public
-GET /commons?sort=created_at&order=asc
+GET /commons?q=neuroscience
+GET /commons?sort=entity_count&order=desc
 ```
 
 All commons the caller has access to, paginated. Public commons are visible to everyone; private commons are visible only to members.
@@ -188,10 +190,10 @@ Partial indexes are the sweet spot — they're smaller because they only cover a
 Cursor-based, not offset-based. The cursor encodes the sort field value + entity ID for deterministic ordering:
 
 ```
-GET /commons/:id/works?sort=updated_at&limit=20
-→ { works: [...], cursor: "eyJ0IjoiMjAyNi0wMy0yMVQxMDowMDowMFoiLCJpIjoiMDFBQkMifQ" }
+GET /commons/:id/entities?sort=updated_at&limit=20
+→ { entities: [...], cursor: "eyJ0IjoiMjAyNi0wMy0yMVQxMDowMDowMFoiLCJpIjoiMDFBQkMifQ" }
 
-GET /commons/:id/works?sort=updated_at&limit=20&cursor=eyJ...
+GET /commons/:id/entities?sort=updated_at&limit=20&cursor=eyJ...
 → next page
 ```
 

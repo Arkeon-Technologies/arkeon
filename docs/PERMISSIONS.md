@@ -154,15 +154,14 @@ Relationship entities have permissions too. The creator owns the relationship. E
 | Field | Default |
 |-------|---------|
 | `owner_id` | Creating actor |
-| `view_access` | `private` |
-| `edit_access` | `owner` |
-| `contribute_access` | `owner` |
+| `view_access` | `public` |
+| `edit_access` | `collaborators` |
+| `contribute_access` | `public` |
 
 Override at creation:
 
 ```json
 {
-  "kind": "commons",
   "type": "research_group",
   "properties": { "label": "My Group" },
   "view_access": "public",
