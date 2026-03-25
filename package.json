@@ -8,6 +8,8 @@
     "deploy": "wrangler deploy",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e:presigned": "E2E_PRESIGNED=1 vitest run --config vitest.e2e.config.ts",
+    "stress:auth": "node test/stress/auth.mjs",
+    "stress:mutations": "node test/stress/mutations.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
