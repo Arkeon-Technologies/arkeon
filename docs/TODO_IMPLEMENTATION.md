@@ -1,74 +1,78 @@
-# API Implementation TODO
+# API Backlog
 
-Current status: Worker scaffold is deployed, Neon is connected, and the initial read baseline is live. This document tracks the remaining implementation work in priority order.
+Current status:
+- Cloudflare Worker is deployed and live
+- Neon and R2 are wired up
+- direct and presigned content flows are implemented
+- the split `vitest` e2e suite passes
+- stress/load scripts exist under `test/stress/`
 
-## In Progress
+This file now tracks the real remaining backlog, not the earlier
+pre-implementation checklist.
 
-- Expand shared SQL helpers for filtering, sorting, pagination, and CAS mutations
-- Complete entity and commons CRUD
-- Complete access management endpoints
+## Remaining Work
 
-## Core API
+### 1. Spec / Docs Sync
 
-- `POST /entities`
-- `PUT /entities/:id`
-- `POST /commons`
-- `PUT /commons/:id`
-- `DELETE /commons/:id`
-- `GET /commons/:id/entities`
-- `GET /commons/:id/commons`
-- `GET /commons/:id/feed`
-- `GET /entities/:id/versions/:ver`
+The main implementation is ahead of the planning docs.
 
-## Access
+- continue updating `routes/` planning files to match current Worker behavior
+- keep docs aligned with the in-progress `/help` / OpenAPI route-help refactor
+- keep error-contract and worker-stack docs aligned with the implemented routes
 
-- `PUT /entities/:id/access`
-- `PUT /entities/:id/access/owner`
-- `POST /entities/:id/access/grants`
-- `DELETE /entities/:id/access/grants/:actor_id`
-- `DELETE /entities/:id/access/grants/:actor_id/:type`
-- Enforce the app-level rule that admins cannot revoke other admins
+### 2. Auth Client Robustness
 
-## Relationships
+Server-side auth is functioning, but bursty registration can hit transient
+transport failures. The client should adopt the documented retry policy.
 
-- `GET /entities/:id/relationships`
-- `POST /entities/:id/relationships`
-- `GET /relationships/:rel_id`
-- `PUT /relationships/:rel_id`
-- `DELETE /relationships/:rel_id`
+- implement challenge/register retry + backoff in the CLI/client
+- restart from a fresh challenge after any network or `5xx` failure
+- do not retry terminal `4xx` auth errors
 
-## Auth
+Reference:
+- `docs/AUTH_CLIENT_ROBUSTNESS.md`
 
-- `POST /auth/challenge`
-- `POST /auth/register`
-- `POST /auth/recover`
-- `POST /auth/keys`
-- `DELETE /auth/keys/:id`
+### 3. Operational Hardening
 
-## Comments
+This is the main remaining engineering issue.
 
-- `POST /entities/:id/comments`
-- `GET /entities/:id/comments`
-- `DELETE /entities/:id/comments/:comment_id`
+- request logging and structured diagnostics
+- better production observability around route failures and auth bursts
+- CI for `typecheck` and e2e
+- optional automated smoke deploy verification
+- optional deeper auth transport investigation with `wrangler tail`
 
-## Content / Files
+This is a good GitHub issue candidate.
 
-- `POST /entities/:id/content/upload-url`
-- `POST /entities/:id/content/complete`
-- Presigned upload signing and completion verification
+## Not Immediate Priorities
 
-## Search / Activity / Inbox
+These exist and are good enough for now:
+- functional e2e coverage
+- presigned upload flow
+- concurrency tests
+- pagination tests
+- stress/load scripts
 
-- `GET /search`
-- `GET /actors/:actor_id/activity`
-- `GET /auth/me/inbox`
-- `GET /auth/me/inbox/count`
-- `fanOutNotifications()` via `waitUntil`
+## Suggested Issue Candidates
 
-## Hardening
+### Issue 1: Operational Hardening
 
-- Uniform sort and filter validation across all listing endpoints
-- Better SQL helpers for permission-aware inserts and updates
-- More complete 403 vs 404 vs 409 handling
-- Request logging and structured internal diagnostics
-- Expanded e2e coverage for auth, mutations, CAS conflicts, and permissions
+Scope:
+- structured request/error logging
+- CI for `typecheck` and e2e
+- deploy smoke verification
+- tail/log investigation for transient auth transport failures
+
+### Issue 2: Spec / Docs Reconciliation
+
+Scope:
+- update `routes/` planning files
+- update filtering docs
+- make repo docs reflect current Worker/test architecture
+
+### Issue 3: CLI Auth Retry Adoption
+
+Scope:
+- implement `challenge` / `register` retry policy in the CLI
+- exponential backoff with jitter
+- fresh challenge on retry after transport failure
