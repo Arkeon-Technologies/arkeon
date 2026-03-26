@@ -16,8 +16,7 @@ pre-implementation checklist.
 
 The main implementation is ahead of the planning docs.
 
-- continue updating `routes/` planning files to match current Worker behavior
-- keep docs aligned with the in-progress `/help` / OpenAPI route-help refactor
+- keep docs aligned with the OpenAPI-derived `/help` output and the implemented Worker behavior
 - keep error-contract and worker-stack docs aligned with the implemented routes
 
 ### 2. Auth Client Robustness
@@ -66,9 +65,9 @@ Scope:
 ### Issue 2: Spec / Docs Reconciliation
 
 Scope:
-- update `routes/` planning files
-- update filtering docs
-- make repo docs reflect current Worker/test architecture
+- keep repo docs aligned with the OpenAPI-derived `/help` output
+- keep filtering, testing, worker-stack, and error-contract docs current
+- make repo docs reflect the current Worker/test architecture
 
 ### Issue 3: CLI Auth Retry Adoption
 

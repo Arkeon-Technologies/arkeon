@@ -12,7 +12,10 @@ Cloudflare Worker implementation plan for `arke-api`.
 
 ## Why this stack
 
-Hono matches the route-module shape already documented in `routes/`. Neon is the right fit for Workers because the pooled serverless driver works with short-lived requests and transaction-scoped RLS via `set_config(..., true)`. R2 is already the intended file backend.
+Hono fits the implemented route-module shape in `src/routes/` and works well
+with OpenAPI generation. Neon is the right fit for Workers because the pooled
+serverless driver works with short-lived requests and transaction-scoped RLS via
+`set_config(..., true)`. R2 is already the intended file backend.
 
 ## Database approach
 
@@ -37,10 +40,8 @@ For write handlers that need conditional branching, use a transaction callback/h
 
 - `src/index.ts` bootstraps the Hono app
 - `src/middleware/auth.ts` resolves API keys and sets request actor context
-- `src/middleware/db.ts` creates per-request DB helpers
-- `src/routes/*.ts` mirrors the current route spec files
-- `src/lib/queries/*` holds shared SQL builders for filters, pagination, and projections
-- `src/lib/activity.ts` writes `entity_activity`
+- `src/routes/*.ts` contains the actual route definitions and OpenAPI metadata
+- shared `src/lib/*` helpers handle SQL, filters, pagination, projection, errors, and help rendering
 - `src/lib/notifications.ts` fans out inbox notifications via `ctx.executionCtx.waitUntil()`
 - `src/lib/errors.ts` centralizes typed API errors
 
@@ -57,15 +58,14 @@ Startup should include an idempotent bootstrap check to ensure this row exists. 
 
 ## File handling
 
-MVP should implement:
+Implemented content routes:
 
+- `POST /entities/:id/content`
 - `POST /entities/:id/content/upload-url`
 - `POST /entities/:id/content/complete`
 - `GET /entities/:id/content`
 - `DELETE /entities/:id/content`
 - `PATCH /entities/:id/content`
-
-`POST /entities/:id/content` should remain documented as future work and return a clear not-implemented error if exposed before support exists.
 
 ## Query behavior
 

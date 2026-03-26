@@ -58,9 +58,9 @@ stores the object at `{entityId}/{cid}` in R2, updates
 `properties.content[key]`, bumps `ver`, inserts `entity_versions`, and logs
 `entity_activity`.
 
-### Presigned URL Upload (future)
+### Presigned URL Upload (implemented)
 
-Reserved for a later pass when R2 S3 signing credentials are configured:
+The Worker also supports direct-to-R2 uploads via a signed `PUT` URL:
 
 ```
 1. POST /entities/:id/content/upload-url
@@ -75,16 +75,15 @@ Reserved for a later pass when R2 S3 signing credentials are configured:
    -> { cid, size, key, ver }
 ```
 
-These endpoints still return `501`.
-
 Required Worker secrets/vars:
 - `R2_ACCOUNT_ID`
 - `R2_BUCKET_NAME`
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 
-Once those are present, the Worker can issue signed `PUT` URLs and verify the
-uploaded object with `HEAD` before finalizing metadata.
+The Worker signs the upload URL with `aws4fetch`, then verifies the uploaded
+object with `HEAD` during `POST /entities/:id/content/complete` before updating
+entity metadata.
 
 ## Download
 
@@ -118,3 +117,11 @@ Uses `aws4fetch` for AWS Signature V4 presigned URL generation:
 - S3 endpoint: `https://{accountId}.r2.cloudflarestorage.com`
 - Requires: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`
 - Default expiry: 15 minutes
+
+## Notes
+
+- direct upload and presigned upload both bump the entity `ver`
+- both write `entity_versions`
+- both log `entity_activity`
+- direct upload computes CID server-side
+- presigned upload expects the client to supply a valid CID up front
