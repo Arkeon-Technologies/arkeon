@@ -3,5 +3,8 @@
   "private": true,
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "migrate": "npm run migrate -w packages/schema"
+  }
 }

@@ -39,11 +39,13 @@ function prepareParams(params: unknown[]): unknown[] {
   });
 }
 
+const DEFAULT_DATABASE_URL = "postgresql://arke:arke@localhost:5432/arke";
+
 let _pg: postgres.Sql | null = null;
 
 function getPg(): postgres.Sql {
   if (!_pg) {
-    _pg = postgres(process.env.DATABASE_URL!);
+    _pg = postgres(process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL);
   }
   return _pg;
 }

@@ -2,18 +2,50 @@
 
 Monorepo for the Arke platform. npm workspaces with three packages:
 
-- `packages/api` — Node.js API server (Hono + Neon Postgres + local file storage)
+- `packages/api` — Node.js API server (Hono + Postgres + local/S3 file storage)
 - `packages/cli` — CLI auto-generated from the API's OpenAPI spec
 - `packages/schema` — Database migration SQL files
+
+## Quick Start
+
+```bash
+# Option A: Local Postgres via Docker
+docker compose --profile local-db up -d postgres
+npm run migrate
+npm run dev -w packages/api
+
+# Option B: External Postgres (Neon, RDS, etc.)
+# Set DATABASE_URL in .env
+npm run migrate
+npm run dev -w packages/api
+```
+
+Default `DATABASE_URL` when unset: `postgresql://arke:arke@localhost:5432/arke`
 
 ## Workspace Commands
 
 ```bash
-npm run dev -w packages/api        # Start API dev server
+npm run dev -w packages/api        # Start API dev server (port 8000)
+npm run migrate                    # Run schema migrations
 npm run build -w packages/cli      # Build CLI
 npm run typecheck -w packages/api  # Typecheck API
 npm run test:e2e -w packages/api   # Run API e2e tests
 ```
+
+## Docker
+
+```bash
+docker compose up                                    # API only (external DB)
+docker compose --profile local-db up                 # API + local Postgres
+docker compose --profile local-db --profile migrate up  # Full stack + migrations
+```
+
+## Configuration
+
+See `.env.example` for all options. Key settings:
+- `DATABASE_URL` — any Postgres connection string (defaults to local)
+- `STORAGE_BACKEND` — `local` (default) or `s3` (R2, S3, MinIO)
+- `PORT` — server port (default 8000)
 
 ## API: LLM Help System
 

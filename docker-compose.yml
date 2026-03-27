@@ -1,0 +1,51 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://arke:arke@postgres:5432/arke}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    image: postgres:17
+    profiles: ["local-db"]
+    environment:
+      POSTGRES_USER: arke
+      POSTGRES_PASSWORD: arke
+      POSTGRES_DB: arke
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arke"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    profiles: ["migrate"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://arke:arke@postgres:5432/arke}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+volumes:
+  pgdata:
