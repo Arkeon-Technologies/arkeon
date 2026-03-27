@@ -33,7 +33,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 type AccessGrantRow = {
   actor_id: string;
@@ -51,11 +51,10 @@ type VersionRow = {
 };
 
 async function loadVisibleEntity(
-  env: AppBindings["Bindings"],
   actorId: string,
   entityId: string,
 ): Promise<{ entity: EntityRecord | null; exists: boolean }> {
-  const sql = createSql(env);
+  const sql = createSql();
   const [, entityRows, existsRows, grantRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
     sql.query(
@@ -108,11 +107,10 @@ function requireVisibleEntity(entity: EntityRecord | null, exists: boolean) {
 }
 
 async function ensureManageAccess(
-  env: AppBindings["Bindings"],
   actorId: string,
   entityId: string,
 ) {
-  const sql = createSql(env);
+  const sql = createSql();
   const [, rows, existsRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
     sql.query(
@@ -489,7 +487,7 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   const properties = assertBodyObject(body.properties, "properties");
   const id = generateUlid();
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
   const viewAccess = validateAccessValue(body.view_access, "view_access") ?? "public";
   const editAccess = validateAccessValue(body.edit_access, "edit_access") ?? "collaborators";
   const contributeAccess =
@@ -575,7 +573,7 @@ entitiesRouter.openapi(getEntityRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(c.env, actorId, entityId);
+  const loaded = await loadVisibleEntity(actorId, entityId);
   const entity = requireVisibleEntity(loaded.entity, loaded.exists);
 
   const ifNoneMatch = c.req.header("if-none-match")?.replaceAll("\"", "");
@@ -613,11 +611,11 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "No changes requested");
   }
 
-  const loaded = await loadVisibleEntity(c.env, actor.id, entityId);
+  const loaded = await loadVisibleEntity(actor.id, entityId);
   const current = requireVisibleEntity(loaded.entity, loaded.exists);
 
   if (nextCommonsId && nextCommonsId !== current.commons_id) {
-    const sqlCheck = createSql(c.env);
+    const sqlCheck = createSql();
     const [, rows, existsRows] = await sqlCheck.transaction([
       sqlCheck`SELECT set_config('app.actor_id', ${actor.id}, true)`,
       sqlCheck.query(
@@ -652,7 +650,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
     }
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   const updateProperties = tombstone ? {} : properties ?? current.properties;
   const contentChanged = tombstone || Boolean(properties);
@@ -782,9 +780,9 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
 entitiesRouter.openapi(getEntityAccessRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(c.env, actorId, entityId);
+  const loaded = await loadVisibleEntity(actorId, entityId);
   requireVisibleEntity(loaded.entity, loaded.exists);
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, entityRows, grantsRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
@@ -813,7 +811,7 @@ entitiesRouter.openapi(updateEntityAccessRoute, async (c) => {
   const actor = requireActor(c);
   const entityId = c.req.param("id");
   const body = await parseJsonBody<Record<string, unknown>>(c);
-  const manage = await ensureManageAccess(c.env, actor.id, entityId);
+  const manage = await ensureManageAccess(actor.id, entityId);
   const entity = requireVisibleEntity(manage.entity, manage.exists);
 
   const viewAccess = validateAccessValue(body.view_access, "view_access");
@@ -824,7 +822,7 @@ entitiesRouter.openapi(updateEntityAccessRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "No policy changes requested");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -875,13 +873,13 @@ entitiesRouter.openapi(transferOwnerRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing new_owner_id");
   }
 
-  const loaded = await loadVisibleEntity(c.env, actor.id, entityId);
+  const loaded = await loadVisibleEntity(actor.id, entityId);
   const entity = requireVisibleEntity(loaded.entity, loaded.exists);
   if (entity.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Forbidden");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -916,10 +914,10 @@ entitiesRouter.openapi(createGrantRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid access_type");
   }
 
-  const manage = await ensureManageAccess(c.env, actor.id, entityId);
+  const manage = await ensureManageAccess(actor.id, entityId);
   requireVisibleEntity(manage.entity, manage.exists);
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -956,10 +954,10 @@ entitiesRouter.openapi(revokeAllGrantsRoute, async (c) => {
   const actor = requireActor(c);
   const entityId = c.req.param("id");
   const targetActorId = c.req.param("actorId");
-  const manage = await ensureManageAccess(c.env, actor.id, entityId);
+  const manage = await ensureManageAccess(actor.id, entityId);
   const entity = requireVisibleEntity(manage.entity, manage.exists);
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const adminRows = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
     sql`
@@ -1008,13 +1006,13 @@ entitiesRouter.openapi(revokeSpecificGrantRoute, async (c) => {
     throw new ApiError(400, "invalid_path_param", "Invalid access type");
   }
 
-  const manage = await ensureManageAccess(c.env, actor.id, entityId);
+  const manage = await ensureManageAccess(actor.id, entityId);
   const entity = requireVisibleEntity(manage.entity, manage.exists);
   if (accessType === "admin" && entity.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Only the owner can revoke admin access");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -1044,10 +1042,10 @@ entitiesRouter.openapi(revokeSpecificGrantRoute, async (c) => {
 });
 
 entitiesRouter.openapi(listVersionsRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(c.env, actorId, entityId);
+  const loaded = await loadVisibleEntity(actorId, entityId);
   requireVisibleEntity(loaded.entity, loaded.exists);
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
@@ -1077,10 +1075,10 @@ entitiesRouter.openapi(listVersionsRoute, async (c) => {
 });
 
 entitiesRouter.openapi(getVersionRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(c.env, actorId, entityId);
+  const loaded = await loadVisibleEntity(actorId, entityId);
   requireVisibleEntity(loaded.entity, loaded.exists);
   const ver = Number.parseInt(c.req.param("ver"), 10);
   if (!Number.isInteger(ver) || ver < 1) {

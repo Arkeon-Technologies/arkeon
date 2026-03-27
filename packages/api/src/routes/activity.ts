@@ -15,7 +15,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 type ActivityRow = {
   id: number;
@@ -107,7 +107,7 @@ const listEntityActivityRoute = createRoute({
 export const activityRouter = createRouter();
 
 activityRouter.openapi(listActivityRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const limit = parseLimit(c, { defaultValue: 100, maxValue: 200 });
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
@@ -144,7 +144,7 @@ activityRouter.openapi(listActivityRoute, async (c) => {
 export const entityActivityRouter = createRouter();
 
 entityActivityRouter.openapi(listEntityActivityRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });

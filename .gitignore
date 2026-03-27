@@ -24,5 +24,8 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
+# Local data
+data/
+
 # Misc
 *.log

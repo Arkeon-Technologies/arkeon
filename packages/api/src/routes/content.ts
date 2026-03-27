@@ -1,6 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { AwsClient } from "aws4fetch";
 
+import { backgroundTask } from "../lib/background";
 import { computeCidFromBytes, isValidCid, MAX_FILE_SIZE } from "../lib/cid";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
@@ -15,7 +15,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+import { storage } from "../lib/storage";
 
 type ContentEntry = {
   cid: string;
@@ -48,51 +48,11 @@ function isValidContentKey(key: string): boolean {
   return /^[A-Za-z0-9._-]{1,128}$/.test(key);
 }
 
-function getPresignConfig(env: AppBindings["Bindings"]) {
-  const accountId = env.R2_ACCOUNT_ID;
-  const bucketName = env.R2_BUCKET_NAME;
-  const accessKeyId = env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
-
-  if (!accountId || !bucketName || !accessKeyId || !secretAccessKey) {
-    throw new ApiError(501, "not_implemented", "Presigned uploads require R2 S3 signing credentials");
-  }
-
-  return { accountId, bucketName, accessKeyId, secretAccessKey };
-}
-
-async function createPresignedUploadUrl(
-  env: AppBindings["Bindings"],
-  entityId: string,
-  cid: string,
-  contentType: string,
-  expiresInSeconds = 900,
-) {
-  const { accountId, bucketName, accessKeyId, secretAccessKey } = getPresignConfig(env);
-  const client = new AwsClient({ accessKeyId, secretAccessKey });
-  const r2Key = `${entityId}/${cid}`;
-  const url = new URL(`https://${accountId}.r2.cloudflarestorage.com/${bucketName}/${r2Key}`);
-  url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
-
-  const signedRequest = await client.sign(url.toString(), {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    aws: { signQuery: true },
-  });
-
-  return {
-    upload_url: signedRequest.url,
-    r2_key: r2Key,
-    expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
-  };
-}
-
 async function loadVisibleEntity(
-  env: AppBindings["Bindings"],
   actorId: string,
   entityId: string,
 ): Promise<{ entity: EntityRow | null; exists: boolean }> {
-  const sql = createSql(env);
+  const sql = createSql();
   const [, entityRows, existsRows, grantRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
     sql.query(
@@ -145,11 +105,10 @@ function requireVisibleEntity(entity: EntityRow | null, exists: boolean) {
 }
 
 async function ensureEditAccess(
-  env: AppBindings["Bindings"],
   actorId: string,
   entityId: string,
 ): Promise<{ entity: EntityRow | null; exists: boolean }> {
-  const sql = createSql(env);
+  const sql = createSql();
   const [, rows, existsRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
     sql.query(
@@ -184,7 +143,6 @@ async function ensureEditAccess(
 }
 
 async function updateContentMetadata(options: {
-  env: AppBindings["Bindings"];
   actorId: string;
   entity: EntityRow;
   expectedVer: number;
@@ -193,7 +151,7 @@ async function updateContentMetadata(options: {
   detail: Record<string, unknown>;
   note?: string | null;
 }) {
-  const sql = createSql(options.env);
+  const sql = createSql();
   const now = new Date().toISOString();
   const [, updateRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${options.actorId}, true)`,
@@ -497,7 +455,7 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
     throw new ApiError(413, "file_too_large", "File exceeds 500 MB limit");
   }
 
-  const editable = await ensureEditAccess(c.env, actor.id, entityId);
+  const editable = await ensureEditAccess(actor.id, entityId);
   const entity = requireVisibleEntity(editable.entity, editable.exists);
 
   if (entity.ver !== expectedVer) {
@@ -514,9 +472,9 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
   }
 
   const cid = await computeCidFromBytes(bytes);
-  await c.env.FILES_BUCKET.put(`${entityId}/${cid}`, bytes, {
-    httpMetadata: { contentType },
-    customMetadata: { cid, entity_id: entityId, key },
+  await storage.put(`${entityId}/${cid}`, bytes, {
+    contentType,
+    metadata: { cid, entity_id: entityId, key },
   });
 
   const properties = { ...(entity.properties ?? {}) } as Record<string, unknown>;
@@ -531,7 +489,6 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
   properties.content = contentMap;
 
   const { nextVer, ts } = await updateContentMetadata({
-    env: c.env,
     actorId: actor.id,
     entity,
     expectedVer,
@@ -546,8 +503,8 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
     },
   });
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: entityId,
       commons_id: entity.commons_id,
       actor_id: actor.id,
@@ -565,150 +522,12 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
   }, 200);
 });
 
-contentRouter.openapi(uploadUrlRoute, async (c) => {
-  const actor = requireActor(c);
-  const entityId = c.req.param("id");
-  const body = await parseJsonBody<Record<string, unknown>>(c);
-  if (
-    typeof body.cid !== "string" ||
-    typeof body.content_type !== "string" ||
-    typeof body.size !== "number"
-  ) {
-    throw new ApiError(400, "invalid_body", "Invalid upload-url payload");
-  }
-  if (!isValidCid(body.cid)) {
-    throw new ApiError(400, "invalid_body", "Invalid CID");
-  }
-  if (!body.content_type || body.content_type.length > 255) {
-    throw new ApiError(400, "invalid_body", "Invalid content_type");
-  }
-  if (!Number.isInteger(body.size) || body.size < 0) {
-    throw new ApiError(400, "invalid_body", "Invalid size");
-  }
-  if (body.size > MAX_FILE_SIZE) {
-    throw new ApiError(413, "file_too_large", "File exceeds 500 MB limit");
-  }
-
-  const editable = await ensureEditAccess(c.env, actor.id, entityId);
-  requireVisibleEntity(editable.entity, editable.exists);
-
-  return c.json(await createPresignedUploadUrl(c.env, entityId, body.cid, body.content_type), 200);
+contentRouter.openapi(uploadUrlRoute, async (_c) => {
+  throw new ApiError(501, "not_implemented", "Presigned uploads not available in local mode");
 });
 
-contentRouter.openapi(completeUploadRoute, async (c) => {
-  const actor = requireActor(c);
-  const entityId = c.req.param("id");
-  const body = await parseJsonBody<Record<string, unknown>>(c);
-  if (
-    typeof body.key !== "string" ||
-    typeof body.cid !== "string" ||
-    typeof body.size !== "number" ||
-    typeof body.content_type !== "string" ||
-    typeof body.ver !== "number"
-  ) {
-    throw new ApiError(400, "invalid_body", "Invalid complete payload");
-  }
-  if (!isValidContentKey(body.key)) {
-    throw new ApiError(400, "invalid_body", "Invalid content key");
-  }
-  if (!isValidCid(body.cid)) {
-    throw new ApiError(400, "invalid_body", "Invalid CID");
-  }
-  if (!Number.isInteger(body.size) || body.size < 0 || body.size > MAX_FILE_SIZE) {
-    throw new ApiError(400, "invalid_body", "Invalid size");
-  }
-  if (!body.content_type || body.content_type.length > 255) {
-    throw new ApiError(400, "invalid_body", "Invalid content_type");
-  }
-  if (
-    body.filename !== undefined &&
-    (typeof body.filename !== "string" || body.filename.length < 1 || body.filename.length > 255)
-  ) {
-    throw new ApiError(400, "invalid_body", "Invalid filename");
-  }
-
-  getPresignConfig(c.env);
-
-  const editable = await ensureEditAccess(c.env, actor.id, entityId);
-  const entity = requireVisibleEntity(editable.entity, editable.exists);
-  if (entity.ver !== body.ver) {
-    throw new ApiError(409, "cas_conflict", "Version mismatch", {
-      entity_id: entityId,
-      expected_ver: body.ver,
-      actual_ver: entity.ver,
-    });
-  }
-
-  const object = await c.env.FILES_BUCKET.head(`${entityId}/${body.cid}`);
-  if (!object) {
-    throw new ApiError(400, "upload_not_found", "Upload not found at the expected CID");
-  }
-  if (object.size !== body.size) {
-    throw new ApiError(409, "upload_mismatch", "Uploaded object size does not match request", {
-      expected_size: body.size,
-      actual_size: object.size,
-    });
-  }
-  const actualContentType = object.httpMetadata?.contentType ?? "application/octet-stream";
-  if (actualContentType !== body.content_type) {
-    throw new ApiError(409, "upload_mismatch", "Uploaded object content_type does not match request", {
-      expected_content_type: body.content_type,
-      actual_content_type: actualContentType,
-    });
-  }
-
-  const properties = { ...(entity.properties ?? {}) } as Record<string, unknown>;
-  const contentMap = { ...getContentMap(properties) };
-  contentMap[body.key] = {
-    cid: body.cid,
-    size: body.size,
-    content_type: body.content_type,
-    ...(typeof body.filename === "string" ? { filename: body.filename } : {}),
-    uploaded_at: new Date().toISOString(),
-  };
-  properties.content = contentMap;
-
-  const { nextVer, ts } = await updateContentMetadata({
-    env: c.env,
-    actorId: actor.id,
-    entity,
-    expectedVer: body.ver,
-    properties,
-    action: "content_uploaded",
-    detail: {
-      key: body.key,
-      cid: body.cid,
-      size: body.size,
-      content_type: body.content_type,
-      ...(typeof body.filename === "string" ? { filename: body.filename } : {}),
-      transport: "presigned",
-    },
-  });
-
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
-      entity_id: entityId,
-      commons_id: entity.commons_id,
-      actor_id: actor.id,
-      action: "content_uploaded",
-      detail: {
-        key: body.key,
-        cid: body.cid,
-        size: body.size,
-        content_type: body.content_type,
-        ...(typeof body.filename === "string" ? { filename: body.filename } : {}),
-        transport: "presigned",
-      },
-      ts,
-    }),
-  );
-
-  return c.json({
-    cid: body.cid,
-    size: body.size,
-    key: body.key,
-    ver: nextVer,
-  }, 200);
+contentRouter.openapi(completeUploadRoute, async (_c) => {
+  throw new ApiError(501, "not_implemented", "Presigned uploads not available in local mode");
 });
 
 contentRouter.openapi(getContentRoute, async (c) => {
@@ -721,7 +540,7 @@ contentRouter.openapi(getContentRoute, async (c) => {
     throw new ApiError(400, "invalid_query", "Invalid CID");
   }
 
-  const loaded = await loadVisibleEntity(c.env, actorId, entityId);
+  const loaded = await loadVisibleEntity(actorId, entityId);
   const entity = requireVisibleEntity(loaded.entity, loaded.exists);
   const contentMap = getContentMap(entity.properties ?? {});
 
@@ -735,7 +554,7 @@ contentRouter.openapi(getContentRoute, async (c) => {
     throw new ApiError(404, "file_not_found", "Content not found");
   }
 
-  const object = await c.env.FILES_BUCKET.get(`${entityId}/${entry.cid}`);
+  const object = await storage.get(`${entityId}/${entry.cid}`);
   if (!object?.body) {
     throw new ApiError(404, "file_not_found", "Content not found");
   }
@@ -770,7 +589,7 @@ contentRouter.openapi(deleteContentRoute, async (c) => {
     throw new ApiError(400, "invalid_query", "Invalid CID");
   }
 
-  const editable = await ensureEditAccess(c.env, actor.id, entityId);
+  const editable = await ensureEditAccess(actor.id, entityId);
   const entity = requireVisibleEntity(editable.entity, editable.exists);
   if (entity.ver !== expectedVer) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
@@ -806,7 +625,6 @@ contentRouter.openapi(deleteContentRoute, async (c) => {
 
   properties.content = contentMap;
   const { nextVer, ts } = await updateContentMetadata({
-    env: c.env,
     actorId: actor.id,
     entity,
     expectedVer,
@@ -815,8 +633,8 @@ contentRouter.openapi(deleteContentRoute, async (c) => {
     detail: { key: removedKey, cid: removedCid },
   });
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: entityId,
       commons_id: entity.commons_id,
       actor_id: actor.id,
@@ -840,7 +658,7 @@ contentRouter.openapi(renameContentRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid content key");
   }
 
-  const editable = await ensureEditAccess(c.env, actor.id, entityId);
+  const editable = await ensureEditAccess(actor.id, entityId);
   const entity = requireVisibleEntity(editable.entity, editable.exists);
   if (entity.ver !== body.ver) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
@@ -864,7 +682,6 @@ contentRouter.openapi(renameContentRoute, async (c) => {
   properties.content = contentMap;
 
   const { updated, ts } = await updateContentMetadata({
-    env: c.env,
     actorId: actor.id,
     entity,
     expectedVer: body.ver,
@@ -873,8 +690,8 @@ contentRouter.openapi(renameContentRoute, async (c) => {
     detail: { from: body.from, to: body.to, cid: contentMap[body.to]?.cid },
   });
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: entityId,
       commons_id: entity.commons_id,
       actor_id: actor.id,

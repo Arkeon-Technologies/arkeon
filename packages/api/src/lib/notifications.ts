@@ -1,5 +1,4 @@
 import { createSql } from "./sql";
-import type { AppBindings } from "../types";
 
 export interface NotificationActivity {
   entity_id: string;
@@ -11,10 +10,9 @@ export interface NotificationActivity {
 }
 
 export async function fanOutNotifications(
-  env: AppBindings["Bindings"],
   activity: NotificationActivity,
 ) {
-  const sql = createSql(env);
+  const sql = createSql();
   const ts = activity.ts ?? new Date().toISOString();
   const detail = activity.detail ?? {};
 

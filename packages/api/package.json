@@ -4,22 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:e2e:presigned": "E2E_PRESIGNED=1 vitest run --config vitest.e2e.config.ts",
     "stress:auth": "node test/stress/auth.mjs",
     "stress:mutations": "node test/stress/mutations.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
     "@hono/zod-openapi": "^1.2.3",
     "@neondatabase/serverless": "^1.0.2",
-    "aws4fetch": "^1.0.20",
+    "dotenv": "^17.3.1",
     "hono": "^4.12.9",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^3.2.4",
     "wrangler": "^4.77.0"

@@ -17,7 +17,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 const SearchQuery = filterQuerySchema(["updated_at", "created_at"], "updated_at")
   .merge(ProjectionQuery)
@@ -58,7 +58,7 @@ searchRouter.openapi(searchRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing q");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));

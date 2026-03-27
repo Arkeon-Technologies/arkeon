@@ -13,7 +13,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 const InboxItemSchema = z.object({
   id: z.number().int(),
@@ -90,7 +90,7 @@ export const inboxRouter = createRouter();
 
 inboxRouter.openapi(listInboxRoute, async (c) => {
   const actor = requireActor(c);
-  const sql = createSql(c.env);
+  const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
   const before = parseOptionalTimestamp(c.req.query("before"), "before");
@@ -125,7 +125,7 @@ inboxRouter.openapi(listInboxRoute, async (c) => {
 
 inboxRouter.openapi(countInboxRoute, async (c) => {
   const actor = requireActor(c);
-  const sql = createSql(c.env);
+  const sql = createSql();
   if (!c.req.query("since")) {
     throw new ApiError(400, "missing_required_field", "Missing since");
   }

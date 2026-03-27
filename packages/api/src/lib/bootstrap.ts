@@ -1,16 +1,16 @@
 import { createSql } from "./sql";
-import type { Env } from "../types";
 
 let bootstrapPromise: Promise<void> | null = null;
 
-export function ensureBootstrap(env: Env): Promise<void> {
+export function ensureBootstrap(): Promise<void> {
   if (bootstrapPromise) {
     return bootstrapPromise;
   }
 
   bootstrapPromise = (async () => {
-    const sql = createSql(env);
+    const sql = createSql();
     const now = new Date().toISOString();
+    const rootCommonsId = process.env.ROOT_COMMONS_ID!;
 
     await sql.transaction([
       sql`
@@ -19,7 +19,7 @@ export function ensureBootstrap(env: Env): Promise<void> {
           edited_by, created_at, updated_at
         )
         VALUES (
-          ${env.ROOT_COMMONS_ID},
+          ${rootCommonsId},
           'commons',
           'commons',
           1,

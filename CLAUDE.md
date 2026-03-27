@@ -2,7 +2,7 @@
 
 Monorepo for the Arke platform. npm workspaces with three packages:
 
-- `packages/api` — Cloudflare Worker API (Hono + Neon Postgres + R2)
+- `packages/api` — Node.js API server (Hono + Neon Postgres + local file storage)
 - `packages/cli` — CLI auto-generated from the API's OpenAPI spec
 - `packages/schema` — Database migration SQL files
 

@@ -29,7 +29,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 type ActivityRow = {
   id: number;
@@ -44,11 +44,10 @@ const COMMONS_SORTS = ["updated_at", "created_at", "entity_count", "last_activit
 const ENTITY_SORTS = ["updated_at", "created_at"];
 
 async function loadVisibleCommons(
-  env: AppBindings["Bindings"],
   actorId: string,
   commonsId: string,
 ): Promise<{ commons: EntityRecord | null; exists: boolean }> {
-  const sql = createSql(env);
+  const sql = createSql();
   const [, rows, existsRows, grantRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
     sql.query(
@@ -322,7 +321,7 @@ const commonsFeedRoute = createRoute({
 export const commonsRouter = createRouter();
 
 commonsRouter.openapi(listCommonsRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
@@ -359,13 +358,13 @@ commonsRouter.openapi(createCommonsRoute, async (c) => {
   const id = generateUlid();
   const now = new Date().toISOString();
   const commonsId =
-    typeof body.commons_id === "string" ? body.commons_id : c.env.ROOT_COMMONS_ID;
+    typeof body.commons_id === "string" ? body.commons_id : process.env.ROOT_COMMONS_ID!;
   const type = typeof body.type === "string" ? body.type : "commons";
   const viewAccess = validateAccessValue(body.view_access, "view_access") ?? "public";
   const editAccess = validateAccessValue(body.edit_access, "edit_access") ?? "collaborators";
   const contributeAccess =
     validateAccessValue(body.contribute_access, "contribute_access") ?? "public";
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, insertedRows, versionRows, activityRows, parentRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -447,7 +446,7 @@ commonsRouter.openapi(getCommonsRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const commonsId = c.req.param("id");
-  const { commons, exists } = await loadVisibleCommons(c.env, actorId, commonsId);
+  const { commons, exists } = await loadVisibleCommons(actorId, commonsId);
   const row = requireVisibleCommons(commons, exists);
 
   const ifNoneMatch = c.req.header("if-none-match")?.replaceAll("\"", "");
@@ -487,13 +486,13 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
 
   const current = requireVisibleCommons(
     ...(await (async () => {
-      const loaded = await loadVisibleCommons(c.env, actor.id, commonsId);
+      const loaded = await loadVisibleCommons(actor.id, commonsId);
       return [loaded.commons, loaded.exists] as const;
     })()),
   );
 
   if (newParentId && newParentId !== current.commons_id) {
-    const sqlCheck = createSql(c.env);
+    const sqlCheck = createSql();
     const [, rows, existsRows] = await sqlCheck.transaction([
       sqlCheck`SELECT set_config('app.actor_id', ${actor.id}, true)`,
       sqlCheck.query(
@@ -528,7 +527,7 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
     }
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const contentChanged = tombstone || Boolean(properties);
   const nextVer = contentChanged ? current.ver + 1 : current.ver;
   const now = new Date().toISOString();
@@ -658,7 +657,7 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
 commonsRouter.openapi(deleteCommonsRoute, async (c) => {
   const actor = requireActor(c);
   const commonsId = c.req.param("id");
-  const { commons, exists } = await loadVisibleCommons(c.env, actor.id, commonsId);
+  const { commons, exists } = await loadVisibleCommons(actor.id, commonsId);
   const row = requireVisibleCommons(commons, exists);
   if (row.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Forbidden");
@@ -666,7 +665,7 @@ commonsRouter.openapi(deleteCommonsRoute, async (c) => {
 
   const now = new Date().toISOString();
   const parentCommonsId = row.commons_id;
-  const sql = createSql(c.env);
+  const sql = createSql();
   await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
     sql`DELETE FROM entities WHERE id = ${commonsId}`,
@@ -701,10 +700,10 @@ commonsRouter.openapi(deleteCommonsRoute, async (c) => {
 commonsRouter.openapi(listCommonsEntitiesRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const commonsId = c.req.param("id");
-  const loaded = await loadVisibleCommons(c.env, actorId, commonsId);
+  const loaded = await loadVisibleCommons(actorId, commonsId);
   requireVisibleCommons(loaded.commons, loaded.exists);
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const cursor = parseCursorParam(c);
@@ -735,10 +734,10 @@ commonsRouter.openapi(listCommonsEntitiesRoute, async (c) => {
 commonsRouter.openapi(listChildCommonsRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const commonsId = c.req.param("id");
-  const loaded = await loadVisibleCommons(c.env, actorId, commonsId);
+  const loaded = await loadVisibleCommons(actorId, commonsId);
   requireVisibleCommons(loaded.commons, loaded.exists);
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const cursor = parseCursorParam(c);
@@ -767,7 +766,7 @@ commonsRouter.openapi(listChildCommonsRoute, async (c) => {
 });
 
 commonsRouter.openapi(commonsFeedRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const action = c.req.query("action");
   const since = parseOptionalTimestamp(c.req.query("since"), "since");

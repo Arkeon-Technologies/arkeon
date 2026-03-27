@@ -15,7 +15,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 const ActorActivitySchema = z.object({
   id: z.number().int(),
@@ -67,7 +67,7 @@ const actorActivityRoute = createRoute({
 export const actorsRouter = createRouter();
 
 actorsRouter.openapi(actorActivityRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.req.param("actorId");
   const requestActorId = c.get("actor")?.id ?? "";
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });

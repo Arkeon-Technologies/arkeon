@@ -36,7 +36,7 @@ function encodeBase32Lower(bytes: Uint8Array): string {
 
 export async function computeCidFromBytes(bytes: Uint8Array | ArrayBuffer): Promise<string> {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const digestBuffer = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+  const digestBuffer = await crypto.subtle.digest("SHA-256", data);
   const digest = new Uint8Array(digestBuffer);
 
   const version = Uint8Array.of(0x01);

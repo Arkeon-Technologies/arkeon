@@ -16,8 +16,8 @@ import {
   paginationQuerySchema,
   pathParam,
 } from "../lib/schemas";
+import { backgroundTask } from "../lib/background";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
 
 const CommentReplySchema = z.object({
   id: EntityIdParam,
@@ -132,7 +132,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
 
   const id = generateUlid();
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   if (parentId) {
     const [, parentRows] = await sql.transaction([
@@ -164,8 +164,8 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
     `,
   ]);
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: entityId,
       actor_id: actor.id,
       action: "comment_created",
@@ -178,7 +178,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
 });
 
 commentsRouter.openapi(listCommentsRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
@@ -231,7 +231,7 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
   const entityId = c.req.param("id");
   const commentId = c.req.param("commentId");
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -272,8 +272,8 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
     `,
   ]);
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: entityId,
       actor_id: actor.id,
       action: "comment_deleted",

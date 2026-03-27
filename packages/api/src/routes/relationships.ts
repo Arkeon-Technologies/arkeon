@@ -19,8 +19,8 @@ import {
   pathParam,
   queryParam,
 } from "../lib/schemas";
+import { backgroundTask } from "../lib/background";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
 
 type RelationshipRow = {
   id: string;
@@ -195,7 +195,7 @@ export const entityRelationshipsRouter = createRouter();
 export const relationshipDirectRouter = createRouter();
 
 entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const entityId = c.req.param("id");
   const direction = c.req.query("direction") === "in" ? "in" : "out";
@@ -265,7 +265,7 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const properties = body.properties === undefined ? {} : assertBodyObject(body.properties, "properties");
   const relId = generateUlid();
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, entityRows, edgeRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -299,8 +299,8 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
     `,
   ]);
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: sourceId,
       actor_id: actor.id,
       action: "relationship_created",
@@ -319,7 +319,7 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
 });
 
 relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
-  const sql = createSql(c.env);
+  const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
   const relId = c.req.param("relId");
 
@@ -363,7 +363,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
   const properties = assertBodyObject(body.properties, "properties");
   const note = body.note === undefined ? null : typeof body.note === "string" ? body.note : null;
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -417,7 +417,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   const actor = requireActor(c);
   const relId = c.req.param("relId");
   const now = new Date().toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, relRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -453,8 +453,8 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
     `,
   ]);
 
-  c.executionCtx.waitUntil(
-    fanOutNotifications(c.env, {
+  backgroundTask(
+    fanOutNotifications({
       entity_id: rel.source_id,
       commons_id: rel.commons_id,
       actor_id: actor.id,

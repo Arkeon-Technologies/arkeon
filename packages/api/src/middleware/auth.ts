@@ -1,6 +1,7 @@
 import type { MiddlewareHandler } from "hono";
 
 import { parseApiKeyHeader, sha256Hex } from "../lib/auth";
+import { backgroundTask } from "../lib/background";
 import { createSql } from "../lib/sql";
 import type { Actor, AppBindings } from "../types";
 
@@ -20,7 +21,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
   }
 
   const keyHash = await sha256Hex(apiKey);
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [setActorResult, keyRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
@@ -49,7 +50,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
 
   c.set("actor", actor);
 
-  c.executionCtx.waitUntil(
+  backgroundTask(
     sql.transaction([
       sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
       sql`

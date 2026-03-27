@@ -22,7 +22,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { createSql } from "../lib/sql";
-import type { AppBindings } from "../types";
+
 
 function parseTimestampWithinSkew(timestamp: unknown, skewMs = 5 * 60 * 1000) {
   if (typeof timestamp !== "string") {
@@ -269,7 +269,7 @@ authRouter.openapi(challengeRoute, async (c) => {
   const nonce = randomHex(32);
   const difficulty = 22;
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
@@ -297,7 +297,7 @@ authRouter.openapi(registerRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid registration payload");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const [, challengeRows, existingRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`
@@ -417,7 +417,7 @@ authRouter.openapi(recoverRoute, async (c) => {
     throw new ApiError(401, "signature_invalid", "Invalid signature");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`
@@ -457,7 +457,7 @@ authRouter.openapi(recoverRoute, async (c) => {
 
 authRouter.openapi(meRoute, async (c) => {
   const actor = requireActor(c);
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -487,7 +487,7 @@ authRouter.openapi(createKeyRoute, async (c) => {
   const apiKey = createApiKey();
   const apiKeyHash = await sha256Hex(apiKey.value);
   const keyId = generateUlid();
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -510,7 +510,7 @@ authRouter.openapi(createKeyRoute, async (c) => {
 authRouter.openapi(listKeysRoute, async (c) => {
   const actor = requireActor(c);
   const includeRevoked = c.req.query("include_revoked") === "true";
-  const sql = createSql(c.env);
+  const sql = createSql();
 
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
@@ -536,7 +536,7 @@ authRouter.openapi(revokeKeyRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Cannot revoke the key currently in use");
   }
 
-  const sql = createSql(c.env);
+  const sql = createSql();
   const [, rows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
     sql`
