@@ -1,0 +1,38 @@
+{
+  "name": "@arke-institute/cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for the Arke API",
+  "type": "module",
+  "bin": {
+    "arke": "./dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "fetch-spec": "tsx scripts/fetch-openapi.ts",
+    "generate": "tsx scripts/generate-commands.ts",
+    "build": "npm run generate && tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "commander": "^14.0.1",
+    "conf": "^13.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "author": "Arke Institute",
+  "license": "MIT"
+}

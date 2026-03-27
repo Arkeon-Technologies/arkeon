@@ -1,27 +1,7 @@
 {
-  "name": "arke-api",
-  "version": "0.1.0",
+  "name": "arke",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:e2e:presigned": "E2E_PRESIGNED=1 vitest run --config vitest.e2e.config.ts",
-    "stress:auth": "node test/stress/auth.mjs",
-    "stress:mutations": "node test/stress/mutations.mjs",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@hono/zod-openapi": "^1.2.3",
-    "@neondatabase/serverless": "^1.0.2",
-    "aws4fetch": "^1.0.20",
-    "hono": "^4.12.9",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "typescript": "^6.0.2",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.77.0"
-  }
+  "workspaces": [
+    "packages/*"
+  ]
 }
