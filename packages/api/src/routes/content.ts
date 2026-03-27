@@ -7,7 +7,6 @@ import { requireActor, parseJsonBody } from "../lib/http";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
 import {
-  DateTimeSchema,
   EntityIdParam,
   errorResponses,
   jsonContent,
@@ -225,7 +224,7 @@ const uploadContentRoute = createRoute({
   tags: ["Content"],
   summary: "Upload a file directly to an entity",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /entities/{id}/content", "POST /entities/{id}/content/upload-url"],
+  "x-arke-related": ["GET /entities/{id}/content", "DELETE /entities/{id}/content"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),
@@ -253,86 +252,6 @@ const uploadContentRoute = createRoute({
       ),
     },
     ...errorResponses([400, 401, 403, 404, 409, 413]),
-  },
-});
-
-const uploadUrlRoute = createRoute({
-  method: "post",
-  path: "/{id}/content/upload-url",
-  operationId: "createContentUploadUrl",
-  tags: ["Content"],
-  summary: "Get a presigned S3 URL for large file upload",
-  "x-arke-auth": "required",
-  "x-arke-related": ["POST /entities/{id}/content/complete"],
-  request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Entity ULID"),
-    }),
-    body: {
-      required: true,
-      content: jsonContent(
-        z.object({
-          cid: z.string().describe("BLAKE3 content hash (compute client-side)"),
-          content_type: z.string().max(255).describe("MIME type"),
-          size: z.number().int().nonnegative().describe("File size in bytes"),
-        }),
-      ),
-    },
-  },
-  responses: {
-    200: {
-      description: "Presigned upload URL",
-      content: jsonContent(
-        z.object({
-          upload_url: z.string(),
-          r2_key: z.string(),
-          expires_at: DateTimeSchema,
-        }),
-      ),
-    },
-    ...errorResponses([400, 401, 403, 413, 501]),
-  },
-});
-
-const completeUploadRoute = createRoute({
-  method: "post",
-  path: "/{id}/content/complete",
-  operationId: "completeContentUpload",
-  tags: ["Content"],
-  summary: "Finalize a presigned upload",
-  "x-arke-auth": "required",
-  "x-arke-related": ["POST /entities/{id}/content/upload-url"],
-  request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Entity ULID"),
-    }),
-    body: {
-      required: true,
-      content: jsonContent(
-        z.object({
-          key: z.string().min(1).max(128).describe("Content key"),
-          cid: z.string().describe("BLAKE3 hash"),
-          size: z.number().int().nonnegative().describe("File size"),
-          content_type: z.string().max(255).describe("MIME type"),
-          ver: z.number().int().describe("Expected current version (CAS token). Server increments ver on success."),
-          filename: z.string().min(1).max(255).optional().describe("Optional display filename"),
-        }),
-      ),
-    },
-  },
-  responses: {
-    200: {
-      description: "Upload finalized",
-      content: jsonContent(
-        z.object({
-          cid: z.string(),
-          size: z.number().int(),
-          key: z.string(),
-          ver: z.number().int(),
-        }),
-      ),
-    },
-    ...errorResponses([400, 401, 403, 404, 409, 501]),
   },
 });
 
@@ -520,14 +439,6 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
     key,
     ver: nextVer,
   }, 200);
-});
-
-contentRouter.openapi(uploadUrlRoute, async (_c) => {
-  throw new ApiError(501, "not_implemented", "Presigned uploads not available in local mode");
-});
-
-contentRouter.openapi(completeUploadRoute, async (_c) => {
-  throw new ApiError(501, "not_implemented", "Presigned uploads not available in local mode");
 });
 
 contentRouter.openapi(getContentRoute, async (c) => {

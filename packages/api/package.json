@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1018.0",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-openapi": "^1.2.3",
     "dotenv": "^17.3.1",
