@@ -688,7 +688,10 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
 
   const updated = (updateRows as EntityRecord[])[0];
   if (!updated) {
-    if (current.ver !== expectedVer) {
+    // Re-read to distinguish CAS conflict from permission denial;
+    // the pre-loaded `current.ver` may be stale under concurrency.
+    const [freshRow] = await sql`SELECT ver FROM entities WHERE id = ${entityId}`;
+    if (freshRow && freshRow.ver !== expectedVer) {
       throw new ApiError(409, "cas_conflict", "Version mismatch", {
         entity_id: entityId,
         expected_ver: expectedVer,

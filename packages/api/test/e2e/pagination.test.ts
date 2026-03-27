@@ -71,12 +71,13 @@ describe("pagination", () => {
     const commons = await createCommons(owner.apiKey, { label: uniqueName("inbox-pagination-commons") });
     const entity = await createEntity(owner.apiKey, commons.id, "note", { label: uniqueName("inbox-pagination-entity") });
     await createGrant(owner.apiKey, entity.id, collaborator.entityId, "edit");
+    const since = new Date().toISOString();
 
     for (let index = 0; index < 4; index += 1) {
       await createComment(collaborator.apiKey, entity.id, `notified-${index}`);
     }
 
-    const count = await waitForNotifications(owner.apiKey, 4);
+    const count = await waitForNotifications(owner.apiKey, 4, since);
     expect(count.count).toBeGreaterThanOrEqual(4);
 
     const first = await apiRequest("/auth/me/inbox?limit=2", { apiKey: owner.apiKey });

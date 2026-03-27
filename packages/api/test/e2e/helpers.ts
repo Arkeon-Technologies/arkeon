@@ -261,15 +261,16 @@ export async function uploadDirectContent(apiKey: string, entityId: string, key:
   return body as { cid: string; size: number; key: string; ver: number };
 }
 
-export async function waitForNotifications(apiKey: string, minCount = 1, attempts = 10, delayMs = 300) {
+export async function waitForNotifications(apiKey: string, minCount = 1, since?: string, attempts = 10, delayMs = 300) {
+  const sinceParam = since ? `?since=${encodeURIComponent(since)}` : "";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const { response, body } = await apiRequest("/auth/me/inbox/count", { apiKey });
+    const { response, body } = await apiRequest(`/auth/me/inbox/count${sinceParam}`, { apiKey });
     if (response.status === 200 && (body as { count: number }).count >= minCount) {
       return body as { count: number };
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return apiRequest("/auth/me/inbox/count", { apiKey }).then(({ body }) => body as { count: number });
+  return apiRequest(`/auth/me/inbox/count${sinceParam}`, { apiKey }).then(({ body }) => body as { count: number });
 }
 
 function encodeVarint(value: number) {

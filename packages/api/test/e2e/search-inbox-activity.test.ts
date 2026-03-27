@@ -22,6 +22,7 @@ describe("search, inbox, and activity", () => {
     });
 
     await createGrant(owner.apiKey, entity.id, collaborator.entityId, "edit");
+    const since = new Date().toISOString();
     const comment = await createComment(collaborator.apiKey, entity.id, "hello from collaborator");
     await createRelationship(collaborator.apiKey, entity.id, "references", "00000000000000000000000000", { note: "links to root" });
 
@@ -35,7 +36,7 @@ describe("search, inbox, and activity", () => {
     expect(inboxResponse.status).toBe(200);
     expect((inboxBody as any).items.some((item: any) => item.entity_id === entity.id)).toBe(true);
 
-    const { response: countResponse, body: countBody } = await apiRequest("/auth/me/inbox/count", {
+    const { response: countResponse, body: countBody } = await apiRequest(`/auth/me/inbox/count?since=${encodeURIComponent(since)}`, {
       apiKey: owner.apiKey,
     });
     expect(countResponse.status).toBe(200);
