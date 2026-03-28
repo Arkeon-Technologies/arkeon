@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
+import { backgroundTask } from "../lib/background";
 import { encodeCursor } from "../lib/cursor";
 import { parseProjection, projectEntity } from "../lib/entity-projection";
 import {
@@ -8,6 +9,7 @@ import {
   validateAccessValue,
 } from "../lib/entities";
 import { ApiError } from "../lib/errors";
+import { checkEntityAccess, requireEntity, setActorContext } from "../lib/permissions";
 import { requireActor, parseCursorParam, parseJsonBody, parseLimit, parseOptionalTimestamp } from "../lib/http";
 import { generateUlid } from "../lib/ids";
 import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
@@ -43,62 +45,6 @@ type ActivityRow = {
 const COMMONS_SORTS = ["updated_at", "created_at", "entity_count", "last_activity_at"];
 const ENTITY_SORTS = ["updated_at", "created_at"];
 
-async function loadVisibleCommons(
-  actorId: string,
-  commonsId: string,
-): Promise<{ commons: EntityRecord | null; exists: boolean }> {
-  const sql = createSql();
-  const [, rows, existsRows, grantRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
-    sql.query(
-      `
-        SELECT *
-        FROM entities
-        WHERE id = $1
-          AND kind = 'commons'
-        LIMIT 1
-      `,
-      [commonsId],
-    ),
-    sql`SELECT entity_exists(${commonsId}) AS exists`,
-    actorId
-      ? sql.query(
-          `
-            SELECT 1
-            FROM entity_access
-            WHERE entity_id = $1
-              AND actor_id = $2
-            LIMIT 1
-          `,
-          [commonsId, actorId],
-        )
-      : sql`SELECT 1 WHERE false`,
-  ]);
-  const commons = (rows as EntityRecord[])[0] ?? null;
-  const canView = Boolean(
-    commons &&
-    (
-      commons.view_access === "public" ||
-      commons.owner_id === actorId ||
-      (grantRows as Array<{ "?column?": number }>).length > 0
-    ),
-  );
-
-  return {
-    commons: canView ? commons : null,
-    exists: Boolean((existsRows as Array<{ exists: boolean }>)[0]?.exists),
-  };
-}
-
-function requireVisibleCommons(commons: EntityRecord | null, exists: boolean) {
-  if (commons) {
-    return commons;
-  }
-  if (exists) {
-    throw new ApiError(403, "forbidden", "Forbidden");
-  }
-  throw new ApiError(404, "not_found", "Commons not found");
-}
 
 const CommonsActivitySchema = z.object({
   id: z.number().int(),
@@ -337,8 +283,9 @@ commonsRouter.openapi(listCommonsRoute, async (c) => {
     order,
   });
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(listing.query, listing.params),
   ]);
 
@@ -366,8 +313,8 @@ commonsRouter.openapi(createCommonsRoute, async (c) => {
     validateAccessValue(body.contribute_access, "contribute_access") ?? "public";
   const sql = createSql();
 
-  const [, insertedRows, versionRows, activityRows, parentRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, insertedRows, versionRows, activityRows, parentRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         INSERT INTO entities (
@@ -439,15 +386,24 @@ commonsRouter.openapi(createCommonsRoute, async (c) => {
   void versionRows;
   void activityRows;
 
+  backgroundTask(
+    sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT materialize_entity_rules(${id})`,
+    ]).then(() => undefined).catch(() => undefined),
+  );
+
   return c.json({ commons: inserted }, 201);
 });
 
 commonsRouter.openapi(getCommonsRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const commonsId = c.req.param("id");
-  const { commons, exists } = await loadVisibleCommons(actorId, commonsId);
-  const row = requireVisibleCommons(commons, exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, commonsId, "view");
+  const row = requireEntity(loaded, "Commons");
+  if (row.kind !== "commons") throw new ApiError(404, "not_found", "Commons not found");
 
   const ifNoneMatch = c.req.header("if-none-match")?.replaceAll("\"", "");
   if (ifNoneMatch && ifNoneMatch === String(row.ver)) {
@@ -484,17 +440,14 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "No changes requested");
   }
 
-  const current = requireVisibleCommons(
-    ...(await (async () => {
-      const loaded = await loadVisibleCommons(actor.id, commonsId);
-      return [loaded.commons, loaded.exists] as const;
-    })()),
-  );
+  const loaded = await checkEntityAccess(actor.id, actor.groups, commonsId, "view");
+  const current = requireEntity(loaded, "Commons");
+  if (current.kind !== "commons") throw new ApiError(404, "not_found", "Commons not found");
 
   if (newParentId && newParentId !== current.commons_id) {
     const sqlCheck = createSql();
-    const [, rows, existsRows] = await sqlCheck.transaction([
-      sqlCheck`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    const [,, rows, existsRows] = await sqlCheck.transaction([
+      ...setActorContext(sqlCheck, actor),
       sqlCheck.query(
         `
           SELECT id
@@ -534,8 +487,8 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
   const nextProperties = tombstone ? {} : properties ?? current.properties;
   const nextCommonsId = newParentId ?? current.commons_id;
 
-  const [, updateRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, updateRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         UPDATE entities
@@ -577,8 +530,8 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
   // If tombstoning, snapshot outbound relationships before deleting them
   let relationshipsRemoved: Array<Record<string, unknown>> = [];
   if (tombstone) {
-    const [, relRows] = await sql.transaction([
-      sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    const [,, relRows] = await sql.transaction([
+      ...setActorContext(sql, actor),
       sql.query(
         `
           SELECT rel.id, re.predicate, re.source_id, re.target_id, rel.properties
@@ -593,7 +546,7 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
   }
 
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     ...(contentChanged
       ? [
           sql.query(
@@ -651,14 +604,24 @@ commonsRouter.openapi(updateCommonsRoute, async (c) => {
       : []),
   ]);
 
+  if (contentChanged) {
+    backgroundTask(
+      sql.transaction([
+        sql`SELECT set_config('app.actor_id', '', true)`,
+        sql`SELECT materialize_entity_rules(${commonsId})`,
+      ]).then(() => undefined).catch(() => undefined),
+    );
+  }
+
   return c.json({ commons: updated }, 200);
 });
 
 commonsRouter.openapi(deleteCommonsRoute, async (c) => {
   const actor = requireActor(c);
   const commonsId = c.req.param("id");
-  const { commons, exists } = await loadVisibleCommons(actor.id, commonsId);
-  const row = requireVisibleCommons(commons, exists);
+  const loaded = await checkEntityAccess(actor.id, actor.groups, commonsId, "view");
+  const row = requireEntity(loaded, "Commons");
+  if (row.kind !== "commons") throw new ApiError(404, "not_found", "Commons not found");
   if (row.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Forbidden");
   }
@@ -667,7 +630,7 @@ commonsRouter.openapi(deleteCommonsRoute, async (c) => {
   const parentCommonsId = row.commons_id;
   const sql = createSql();
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql`DELETE FROM entities WHERE id = ${commonsId}`,
     // Log on the parent commons (the deleted entity's own activity cascades away)
     ...(parentCommonsId
@@ -699,9 +662,11 @@ commonsRouter.openapi(deleteCommonsRoute, async (c) => {
 
 commonsRouter.openapi(listCommonsEntitiesRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const commonsId = c.req.param("id");
-  const loaded = await loadVisibleCommons(actorId, commonsId);
-  requireVisibleCommons(loaded.commons, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, commonsId, "view");
+  const commons = requireEntity(loaded, "Commons");
+  if (commons.kind !== "commons") throw new ApiError(404, "not_found", "Commons not found");
 
   const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
@@ -718,8 +683,9 @@ commonsRouter.openapi(listCommonsEntitiesRoute, async (c) => {
     order,
   });
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: actorGroups };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(listing.query, listing.params),
   ]);
   const entities = (rows as EntityRecord[]).slice(0, limit);
@@ -733,9 +699,11 @@ commonsRouter.openapi(listCommonsEntitiesRoute, async (c) => {
 
 commonsRouter.openapi(listChildCommonsRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const commonsId = c.req.param("id");
-  const loaded = await loadVisibleCommons(actorId, commonsId);
-  requireVisibleCommons(loaded.commons, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, commonsId, "view");
+  const parentCommons = requireEntity(loaded, "Commons");
+  if (parentCommons.kind !== "commons") throw new ApiError(404, "not_found", "Commons not found");
 
   const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
@@ -752,8 +720,9 @@ commonsRouter.openapi(listChildCommonsRoute, async (c) => {
     order,
   });
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: actorGroups };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(listing.query, listing.params),
   ]);
   const commons = (rows as EntityRecord[]).slice(0, limit);
@@ -773,8 +742,9 @@ commonsRouter.openapi(commonsFeedRoute, async (c) => {
   const cursor = parseCursorParam(c);
   const commonsId = c.req.param("id");
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', '', true)`,
+  const actorCtx = { id: c.get("actor")?.id ?? "", groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(
       `
         SELECT id, entity_id, actor_id, action, detail, ts

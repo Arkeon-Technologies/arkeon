@@ -14,6 +14,7 @@ import {
   paginationQuerySchema,
   queryParam,
 } from "../lib/schemas";
+import { setActorContext } from "../lib/permissions";
 import { createSql } from "../lib/sql";
 
 
@@ -115,8 +116,9 @@ activityRouter.openapi(listActivityRoute, async (c) => {
   const actorFilter = c.req.query("actor_id");
   const cursor = parseCursorParam(c);
 
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
   const rows = (await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+    ...setActorContext(sql, actorCtx),
     sql`
       SELECT id, entity_id, actor_id, action, detail, ts
       FROM entity_activity
@@ -130,7 +132,7 @@ activityRouter.openapi(listActivityRoute, async (c) => {
       ORDER BY ts DESC, id DESC
       LIMIT ${limit + 1}
     `,
-  ]))[1] as ActivityRow[];
+  ]))[2] as ActivityRow[];
 
   const page = rows.slice(0, limit);
   const next = rows.length > limit ? rows[limit - 1] : null;
@@ -153,8 +155,9 @@ entityActivityRouter.openapi(listEntityActivityRoute, async (c) => {
   const actorFilter = c.req.query("actor_id");
   const cursor = parseCursorParam(c);
 
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
   const rows = (await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+    ...setActorContext(sql, actorCtx),
     sql.query(
       `
         SELECT id, entity_id, actor_id, action, detail, ts
@@ -169,7 +172,7 @@ entityActivityRouter.openapi(listEntityActivityRoute, async (c) => {
       `,
       [entityId, since, action ?? null, actorFilter ?? null, cursor?.t ?? null, cursor?.i ?? null, limit + 1],
     ),
-  ]))[1] as ActivityRow[];
+  ]))[2] as ActivityRow[];
 
   const page = rows.slice(0, limit);
   const next = rows.length > limit ? page[page.length - 1] : null;

@@ -42,10 +42,28 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     return;
   }
 
+  // Compute effective groups (direct + inherited + "everyone")
+  let groups: string[] = [];
+  try {
+    const [, groupRows, everyoneRows] = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT group_id FROM actor_effective_groups(${key.actor_id})`,
+      sql`SELECT id FROM groups WHERE network_id = ${process.env.ROOT_COMMONS_ID ?? ''} AND name = 'everyone' LIMIT 1`,
+    ]);
+    groups = (groupRows as Array<{ group_id: string }>).map((r) => r.group_id);
+    const everyoneId = (everyoneRows as Array<{ id: string }>)[0]?.id;
+    if (everyoneId && !groups.includes(everyoneId)) {
+      groups.push(everyoneId);
+    }
+  } catch {
+    // groups table or function may not exist yet (pre-migration)
+  }
+
   const actor: Actor = {
     id: key.actor_id,
     apiKeyId: key.id,
     keyPrefix: key.key_prefix,
+    groups,
   };
 
   c.set("actor", actor);

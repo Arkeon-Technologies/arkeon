@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_URL = "postgresql://arke:arke@localhost:5432/arke";
-const url = process.env.DATABASE_URL ?? process.argv[2] ?? DEFAULT_URL;
+// Migrations need superuser (for SECURITY DEFINER, RLS policy changes, etc.)
+// Use MIGRATION_DATABASE_URL or DATABASE_URL or CLI arg
+const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL ?? process.argv[2] ?? DEFAULT_URL;
 
 console.log(`Deploying schema to: ${url.replace(/:[^@]*@/, ":***@")}`);
 console.log("");

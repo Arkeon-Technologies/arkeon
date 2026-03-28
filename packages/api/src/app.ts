@@ -15,6 +15,10 @@ import { contentRouter } from "./routes/content";
 import { entitiesRouter } from "./routes/entities";
 import { createHelpRouter } from "./routes/help";
 import { inboxRouter } from "./routes/inbox";
+import { groupsRouter } from "./routes/groups";
+import { invitationsRouter } from "./routes/invitations";
+import { networkRouter } from "./routes/network";
+import { permissionRulesRouter } from "./routes/permission-rules";
 import { entityRelationshipsRouter, relationshipDirectRouter } from "./routes/relationships";
 import { searchRouter } from "./routes/search";
 
@@ -62,6 +66,10 @@ export function createApp() {
   app.route("/entities", entitiesRouter);
   app.route("/entities", entityActivityRouter);
   app.route("/entities", entityRelationshipsRouter);
+  app.route("/groups", groupsRouter);
+  app.route("/invitations", invitationsRouter);
+  app.route("/network", networkRouter);
+  app.route("/permission-rules", permissionRulesRouter);
   app.route("/relationships", relationshipDirectRouter);
   app.route("/search", searchRouter);
 

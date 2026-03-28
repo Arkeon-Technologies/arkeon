@@ -2,10 +2,12 @@ import { createRoute, z } from "@hono/zod-openapi";
 
 import { backgroundTask } from "../lib/background";
 import { computeCidFromBytes, isValidCid, MAX_FILE_SIZE } from "../lib/cid";
+import type { EntityRecord } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
+import { checkEntityAccess, requireEntity, setActorContext } from "../lib/permissions";
 import {
   EntityIdParam,
   errorResponses,
@@ -24,17 +26,6 @@ type ContentEntry = {
   uploaded_at: string;
 };
 
-type EntityRow = {
-  id: string;
-  ver: number;
-  kind: string;
-  type: string;
-  owner_id: string;
-  view_access: string;
-  commons_id: string | null;
-  properties: Record<string, unknown>;
-};
-
 function getContentMap(properties: Record<string, unknown>): Record<string, ContentEntry> {
   const content = properties.content;
   if (!content || typeof content !== "object" || Array.isArray(content)) {
@@ -47,103 +38,9 @@ function isValidContentKey(key: string): boolean {
   return /^[A-Za-z0-9._-]{1,128}$/.test(key);
 }
 
-async function loadVisibleEntity(
-  actorId: string,
-  entityId: string,
-): Promise<{ entity: EntityRow | null; exists: boolean }> {
-  const sql = createSql();
-  const [, entityRows, existsRows, grantRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
-    sql.query(
-      `
-        SELECT *
-        FROM entities
-        WHERE id = $1
-        LIMIT 1
-      `,
-      [entityId],
-    ),
-    sql`SELECT entity_exists(${entityId}) AS exists`,
-    actorId
-      ? sql.query(
-          `
-            SELECT 1
-            FROM entity_access
-            WHERE entity_id = $1
-              AND actor_id = $2
-            LIMIT 1
-          `,
-          [entityId, actorId],
-        )
-      : sql`SELECT 1 WHERE false`,
-  ]);
-  const entity = (entityRows as EntityRow[])[0] ?? null;
-  const canView = Boolean(
-    entity &&
-    (
-      entity.view_access === "public" ||
-      entity.owner_id === actorId ||
-      (grantRows as Array<{ "?column?": number }>).length > 0
-    ),
-  );
-
-  return {
-    entity: canView ? entity : null,
-    exists: Boolean((existsRows as Array<{ exists: boolean }>)[0]?.exists),
-  };
-}
-
-function requireVisibleEntity(entity: EntityRow | null, exists: boolean) {
-  if (entity) {
-    return entity;
-  }
-  if (exists) {
-    throw new ApiError(403, "forbidden", "Forbidden");
-  }
-  throw new ApiError(404, "not_found", "Entity not found");
-}
-
-async function ensureEditAccess(
-  actorId: string,
-  entityId: string,
-): Promise<{ entity: EntityRow | null; exists: boolean }> {
-  const sql = createSql();
-  const [, rows, existsRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
-    sql.query(
-      `
-        SELECT e.*
-        FROM entities e
-        WHERE e.id = $1
-          AND (
-            e.owner_id = current_actor_id()
-            OR e.edit_access = 'public'
-            OR (
-              e.edit_access = 'collaborators'
-              AND EXISTS (
-                SELECT 1 FROM entity_access ea
-                WHERE ea.entity_id = e.id
-                  AND ea.actor_id = current_actor_id()
-                  AND ea.access_type IN ('edit', 'admin')
-              )
-            )
-          )
-        LIMIT 1
-      `,
-      [entityId],
-    ),
-    sql`SELECT entity_exists(${entityId}) AS exists`,
-  ]);
-
-  return {
-    entity: (rows as EntityRow[])[0] ?? null,
-    exists: Boolean((existsRows as Array<{ exists: boolean }>)[0]?.exists),
-  };
-}
-
 async function updateContentMetadata(options: {
-  actorId: string;
-  entity: EntityRow;
+  actor: { id: string; groups: string[] };
+  entity: EntityRecord;
   expectedVer: number;
   properties: Record<string, unknown>;
   action: string;
@@ -152,8 +49,8 @@ async function updateContentMetadata(options: {
 }) {
   const sql = createSql();
   const now = new Date().toISOString();
-  const [, updateRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${options.actorId}, true)`,
+  const [, , updateRows] = await sql.transaction([
+    ...setActorContext(sql, options.actor),
     sql.query(
       `
         UPDATE entities
@@ -168,7 +65,7 @@ async function updateContentMetadata(options: {
       `,
       [
         JSON.stringify(options.properties),
-        options.actorId,
+        options.actor.id,
         options.note ?? null,
         now,
         options.entity.id,
@@ -177,7 +74,7 @@ async function updateContentMetadata(options: {
     ),
   ]);
 
-  const updated = (updateRows as EntityRow[])[0];
+  const updated = (updateRows as EntityRecord[])[0];
   if (!updated) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
       entity_id: options.entity.id,
@@ -187,7 +84,7 @@ async function updateContentMetadata(options: {
   const nextVer = updated.ver;
 
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${options.actorId}, true)`,
+    ...setActorContext(sql, options.actor),
     sql.query(
       `
         INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
@@ -206,7 +103,7 @@ async function updateContentMetadata(options: {
       `,
       [
         options.entity.id,
-        options.actorId,
+        options.actor.id,
         options.action,
         JSON.stringify({ ...options.detail, ver: nextVer }),
         now,
@@ -374,8 +271,8 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
     throw new ApiError(413, "file_too_large", "File exceeds 500 MB limit");
   }
 
-  const editable = await ensureEditAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(editable.entity, editable.exists);
+  const editable = await checkEntityAccess(actor.id, actor.groups, entityId, "edit");
+  const entity = requireEntity(editable);
 
   if (entity.ver !== expectedVer) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
@@ -408,7 +305,7 @@ contentRouter.openapi(uploadContentRoute, async (c) => {
   properties.content = contentMap;
 
   const { nextVer, ts } = await updateContentMetadata({
-    actorId: actor.id,
+    actor,
     entity,
     expectedVer,
     properties,
@@ -451,8 +348,8 @@ contentRouter.openapi(getContentRoute, async (c) => {
     throw new ApiError(400, "invalid_query", "Invalid CID");
   }
 
-  const loaded = await loadVisibleEntity(actorId, entityId);
-  const entity = requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, c.get("actor")?.groups ?? [], entityId, "view");
+  const entity = requireEntity(loaded);
   const contentMap = getContentMap(entity.properties ?? {});
 
   const entry = cid
@@ -500,8 +397,8 @@ contentRouter.openapi(deleteContentRoute, async (c) => {
     throw new ApiError(400, "invalid_query", "Invalid CID");
   }
 
-  const editable = await ensureEditAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(editable.entity, editable.exists);
+  const editable = await checkEntityAccess(actor.id, actor.groups, entityId, "edit");
+  const entity = requireEntity(editable);
   if (entity.ver !== expectedVer) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
       entity_id: entityId,
@@ -536,7 +433,7 @@ contentRouter.openapi(deleteContentRoute, async (c) => {
 
   properties.content = contentMap;
   const { nextVer, ts } = await updateContentMetadata({
-    actorId: actor.id,
+    actor,
     entity,
     expectedVer,
     properties,
@@ -569,8 +466,8 @@ contentRouter.openapi(renameContentRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid content key");
   }
 
-  const editable = await ensureEditAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(editable.entity, editable.exists);
+  const editable = await checkEntityAccess(actor.id, actor.groups, entityId, "edit");
+  const entity = requireEntity(editable);
   if (entity.ver !== body.ver) {
     throw new ApiError(409, "cas_conflict", "Version mismatch", {
       entity_id: entityId,
@@ -593,7 +490,7 @@ contentRouter.openapi(renameContentRoute, async (c) => {
   properties.content = contentMap;
 
   const { updated, ts } = await updateContentMetadata({
-    actorId: actor.id,
+    actor,
     entity,
     expectedVer: body.ver,
     properties,

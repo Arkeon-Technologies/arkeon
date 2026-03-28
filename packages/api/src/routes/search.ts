@@ -16,6 +16,7 @@ import {
   paginationQuerySchema,
   queryParam,
 } from "../lib/schemas";
+import { setActorContext } from "../lib/permissions";
 import { createSql } from "../lib/sql";
 
 
@@ -97,8 +98,9 @@ searchRouter.openapi(searchRoute, async (c) => {
     `;
   }
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(query, params),
   ]);
   const results = (rows as Array<Record<string, unknown>>).slice(0, limit);

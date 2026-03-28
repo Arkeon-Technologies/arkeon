@@ -1,0 +1,460 @@
+-- =============================================================================
+-- SPEC: Permission Rules + Unified entity_access
+-- =============================================================================
+-- Status: DESIGN SPEC — not executable SQL. Comments describe intent.
+--
+-- =============================================================================
+-- CORE DESIGN: Unified entity_access
+-- =============================================================================
+--
+-- The entity_access table is extended to handle BOTH individual actor grants
+-- AND group grants. Permission rules materialize INTO entity_access at write
+-- time. At read time, there's one table and one EXISTS check.
+--
+-- =============================================================================
+-- TABLE: entity_access (modified from 002-entity-access.sql)
+-- =============================================================================
+--
+-- CREATE TABLE entity_access (
+--   entity_id   TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+--   access_type TEXT NOT NULL,
+--   actor_id    TEXT,                   -- individual grant (NULL for group grants)
+--   group_id    TEXT                    -- group grant (NULL for individual grants)
+--                REFERENCES groups(id) ON DELETE CASCADE,
+--   rule_id     TEXT                    -- which rule created this (NULL for manual grants)
+--                REFERENCES permission_rules(id) ON DELETE CASCADE,
+--   granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--
+--   -- Exactly one of actor_id or group_id must be set
+--   CONSTRAINT grantee_check CHECK (num_nonnulls(actor_id, group_id) = 1),
+--
+--   -- Valid access types
+--   CONSTRAINT valid_access_type CHECK (
+--     access_type IN ('view', 'edit', 'contribute', 'admin')
+--   ),
+--
+--   -- admin grants are always individual (never from rules/groups)
+--   CONSTRAINT admin_individual_only CHECK (
+--     access_type != 'admin' OR (actor_id IS NOT NULL AND rule_id IS NULL)
+--   ),
+--
+--   -- Unique per grantee per access type per entity
+--   -- Two unique constraints: one for actor grants, one for group grants
+--   UNIQUE NULLS NOT DISTINCT (entity_id, actor_id, access_type),
+--   UNIQUE NULLS NOT DISTINCT (entity_id, group_id, access_type)
+-- );
+--
+-- INDEXES:
+--   -- For RLS "can this actor see this entity?" (individual grants)
+--   CREATE INDEX idx_entity_access_actor
+--     ON entity_access(entity_id, actor_id, access_type)
+--     WHERE actor_id IS NOT NULL;
+--
+--   -- For RLS "can any of this actor's groups see this entity?" (group grants)
+--   CREATE INDEX idx_entity_access_group
+--     ON entity_access(entity_id, group_id, access_type)
+--     WHERE group_id IS NOT NULL;
+--
+--   -- For "who can access entity X?" (display all grants)
+--   CREATE INDEX idx_entity_access_entity
+--     ON entity_access(entity_id);
+--
+--   -- For "what can actor X access?" (actor's feed)
+--   CREATE INDEX idx_entity_access_by_actor
+--     ON entity_access(actor_id)
+--     WHERE actor_id IS NOT NULL;
+--
+--   -- For bulk cleanup when a rule is deleted (CASCADE handles this, but
+--   -- useful for manual cleanup / debugging)
+--   CREATE INDEX idx_entity_access_rule
+--     ON entity_access(rule_id)
+--     WHERE rule_id IS NOT NULL;
+--
+-- =============================================================================
+-- TABLE: permission_rules
+-- =============================================================================
+--
+-- Permission rules define attribute-based access patterns. They are NOT
+-- evaluated at read time. Instead, when a rule is created/updated/deleted,
+-- a materializer job computes matching entities and writes/removes
+-- entity_access rows.
+--
+-- CREATE TABLE permission_rules (
+--   id              TEXT PRIMARY KEY,          -- ULID
+--   network_id      TEXT NOT NULL
+--                    REFERENCES entities(id),
+--
+--   -- MATCH CRITERIA: which entities does this rule apply to?
+--   -- All NULL = match everything. Each non-NULL field narrows the match.
+--   match_kind      TEXT,                      -- 'entity' | 'commons' | NULL (any)
+--   match_type      TEXT,                      -- 'book' | 'report' | NULL (any)
+--   match_commons   TEXT,                      -- specific commons_id | NULL (any)
+--   match_property  JSONB,                     -- e.g. {"classification":"unclassified"}
+--                                              -- Uses @> containment
+--                                              -- NULL = no property filter
+--
+--   -- GRANT: what access, and to whom?
+--   grant_group_id  TEXT                       -- NULL = everyone group
+--                    REFERENCES groups(id) ON DELETE CASCADE,
+--   grant_access    TEXT NOT NULL,             -- 'view' | 'edit' | 'contribute'
+--
+--   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--
+--   CONSTRAINT valid_grant CHECK (grant_access IN ('view', 'edit', 'contribute'))
+-- );
+--
+-- INDEXES:
+--   CREATE INDEX idx_permission_rules_network
+--     ON permission_rules(network_id);
+--   CREATE INDEX idx_permission_rules_match_property
+--     ON permission_rules USING gin(match_property jsonb_path_ops);
+--
+-- =============================================================================
+-- MATERIALIZATION: Rules → entity_access
+-- =============================================================================
+--
+-- The "big event" pattern. When permission rules or group hierarchy change,
+-- a materializer job computes the correct entity_access rows. This is the
+-- expensive operation, but it happens rarely (admin actions) and can run
+-- as a background job.
+--
+-- WHEN A RULE IS CREATED (POST /permission-rules):
+--   1. Find all entities matching the rule's criteria:
+--      SELECT id FROM entities
+--      WHERE (rule.match_kind IS NULL OR kind = rule.match_kind)
+--        AND (rule.match_type IS NULL OR type = rule.match_type)
+--        AND (rule.match_commons IS NULL OR commons_id = rule.match_commons)
+--        AND (rule.match_property IS NULL OR properties @> rule.match_property)
+--
+--   2. For the grant_group_id, compute all groups that inherit this grant
+--      (the group itself + all descendant groups):
+--      SELECT group_id FROM group_with_descendants(rule.grant_group_id)
+--
+--      If grant_group_id IS NULL, use the "everyone" system group ID.
+--
+--   3. Insert entity_access rows:
+--      INSERT INTO entity_access (entity_id, access_type, group_id, rule_id)
+--      SELECT e.id, rule.grant_access, g.group_id, rule.id
+--      FROM matched_entities e
+--      CROSS JOIN descendant_groups g
+--      ON CONFLICT DO NOTHING
+--
+--   For a rule matching 1000 entities and 3 descendant groups = 3000 inserts.
+--   This is a bulk INSERT and completes in milliseconds.
+--
+-- WHEN A RULE IS DELETED (DELETE /permission-rules/:id):
+--   CASCADE on rule_id handles cleanup automatically:
+--   All entity_access rows with rule_id = deleted_rule are removed.
+--
+-- WHEN AN ENTITY IS CREATED (POST /entities):
+--   After creating the entity, check all permission rules:
+--   SELECT * FROM permission_rules
+--   WHERE (match_kind IS NULL OR match_kind = new_entity.kind)
+--     AND (match_type IS NULL OR match_type = new_entity.type)
+--     AND (match_commons IS NULL OR match_commons = new_entity.commons_id)
+--     AND (match_property IS NULL OR new_entity.properties @> match_property)
+--
+--   For each matching rule, insert entity_access rows for the rule's
+--   grant_group_id + descendants. This runs inline (not background)
+--   because it's checking ~10-50 rules against 1 entity — fast.
+--
+-- WHEN AN ENTITY'S PROPERTIES CHANGE (PUT /entities/:id):
+--   Re-evaluate rules for this entity. Delete stale rule-derived grants,
+--   insert new ones. Same as creation but with a diff step:
+--   1. Get current rule-derived grants: WHERE entity_id = X AND rule_id IS NOT NULL
+--   2. Compute what SHOULD exist based on current properties + rules
+--   3. DELETE removed, INSERT added
+--
+-- WHEN GROUP HIERARCHY CHANGES (PUT /groups/:id changing parent):
+--   The set of descendant groups changes, which affects which groups
+--   have inherited grants. Re-materialize all rules that reference
+--   affected groups.
+--   This is the most expensive operation but also the rarest.
+--
+-- =============================================================================
+-- RLS POLICIES (replaces current 007-rls-policies.sql)
+-- =============================================================================
+--
+-- At transaction start, middleware sets TWO variables:
+--   SET LOCAL app.actor_id = 'ACTOR_ULID';
+--   SET LOCAL app.actor_groups = '{group1_id,group2_id,...}';
+--
+-- Helper functions:
+--
+-- CREATE OR REPLACE FUNCTION current_actor_id() RETURNS TEXT AS $$
+--   SELECT COALESCE(NULLIF(current_setting('app.actor_id', true), ''), NULL);
+-- $$ LANGUAGE sql STABLE;
+--
+-- CREATE OR REPLACE FUNCTION current_actor_groups() RETURNS TEXT[] AS $$
+--   SELECT COALESCE(
+--     string_to_array(
+--       NULLIF(current_setting('app.actor_groups', true), ''),
+--       ','
+--     ),
+--     '{}'::text[]
+--   );
+-- $$ LANGUAGE sql STABLE;
+--
+-- ENTITIES SELECT (view access):
+--
+-- CREATE POLICY entities_select ON entities FOR SELECT USING (
+--   view_access = 'public'
+--   OR owner_id = current_actor_id()
+--   OR EXISTS(
+--     SELECT 1 FROM entity_access ea
+--     WHERE ea.entity_id = entities.id
+--       AND (
+--         ea.actor_id = current_actor_id()
+--         OR ea.group_id = ANY(current_actor_groups())
+--       )
+--   )
+-- );
+--
+-- NOTE: The EXISTS check covers BOTH individual and group grants in one
+-- query. With the partial indexes on (entity_id, actor_id) and
+-- (entity_id, group_id), Postgres does at most 1 + N index probes
+-- where N = number of actor's groups (typically 3-5).
+--
+-- ENTITIES UPDATE (edit access):
+--
+-- CREATE POLICY entities_update ON entities FOR UPDATE USING (
+--   owner_id = current_actor_id()
+--   OR edit_access = 'public'
+--   OR (edit_access = 'collaborators' AND EXISTS(
+--     SELECT 1 FROM entity_access ea
+--     WHERE ea.entity_id = entities.id
+--       AND ea.access_type IN ('edit', 'admin')
+--       AND (
+--         ea.actor_id = current_actor_id()
+--         OR ea.group_id = ANY(current_actor_groups())
+--       )
+--   ))
+--   -- Group edit grants via rules bypass the 'collaborators' gate:
+--   -- If a rule grants edit to a group, it's an explicit policy decision.
+--   OR EXISTS(
+--     SELECT 1 FROM entity_access ea
+--     WHERE ea.entity_id = entities.id
+--       AND ea.access_type = 'edit'
+--       AND ea.group_id = ANY(current_actor_groups())
+--       AND ea.rule_id IS NOT NULL
+--   )
+-- );
+--
+-- ENTITIES DELETE (owner only — unchanged):
+--
+-- CREATE POLICY entities_delete ON entities FOR DELETE USING (
+--   owner_id = current_actor_id()
+-- );
+--
+-- ENTITY ACCESS SELECT (anyone can see grants — unchanged):
+--
+-- CREATE POLICY access_select ON entity_access FOR SELECT USING (true);
+--
+-- ENTITY ACCESS INSERT (owner or admin of entity):
+--
+-- CREATE POLICY access_insert ON entity_access FOR INSERT WITH CHECK (
+--   -- Manual grants: owner or admin of the entity
+--   (rule_id IS NULL AND EXISTS(
+--     SELECT 1 FROM entities WHERE id = entity_id AND (
+--       owner_id = current_actor_id()
+--       OR EXISTS(
+--         SELECT 1 FROM entity_access ea
+--         WHERE ea.entity_id = entity_access.entity_id
+--           AND ea.actor_id = current_actor_id()
+--           AND ea.access_type = 'admin'
+--       )
+--     )
+--   ))
+--   -- Rule-derived grants: inserted by the system (materializer)
+--   -- The materializer runs with a service role or bypasses RLS.
+--   -- If running as app_user, we need a separate policy or SECURITY DEFINER function.
+--   OR rule_id IS NOT NULL
+-- );
+--
+-- NOTE ON MATERIALIZER PRIVILEGES:
+--   The rule materializer needs to insert/delete entity_access rows for
+--   entities it doesn't own. Two options:
+--     A) Run materializer queries with a SECURITY DEFINER function
+--     B) Run materializer with a separate DB role that bypasses RLS
+--   Option A is simpler — wrap the materialization in a function:
+--
+--   CREATE FUNCTION materialize_rule(rid TEXT) RETURNS void
+--   SECURITY DEFINER AS $$ ... $$;
+--
+-- RELATIONSHIP EDGES (edit access on source — updated):
+--
+-- CREATE POLICY edges_insert ON relationship_edges FOR INSERT WITH CHECK (
+--   EXISTS(
+--     SELECT 1 FROM entities WHERE id = source_id AND (
+--       owner_id = current_actor_id()
+--       OR edit_access = 'public'
+--       OR (edit_access = 'collaborators' AND EXISTS(
+--         SELECT 1 FROM entity_access ea
+--         WHERE ea.entity_id = source_id
+--           AND ea.access_type IN ('edit', 'admin')
+--           AND (ea.actor_id = current_actor_id()
+--                OR ea.group_id = ANY(current_actor_groups()))
+--       ))
+--       OR EXISTS(
+--         SELECT 1 FROM entity_access ea
+--         WHERE ea.entity_id = source_id
+--           AND ea.access_type = 'edit'
+--           AND ea.group_id = ANY(current_actor_groups())
+--           AND ea.rule_id IS NOT NULL
+--       )
+--     )
+--   )
+-- );
+--
+-- (edges_delete follows the same pattern as edges_insert)
+--
+-- ENTITY VERSIONS SELECT (can see if can see entity — updated):
+--
+-- CREATE POLICY versions_select ON entity_versions FOR SELECT USING (
+--   EXISTS(
+--     SELECT 1 FROM entities WHERE id = entity_id AND (
+--       view_access = 'public'
+--       OR owner_id = current_actor_id()
+--       OR EXISTS(
+--         SELECT 1 FROM entity_access ea
+--         WHERE ea.entity_id = entity_versions.entity_id
+--           AND (ea.actor_id = current_actor_id()
+--                OR ea.group_id = ANY(current_actor_groups()))
+--       )
+--     )
+--   )
+-- );
+--
+-- =============================================================================
+-- FULL ACCESS RESOLUTION CHAIN
+-- =============================================================================
+--
+-- For "can actor X view entity Y":
+--   1. Y.view_access = 'public'? → yes (column check, instant)
+--   2. X owns Y? → yes (column check, instant)
+--   3. entity_access has a row for (Y, actor=X)? → yes (index probe)
+--   4. entity_access has a row for (Y, group=any of X's groups)? → yes (index probes)
+--   5. Denied
+--
+-- Steps 3 and 4 are ONE EXISTS query with an OR. Steps 1-2 short-circuit
+-- before the EXISTS fires for public entities and owned entities.
+--
+-- For "can actor X edit entity Y":
+--   1. X owns Y? → yes
+--   2. Y.edit_access = 'public'? → yes
+--   3. Y.edit_access = 'collaborators' AND entity_access has edit/admin
+--      grant for X (individual or group)? → yes
+--   4. entity_access has a rule-derived edit group grant matching X's groups? → yes
+--   5. Denied
+--
+-- For "can actor X contribute to commons Y":
+--   1. X owns Y? → yes
+--   2. Y.contribute_access = 'public'? → yes
+--   3. Y.contribute_access = 'contributors' AND entity_access has
+--      contribute/admin grant for X (individual or group)? → yes
+--   4. entity_access has a rule-derived contribute group grant? → yes
+--   5. Denied
+--
+-- For "can actor X admin entity Y":
+--   1. X owns Y? → yes
+--   2. entity_access has admin grant for X (actor_id only, never group)? → yes
+--   3. Denied
+--
+-- =============================================================================
+-- EXAMPLES
+-- =============================================================================
+--
+-- EXAMPLE: EXAMPLE classification tiers
+--
+-- Setup:
+--   groups:   everyone, members, tier-1 (parent=members),
+--             tier-2 (parent=tier-1), tier-3 (parent=tier-2)
+--
+-- Rules created by admin:
+--   Rule A: { match_property: {"classification":"unclassified"},
+--             grant_group_id: everyone, grant_access: "view" }
+--   Rule B: { match_property: {"classification":"classified"},
+--             grant_group_id: tier-1, grant_access: "view" }
+--   Rule C: { match_property: {"classification":"secret"},
+--             grant_group_id: tier-2, grant_access: "view" }
+--   Rule D: { match_property: {"classification":"top_secret"},
+--             grant_group_id: tier-3, grant_access: "view" }
+--
+-- Materialization for Rule B (grant view to tier-1):
+--   Descendant groups of tier-1 = [tier-1, tier-2, tier-3]
+--   Matched entities = all with {"classification":"classified"}
+--   entity_access rows created:
+--     (entity_X, view, group=tier-1, rule=B)
+--     (entity_X, view, group=tier-2, rule=B)  ← tier-2 inherits
+--     (entity_X, view, group=tier-3, rule=B)  ← tier-3 inherits
+--     (entity_Y, view, group=tier-1, rule=B)
+--     (entity_Y, view, group=tier-2, rule=B)
+--     (entity_Y, view, group=tier-3, rule=B)
+--     ... for all matching entities
+--
+-- Query: tier-2 actor lists entities in a commons
+--   Actor's direct groups: [tier-2, members, everyone]
+--   (No recursive CTE needed — middleware computed this at request start)
+--   RLS checks: view_access='public' OR owner OR entity_access has
+--               group_id IN ('tier-2','members','everyone')
+--   Result: sees unclassified (everyone), classified (tier-1→inherited by tier-2),
+--           secret (tier-2). Does NOT see top_secret (tier-3 only).
+--
+-- Actor removed from tier-2:
+--   Next request, middleware computes new groups: [members, everyone]
+--   entity_access rows for tier-2 still exist, but actor's groups don't
+--   include tier-2 anymore → immediate access revocation. No cleanup needed.
+--
+-- =============================================================================
+-- PERFORMANCE ANALYSIS
+-- =============================================================================
+--
+-- READ PATH (hot, optimized):
+--   - entity_access is checked via EXISTS with partial indexes
+--   - For public entities: view_access='public' short-circuits, no EXISTS
+--   - For owned entities: owner_id check short-circuits
+--   - For granted entities: 1 index probe (actor) + N probes (groups)
+--   - Listing with LIMIT 50: Postgres checks rows until 50 pass
+--   - Worst case (restrictive network, large commons): may scan many rows
+--     to find 50 accessible ones. Mitigated by:
+--       a) Most entities in a restrictive network will have rule-derived
+--          group grants, so the group check passes quickly
+--       b) The index is (entity_id, group_id, access_type) — direct hit
+--
+-- WRITE PATH (cold, background):
+--   - Rule creation: bulk INSERT into entity_access. 1000 entities × 3 groups
+--     = 3000 rows, ~10ms for a bulk INSERT.
+--   - Rule deletion: CASCADE handles cleanup.
+--   - Entity creation: check ~10-50 rules, insert matching grants. Inline.
+--   - Entity update: re-evaluate rules for this entity. Inline, fast.
+--   - Group hierarchy change: re-materialize affected rules. Background job.
+--
+-- SPACE:
+--   - entity_access grows by (matched_entities × descendant_groups) per rule.
+--   - For a network with 100K entities, 5 rules averaging 20K matches each,
+--     and 3 descendant groups per rule: 100K × 5 × 3 / 5 = 300K rows.
+--   - Each row is ~80 bytes. 300K rows = ~24MB. Comfortable.
+--
+-- =============================================================================
+-- API ENDPOINTS
+-- =============================================================================
+--
+-- POST   /permission-rules
+--   Auth: network admin
+--   Body: { match_kind?, match_type?, match_commons?, match_property?,
+--           grant_group_id?, grant_access }
+--   Validation: grant_access in (view, edit, contribute). No admin via rules.
+--   Side effect: triggers materialization (inline for <1000 matches,
+--                background job for more)
+--   Response 201: { rule: {...}, materialized_count: number }
+--
+-- GET    /permission-rules
+--   Auth: any authenticated actor
+--   Response 200: { rules: [...] }
+--
+-- DELETE /permission-rules/:id
+--   Auth: network admin
+--   Side effect: CASCADE deletes entity_access rows
+--   Response 204
+--
+-- =============================================================================

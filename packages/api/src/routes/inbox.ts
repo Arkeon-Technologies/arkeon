@@ -3,6 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { encodeCursor } from "../lib/cursor";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseLimit, parseOptionalTimestamp } from "../lib/http";
+import { setActorContext } from "../lib/permissions";
 import { createRouter } from "../lib/openapi";
 import {
   DateTimeSchema,
@@ -97,8 +98,8 @@ inboxRouter.openapi(listInboxRoute, async (c) => {
   const cursor = parseCursorParam(c);
   const actions = c.req.query("action")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         SELECT id, entity_id, actor_id, action, detail, ts
@@ -131,8 +132,8 @@ inboxRouter.openapi(countInboxRoute, async (c) => {
   }
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql`
       SELECT COUNT(*)::int AS count
       FROM notifications

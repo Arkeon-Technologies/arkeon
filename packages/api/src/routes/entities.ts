@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
+import { backgroundTask } from "../lib/background";
 import { encodeCursor } from "../lib/cursor";
 import { parseProjection, projectEntity } from "../lib/entity-projection";
 import {
@@ -32,6 +33,7 @@ import {
   pathParam,
   queryParam,
 } from "../lib/schemas";
+import { checkEntityAccess, requireEntity, setActorContext } from "../lib/permissions";
 import { createSql } from "../lib/sql";
 
 
@@ -49,97 +51,6 @@ type VersionRow = {
   note: string | null;
   created_at: string;
 };
-
-async function loadVisibleEntity(
-  actorId: string,
-  entityId: string,
-): Promise<{ entity: EntityRecord | null; exists: boolean }> {
-  const sql = createSql();
-  const [, entityRows, existsRows, grantRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
-    sql.query(
-      `
-        SELECT *
-        FROM entities
-        WHERE id = $1
-        LIMIT 1
-      `,
-      [entityId],
-    ),
-    sql`SELECT entity_exists(${entityId}) AS exists`,
-    actorId
-      ? sql.query(
-          `
-            SELECT 1
-            FROM entity_access
-            WHERE entity_id = $1
-              AND actor_id = $2
-            LIMIT 1
-          `,
-          [entityId, actorId],
-        )
-      : sql`SELECT 1 WHERE false`,
-  ]);
-  const entity = (entityRows as EntityRecord[])[0] ?? null;
-  const canView = Boolean(
-    entity &&
-    (
-      entity.view_access === "public" ||
-      entity.owner_id === actorId ||
-      (grantRows as Array<{ "?column?": number }>).length > 0
-    ),
-  );
-
-  return {
-    entity: canView ? entity : null,
-    exists: Boolean((existsRows as Array<{ exists: boolean }>)[0]?.exists),
-  };
-}
-
-function requireVisibleEntity(entity: EntityRecord | null, exists: boolean) {
-  if (entity) {
-    return entity;
-  }
-  if (exists) {
-    throw new ApiError(403, "forbidden", "Forbidden");
-  }
-  throw new ApiError(404, "not_found", "Entity not found");
-}
-
-async function ensureManageAccess(
-  actorId: string,
-  entityId: string,
-) {
-  const sql = createSql();
-  const [, rows, existsRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
-    sql.query(
-      `
-        SELECT e.*
-        FROM entities e
-        WHERE e.id = $1
-          AND (
-            e.owner_id = current_actor_id()
-            OR EXISTS (
-              SELECT 1 FROM entity_access ea
-              WHERE ea.entity_id = e.id
-                AND ea.actor_id = current_actor_id()
-                AND ea.access_type = 'admin'
-            )
-          )
-        LIMIT 1
-      `,
-      [entityId],
-    ),
-    sql`SELECT entity_exists(${entityId}) AS exists`,
-  ]);
-
-  const entity = (rows as EntityRecord[])[0] ?? null;
-  return {
-    entity,
-    exists: Boolean((existsRows as Array<{ exists: boolean }>)[0]?.exists),
-  };
-}
 
 const AccessGrantSchema = z.object({
   actor_id: EntityIdParam,
@@ -493,8 +404,8 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   const contributeAccess =
     validateAccessValue(body.contribute_access, "contribute_access") ?? "public";
 
-  const [, insertedRows, versionRows, activityRows, parentRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [, , insertedRows, versionRows, activityRows, parentRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         INSERT INTO entities (
@@ -566,15 +477,24 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   void versionRows;
   void activityRows;
 
+  // Evaluate permission rules for the new entity
+  backgroundTask(
+    sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT materialize_entity_rules(${id})`,
+    ]).then(() => undefined).catch(() => undefined),
+  );
+
   return c.json({ entity: inserted }, 201);
 });
 
 entitiesRouter.openapi(getEntityRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(actorId, entityId);
-  const entity = requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, entityId, 'view');
+  const entity = requireEntity(loaded);
 
   const ifNoneMatch = c.req.header("if-none-match")?.replaceAll("\"", "");
   if (ifNoneMatch && ifNoneMatch === String(entity.ver)) {
@@ -611,13 +531,13 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "No changes requested");
   }
 
-  const loaded = await loadVisibleEntity(actor.id, entityId);
-  const current = requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actor.id, actor.groups, entityId, 'view');
+  const current = requireEntity(loaded);
 
   if (nextCommonsId && nextCommonsId !== current.commons_id) {
     const sqlCheck = createSql();
-    const [, rows, existsRows] = await sqlCheck.transaction([
-      sqlCheck`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    const [, , rows, existsRows] = await sqlCheck.transaction([
+      ...setActorContext(sqlCheck, actor),
       sqlCheck.query(
         `
           SELECT id
@@ -657,8 +577,8 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
   const nextVer = contentChanged ? current.ver + 1 : current.ver;
   const targetCommonsId = nextCommonsId ?? current.commons_id;
 
-  const [, updateRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [, , updateRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         UPDATE entities
@@ -703,8 +623,8 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
   // If tombstoning, snapshot outbound relationships before deleting them
   let relationshipsRemoved: Array<Record<string, unknown>> = [];
   if (tombstone) {
-    const [, relRows] = await sql.transaction([
-      sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    const [, , relRows] = await sql.transaction([
+      ...setActorContext(sql, actor),
       sql.query(
         `
           SELECT rel.id, re.predicate, re.source_id, re.target_id, rel.properties
@@ -719,7 +639,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
   }
 
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     ...(contentChanged
       ? [
           sql.query(
@@ -777,18 +697,29 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
       : []),
   ]);
 
+  // Re-evaluate permission rules if properties changed
+  if (contentChanged) {
+    backgroundTask(
+      sql.transaction([
+        sql`SELECT set_config('app.actor_id', '', true)`,
+        sql`SELECT materialize_entity_rules(${entityId})`,
+      ]).then(() => undefined).catch(() => undefined),
+    );
+  }
+
   return c.json({ entity: updated }, 200);
 });
 
 entitiesRouter.openapi(getEntityAccessRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(actorId, entityId);
-  requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, entityId, 'view');
+  requireEntity(loaded);
   const sql = createSql();
 
-  const [, entityRows, grantsRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const [, , entityRows, grantsRows] = await sql.transaction([
+    ...setActorContext(sql, { id: actorId, groups: actorGroups }),
     sql`
       SELECT owner_id, view_access, edit_access, contribute_access
       FROM entities
@@ -814,8 +745,8 @@ entitiesRouter.openapi(updateEntityAccessRoute, async (c) => {
   const actor = requireActor(c);
   const entityId = c.req.param("id");
   const body = await parseJsonBody<Record<string, unknown>>(c);
-  const manage = await ensureManageAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(manage.entity, manage.exists);
+  const manage = await checkEntityAccess(actor.id, actor.groups, entityId, 'admin');
+  const entity = requireEntity(manage);
 
   const viewAccess = validateAccessValue(body.view_access, "view_access");
   const editAccess = validateAccessValue(body.edit_access, "edit_access");
@@ -827,8 +758,8 @@ entitiesRouter.openapi(updateEntityAccessRoute, async (c) => {
 
   const sql = createSql();
   const now = new Date().toISOString();
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [, , rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         UPDATE entities
@@ -876,8 +807,8 @@ entitiesRouter.openapi(transferOwnerRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing new_owner_id");
   }
 
-  const loaded = await loadVisibleEntity(actor.id, entityId);
-  const entity = requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actor.id, actor.groups, entityId, 'view');
+  const entity = requireEntity(loaded);
   if (entity.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Forbidden");
   }
@@ -885,13 +816,15 @@ entitiesRouter.openapi(transferOwnerRoute, async (c) => {
   const sql = createSql();
   const now = new Date().toISOString();
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
-    sql`UPDATE entities SET owner_id = ${body.new_owner_id} WHERE id = ${entityId}`,
+    ...setActorContext(sql, actor),
+    // Grant admin to old owner BEFORE transferring (RLS: owner can insert grants)
     sql`
       INSERT INTO entity_access (entity_id, actor_id, access_type)
       VALUES (${entityId}, ${actor.id}, 'admin')
       ON CONFLICT DO NOTHING
     `,
+    // Now transfer ownership (old owner retains admin via the grant above)
+    sql`UPDATE entities SET owner_id = ${body.new_owner_id} WHERE id = ${entityId}`,
     sql.query(
       `
         INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
@@ -917,18 +850,18 @@ entitiesRouter.openapi(createGrantRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid access_type");
   }
 
-  const manage = await ensureManageAccess(actor.id, entityId);
-  requireVisibleEntity(manage.entity, manage.exists);
+  const manage = await checkEntityAccess(actor.id, actor.groups, entityId, 'admin');
+  requireEntity(manage);
 
   const sql = createSql();
   const now = new Date().toISOString();
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [, , rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         INSERT INTO entity_access (entity_id, actor_id, access_type)
         VALUES ($1, $2, $3)
-        ON CONFLICT (entity_id, actor_id, access_type)
+        ON CONFLICT (entity_id, actor_id, access_type) WHERE actor_id IS NOT NULL
         DO UPDATE SET granted_at = entity_access.granted_at
         RETURNING entity_id, actor_id, access_type, granted_at
       `,
@@ -957,12 +890,12 @@ entitiesRouter.openapi(revokeAllGrantsRoute, async (c) => {
   const actor = requireActor(c);
   const entityId = c.req.param("id");
   const targetActorId = c.req.param("actorId");
-  const manage = await ensureManageAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(manage.entity, manage.exists);
+  const manage = await checkEntityAccess(actor.id, actor.groups, entityId, 'admin');
+  const entity = requireEntity(manage);
 
   const sql = createSql();
   const adminRows = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql`
       SELECT access_type
       FROM entity_access
@@ -970,7 +903,7 @@ entitiesRouter.openapi(revokeAllGrantsRoute, async (c) => {
         AND actor_id = ${targetActorId}
     `,
   ]);
-  const targetHasAdmin = (adminRows[1] as Array<{ access_type: string }>).some(
+  const targetHasAdmin = (adminRows[2] as Array<{ access_type: string }>).some(
     (row) => row.access_type === "admin",
   );
   if (targetHasAdmin && entity.owner_id !== actor.id) {
@@ -979,7 +912,7 @@ entitiesRouter.openapi(revokeAllGrantsRoute, async (c) => {
 
   const now = new Date().toISOString();
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql`DELETE FROM entity_access WHERE entity_id = ${entityId} AND actor_id = ${targetActorId}`,
     sql.query(
       `
@@ -1009,8 +942,8 @@ entitiesRouter.openapi(revokeSpecificGrantRoute, async (c) => {
     throw new ApiError(400, "invalid_path_param", "Invalid access type");
   }
 
-  const manage = await ensureManageAccess(actor.id, entityId);
-  const entity = requireVisibleEntity(manage.entity, manage.exists);
+  const manage = await checkEntityAccess(actor.id, actor.groups, entityId, 'admin');
+  const entity = requireEntity(manage);
   if (accessType === "admin" && entity.owner_id !== actor.id) {
     throw new ApiError(403, "forbidden", "Only the owner can revoke admin access");
   }
@@ -1018,7 +951,7 @@ entitiesRouter.openapi(revokeSpecificGrantRoute, async (c) => {
   const sql = createSql();
   const now = new Date().toISOString();
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql`
       DELETE FROM entity_access
       WHERE entity_id = ${entityId}
@@ -1047,14 +980,15 @@ entitiesRouter.openapi(revokeSpecificGrantRoute, async (c) => {
 entitiesRouter.openapi(listVersionsRoute, async (c) => {
   const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(actorId, entityId);
-  requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, entityId, 'view');
+  requireEntity(loaded);
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const [, , rows] = await sql.transaction([
+    ...setActorContext(sql, { id: actorId, groups: actorGroups }),
     sql`
       SELECT ver, edited_by, note, created_at
       FROM entity_versions
@@ -1080,16 +1014,17 @@ entitiesRouter.openapi(listVersionsRoute, async (c) => {
 entitiesRouter.openapi(getVersionRoute, async (c) => {
   const sql = createSql();
   const actorId = c.get("actor")?.id ?? "";
+  const actorGroups = c.get("actor")?.groups ?? [];
   const entityId = c.req.param("id");
-  const loaded = await loadVisibleEntity(actorId, entityId);
-  requireVisibleEntity(loaded.entity, loaded.exists);
+  const loaded = await checkEntityAccess(actorId, actorGroups, entityId, 'view');
+  requireEntity(loaded);
   const ver = Number.parseInt(c.req.param("ver"), 10);
   if (!Number.isInteger(ver) || ver < 1) {
     throw new ApiError(400, "invalid_path_param", "Invalid version");
   }
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const [, , rows] = await sql.transaction([
+    ...setActorContext(sql, { id: actorId, groups: actorGroups }),
     sql`
       SELECT entity_id, ver, properties, edited_by, note, created_at
       FROM entity_versions

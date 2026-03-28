@@ -4,6 +4,7 @@ import { encodeCursor } from "../lib/cursor";
 import { assertBodyObject } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseJsonBody, parseLimit } from "../lib/http";
+import { setActorContext } from "../lib/permissions";
 import { generateUlid } from "../lib/ids";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
@@ -208,8 +209,9 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
   const joinColumn = direction === "in" ? "re.source_id" : "re.target_id";
   const counterpartKey = direction === "in" ? "source" : "target";
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(
       `
         SELECT
@@ -267,8 +269,8 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [, entityRows, edgeRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, entityRows, edgeRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql`
       INSERT INTO entities (
         id, kind, type, ver, properties, owner_id, commons_id,
@@ -323,8 +325,9 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const relId = c.req.param("relId");
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
+  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(
       `
         SELECT
@@ -365,8 +368,8 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         UPDATE entities
@@ -388,7 +391,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
     throw new ApiError(409, "cas_conflict", "Version mismatch");
   }
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql.query(
       `
         INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
@@ -419,8 +422,8 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [, relRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, relRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         SELECT re.source_id, re.target_id, re.predicate, source.commons_id
@@ -438,7 +441,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   }
 
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    ...setActorContext(sql, actor),
     sql`DELETE FROM entities WHERE id = ${relId}`,
     sql`
       INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)

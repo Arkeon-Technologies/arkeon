@@ -11,6 +11,7 @@ import { createRouter } from "../lib/openapi";
 import { assertBodyObject } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
+import { setActorContext } from "../lib/permissions";
 import { generateUlid } from "../lib/ids";
 import {
   DateTimeSchema,
@@ -39,6 +40,22 @@ function parseTimestampWithinSkew(timestamp: unknown, skewMs = 5 * 60 * 1000) {
   }
 
   return date.toISOString();
+}
+
+type NetworkConfig = Record<string, unknown>;
+
+async function loadNetworkConfig(): Promise<NetworkConfig | null> {
+  const rootId = process.env.ROOT_COMMONS_ID;
+  if (!rootId) return null;
+  const sql = createSql();
+  const [rows] = await sql.transaction([
+    sql`SELECT properties FROM entities WHERE id = ${rootId} LIMIT 1`,
+  ]);
+  const row = (rows as Array<{ properties: unknown }>)[0];
+  if (!row) return null;
+  return typeof row.properties === "string"
+    ? JSON.parse(row.properties)
+    : (row.properties as NetworkConfig) ?? null;
 }
 
 const challengeRoute = createRoute({
@@ -79,7 +96,7 @@ const registerRoute = createRoute({
   path: "/register",
   operationId: "registerAgent",
   tags: ["Auth"],
-  summary: "Register a new agent with Ed25519 key + PoW",
+  summary: "Register a new agent with Ed25519 key + PoW or invitation code",
   "x-arke-auth": "none",
   "x-arke-related": ["POST /auth/challenge", "POST /auth/recover"],
   request: {
@@ -88,9 +105,10 @@ const registerRoute = createRoute({
       content: jsonContent(
         z.object({
           public_key: z.string().describe("Ed25519 public key (hex)"),
-          nonce: z.string().describe("From /auth/challenge"),
-          signature: z.string().describe("Ed25519 signature of nonce"),
-          solution: z.number().int().describe("PoW solution"),
+          nonce: z.string().optional().describe("From /auth/challenge (required for open registration)"),
+          signature: z.string().describe("Ed25519 signature of nonce (open) or invitation_code (invite)"),
+          solution: z.number().int().optional().describe("PoW solution (required for open registration)"),
+          invitation_code: z.string().optional().describe("Invitation code (required for invite_only networks)"),
           name: z.string().optional().describe("Agent display name"),
           metadata: z.record(z.string(), z.any()).optional().describe("Additional properties"),
         }),
@@ -108,7 +126,7 @@ const registerRoute = createRoute({
         }),
       ),
     },
-    ...errorResponses([400, 409, 410]),
+    ...errorResponses([400, 403, 409, 410]),
   },
 });
 
@@ -258,6 +276,32 @@ const revokeKeyRoute = createRoute({
   },
 });
 
+const myGroupsRoute = createRoute({
+  method: "get",
+  path: "/me/groups",
+  operationId: "getMyGroups",
+  tags: ["Auth"],
+  summary: "List the authenticated actor's group memberships",
+  "x-arke-auth": "required",
+  responses: {
+    200: {
+      description: "Actor's groups",
+      content: jsonContent(
+        z.object({
+          groups: z.array(
+            z.object({
+              id: EntityIdParam,
+              name: z.string(),
+              direct: z.boolean(),
+            }),
+          ),
+        }),
+      ),
+    },
+    ...errorResponses([401]),
+  },
+});
+
 export const authRouter = createRouter();
 
 authRouter.openapi(challengeRoute, async (c) => {
@@ -266,8 +310,14 @@ authRouter.openapi(challengeRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing public_key");
   }
 
+  // Load network config to check registration mode and difficulty
+  const networkConfig = await loadNetworkConfig();
+  if (networkConfig?.registration_mode === "invite_only") {
+    throw new ApiError(403, "registration_closed", "Registration requires an invitation code. Use POST /auth/register with invitation_code.");
+  }
+
   const nonce = randomHex(32);
-  const difficulty = 22;
+  const difficulty = typeof networkConfig?.pow_difficulty === "number" ? networkConfig.pow_difficulty : 22;
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const sql = createSql();
 
@@ -288,87 +338,125 @@ authRouter.openapi(challengeRoute, async (c) => {
 
 authRouter.openapi(registerRoute, async (c) => {
   const body = await parseJsonBody<Record<string, unknown>>(c);
-  if (
-    typeof body.public_key !== "string" ||
-    typeof body.nonce !== "string" ||
-    typeof body.signature !== "string" ||
-    typeof body.solution !== "number"
-  ) {
-    throw new ApiError(400, "invalid_body", "Invalid registration payload");
+  if (typeof body.public_key !== "string" || typeof body.signature !== "string") {
+    throw new ApiError(400, "invalid_body", "Missing public_key or signature");
   }
 
   const sql = createSql();
-  const [, challengeRows, existingRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', '', true)`,
-    sql`
-      SELECT nonce, public_key, difficulty, expires_at
-      FROM pow_challenges
-      WHERE nonce = ${body.nonce}
-      LIMIT 1
-    `,
-    sql`
-      SELECT entity_id
-      FROM agent_keys
-      WHERE public_key = ${body.public_key}
-      LIMIT 1
-    `,
-  ]);
+  const networkConfig = await loadNetworkConfig();
+  const inviteOnly = networkConfig?.registration_mode === "invite_only";
+  const invitationCode = typeof body.invitation_code === "string" ? body.invitation_code : null;
 
+  // Check pubkey not already registered
+  const [, existingRows] = await sql.transaction([
+    sql`SELECT set_config('app.actor_id', '', true)`,
+    sql`SELECT entity_id FROM agent_keys WHERE public_key = ${body.public_key} LIMIT 1`,
+  ]);
   if ((existingRows as Array<{ entity_id: string }>).length > 0) {
     throw new ApiError(409, "already_exists", "Public key already registered");
   }
 
-  const challenge = (challengeRows as Array<{
-    nonce: string;
-    public_key: string;
-    difficulty: number;
-    expires_at: string;
-  }>)[0];
-  if (!challenge) {
-    throw new ApiError(410, "pow_expired", "Challenge expired or already used");
-  }
-  if (challenge.public_key !== body.public_key) {
-    throw new ApiError(400, "pow_invalid", "Public key does not match challenge");
-  }
-  if (new Date(challenge.expires_at).getTime() < Date.now()) {
-    throw new ApiError(410, "pow_expired", "Challenge expired or already used");
+  // Invitation code to consume (if provided)
+  type InvitationRow = { code: string; max_uses: number; uses: number; assign_groups: string[]; expires_at: string | null; bound_public_key: string | null };
+  let invitation: InvitationRow | null = null;
+
+  if (inviteOnly || invitationCode) {
+    // Invite-only or invitation code provided: validate code, skip PoW
+    if (!invitationCode) {
+      throw new ApiError(400, "missing_required_field", "invitation_code required for invite-only networks");
+    }
+
+    // Atomically consume the invitation (UPDATE with WHERE prevents race conditions)
+    const [, invRows, invExistsRows] = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql.query(
+        `UPDATE invitations
+         SET uses = uses + 1
+         WHERE code = $1
+           AND uses < max_uses
+           AND (expires_at IS NULL OR expires_at > NOW())
+           AND (bound_public_key IS NULL OR bound_public_key = $2)
+         RETURNING *`,
+        [invitationCode, body.public_key],
+      ),
+      sql`SELECT code, uses, max_uses, expires_at, bound_public_key FROM invitations WHERE code = ${invitationCode} LIMIT 1`,
+    ]);
+    invitation = (invRows as InvitationRow[])[0] ?? null;
+    if (!invitation) {
+      // Check why it failed
+      const existing = (invExistsRows as Array<Record<string, unknown>>)[0];
+      if (!existing) {
+        throw new ApiError(404, "not_found", "Invitation code not found");
+      }
+      if ((existing.uses as number) >= (existing.max_uses as number)) {
+        throw new ApiError(410, "invitation_exhausted", "Invitation code has been fully used");
+      }
+      if (existing.expires_at && new Date(existing.expires_at as string).getTime() < Date.now()) {
+        throw new ApiError(410, "invitation_expired", "Invitation code has expired");
+      }
+      if (existing.bound_public_key && existing.bound_public_key !== body.public_key) {
+        throw new ApiError(403, "forbidden", "Invitation code is bound to a different key");
+      }
+      throw new ApiError(410, "invitation_exhausted", "Invitation code cannot be used");
+    }
+
+    // Verify signature of invitation code (proves key ownership)
+    const sigValid = await verifyEd25519Signature(body.public_key, body.signature, invitationCode);
+    if (!sigValid) {
+      throw new ApiError(400, "signature_invalid", "Invalid signature");
+    }
+  } else {
+    // Open registration: require PoW
+    if (typeof body.nonce !== "string" || typeof body.solution !== "number") {
+      throw new ApiError(400, "invalid_body", "Missing nonce or solution for open registration");
+    }
+
+    const [, challengeRows] = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT nonce, public_key, difficulty, expires_at FROM pow_challenges WHERE nonce = ${body.nonce} LIMIT 1`,
+    ]);
+    const challenge = (challengeRows as Array<{ nonce: string; public_key: string; difficulty: number; expires_at: string }>)[0];
+    if (!challenge) {
+      throw new ApiError(410, "pow_expired", "Challenge expired or already used");
+    }
+    if (challenge.public_key !== body.public_key) {
+      throw new ApiError(400, "pow_invalid", "Public key does not match challenge");
+    }
+    if (new Date(challenge.expires_at).getTime() < Date.now()) {
+      throw new ApiError(410, "pow_expired", "Challenge expired or already used");
+    }
+
+    const powValid = await verifyPowSolution(challenge.nonce, challenge.public_key, body.solution, challenge.difficulty);
+    if (!powValid) {
+      throw new ApiError(400, "pow_invalid", "Invalid proof-of-work solution");
+    }
+
+    const sigValid = await verifyEd25519Signature(body.public_key, body.signature, challenge.nonce);
+    if (!sigValid) {
+      throw new ApiError(400, "signature_invalid", "Invalid signature");
+    }
+
   }
 
-  const powValid = await verifyPowSolution(
-    challenge.nonce,
-    challenge.public_key,
-    body.solution,
-    challenge.difficulty,
-  );
-  if (!powValid) {
-    throw new ApiError(400, "pow_invalid", "Invalid proof-of-work solution");
-  }
-
-  const signatureValid = await verifyEd25519Signature(
-    body.public_key,
-    body.signature,
-    challenge.nonce,
-  );
-  if (!signatureValid) {
-    throw new ApiError(400, "signature_invalid", "Invalid signature");
-  }
-
+  // Create agent entity + keys
   const entityId = generateUlid();
   const apiKey = createApiKey();
   const apiKeyHash = await sha256Hex(apiKey.value);
   const keyId = generateUlid();
   const now = new Date().toISOString();
-  const metadata =
-    body.metadata === undefined ? {} : assertBodyObject(body.metadata, "metadata");
+  const metadata = body.metadata === undefined ? {} : assertBodyObject(body.metadata, "metadata");
   const properties = {
     ...(metadata ?? {}),
     ...(typeof body.name === "string" ? { label: body.name } : {}),
     public_key: body.public_key,
   };
 
-  const [, , entityRows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', '', true)`,
-    sql`DELETE FROM pow_challenges WHERE nonce = ${body.nonce}`,
+  const entityTx = [
+    // Set actor to the entity being created (RLS: owner_id = current_actor_id())
+    sql`SELECT set_config('app.actor_id', ${entityId}, true)`,
+    ...(typeof body.nonce === "string"
+      ? [sql`DELETE FROM pow_challenges WHERE nonce = ${body.nonce}`]
+      : []),
     sql`
       INSERT INTO entities (
         id, kind, type, ver, properties, owner_id, commons_id,
@@ -380,19 +468,51 @@ authRouter.openapi(registerRoute, async (c) => {
       )
       RETURNING *
     `,
-    sql`
-      INSERT INTO agent_keys (entity_id, public_key)
-      VALUES (${entityId}, ${body.public_key})
-    `,
-    sql`
-      INSERT INTO api_keys (id, key_prefix, key_hash, actor_id)
-      VALUES (${keyId}, ${apiKey.keyPrefix}, ${apiKeyHash}, ${entityId})
-    `,
-  ]);
+    sql`INSERT INTO agent_keys (entity_id, public_key) VALUES (${entityId}, ${body.public_key})`,
+    sql`INSERT INTO api_keys (id, key_prefix, key_hash, actor_id) VALUES (${keyId}, ${apiKey.keyPrefix}, ${apiKeyHash}, ${entityId})`,
+  ];
+
+  const txResult = await sql.transaction(entityTx);
+  // Entity RETURNING * is at index: 1 (set_config) + optional delete + entity insert
+  const entityIdx = typeof body.nonce === "string" ? 2 : 1;
+  const entityRow = (txResult[entityIdx] as Array<Record<string, unknown>>)[0];
+
+  // Assign invitation groups (consumption already happened atomically above)
+  if (invitation && invitation.assign_groups.length > 0) {
+    try {
+      await sql.transaction([
+        sql`SELECT set_config('app.actor_id', '', true)`,
+        sql.query(
+          `INSERT INTO group_memberships (group_id, actor_id, granted_by)
+           SELECT unnest($1::text[]), $2, $3
+           ON CONFLICT DO NOTHING`,
+          [invitation.assign_groups, entityId, entityId],
+        ),
+      ]);
+    } catch (err) {
+      console.error("[register] invitation group assignment failed:", err);
+    }
+  }
+
+  // Add to "members" group
+  try {
+    await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql.query(
+        `INSERT INTO group_memberships (group_id, actor_id, granted_by)
+         SELECT id, $1, $1
+         FROM groups WHERE network_id = $2 AND name = 'members'
+         ON CONFLICT DO NOTHING`,
+        [entityId, process.env.ROOT_COMMONS_ID ?? ""],
+      ),
+    ]);
+  } catch {
+    // group tables may not exist
+  }
 
   return c.json(
     {
-      entity: (entityRows as Array<Record<string, unknown>>)[0],
+      entity: entityRow,
       api_key: apiKey.value,
       key_prefix: apiKey.keyPrefix,
     },
@@ -459,8 +579,8 @@ authRouter.openapi(meRoute, async (c) => {
   const actor = requireActor(c);
   const sql = createSql();
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql`SELECT * FROM entities WHERE id = ${actor.id} LIMIT 1`,
   ]);
 
@@ -489,8 +609,8 @@ authRouter.openapi(createKeyRoute, async (c) => {
   const keyId = generateUlid();
   const sql = createSql();
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql`
       INSERT INTO api_keys (id, key_prefix, key_hash, actor_id, label)
       VALUES (${keyId}, ${apiKey.keyPrefix}, ${apiKeyHash}, ${actor.id}, ${label})
@@ -512,8 +632,8 @@ authRouter.openapi(listKeysRoute, async (c) => {
   const includeRevoked = c.req.query("include_revoked") === "true";
   const sql = createSql();
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql.query(
       `
         SELECT id, key_prefix, label, created_at, last_used_at, revoked_at
@@ -537,8 +657,8 @@ authRouter.openapi(revokeKeyRoute, async (c) => {
   }
 
   const sql = createSql();
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
     sql`
       UPDATE api_keys
       SET revoked_at = NOW()
@@ -554,4 +674,35 @@ authRouter.openapi(revokeKeyRoute, async (c) => {
   }
 
   return new Response(null, { status: 204 });
+});
+
+authRouter.openapi(myGroupsRoute, async (c) => {
+  const actor = requireActor(c);
+  const sql = createSql();
+
+  const [,, directRows, effectiveRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      SELECT gm.group_id, g.name
+      FROM group_memberships gm
+      JOIN groups g ON g.id = gm.group_id
+      WHERE gm.actor_id = ${actor.id}
+    `,
+    sql`
+      SELECT aeg.group_id AS id, g.name
+      FROM actor_effective_groups(${actor.id}) aeg
+      JOIN groups g ON g.id = aeg.group_id
+    `,
+  ]);
+
+  const directSet = new Set(
+    (directRows as Array<{ group_id: string }>).map((r) => r.group_id),
+  );
+  const groups = (effectiveRows as Array<{ id: string; name: string }>).map((r) => ({
+    id: r.id,
+    name: r.name,
+    direct: directSet.has(r.id),
+  }));
+
+  return c.json({ groups }, 200);
 });

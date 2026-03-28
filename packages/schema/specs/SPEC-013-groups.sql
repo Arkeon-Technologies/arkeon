@@ -1,0 +1,211 @@
+-- =============================================================================
+-- SPEC: Groups & Group Hierarchy
+-- =============================================================================
+-- Status: DESIGN SPEC — not executable SQL. Comments describe intent.
+--
+-- CONCEPT:
+-- Groups organize actors for permission assignment. Instead of granting
+-- access to individual actors, you can grant access to groups via the
+-- unified entity_access table (see SPEC-015). Groups nest via
+-- parent_group_id for inheritance — a member of a child group inherits
+-- all permissions of ancestor groups.
+--
+-- =============================================================================
+-- TABLE: groups
+-- =============================================================================
+--
+-- CREATE TABLE groups (
+--   id              TEXT PRIMARY KEY,          -- ULID
+--   network_id      TEXT NOT NULL              -- root commons ID
+--                    REFERENCES entities(id),
+--   name            TEXT NOT NULL,             -- e.g. "tier-1", "admins", "members"
+--   description     TEXT,                      -- human-readable purpose
+--   parent_group_id TEXT                       -- NULL = top-level group
+--                    REFERENCES groups(id),    -- child inherits parent's permissions
+--   can_invite      BOOLEAN NOT NULL DEFAULT false,  -- members can generate invite codes
+--   system_group    BOOLEAN NOT NULL DEFAULT false,  -- cannot be deleted
+--   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--
+--   UNIQUE(network_id, name)                   -- no duplicate names per network
+-- );
+--
+-- =============================================================================
+-- HIERARCHY DESIGN
+-- =============================================================================
+--
+-- EXAMPLE (EXAMPLE classification tiers):
+--
+--   everyone (implicit — no group row, see below)
+--     └── members (parent_group_id = NULL, system_group = true)
+--           └── tier-1 (parent_group_id = members)
+--                 └── tier-2 (parent_group_id = tier-1)
+--                       └── tier-3 (parent_group_id = tier-2)
+--
+-- INHERITANCE DIRECTION:
+--   Child inherits parent. Being in tier-3 means you're effectively
+--   in tier-2, tier-1, and members. The recursive CTE walks UP from
+--   direct membership to all ancestors.
+--
+-- "EVERYONE" GROUP:
+--   The "everyone" group is a real system group that every registered
+--   actor is implicitly a member of. The auth middleware always includes
+--   it in the actor's effective groups (app.actor_groups). No membership
+--   rows needed for it.
+--
+-- HOW GROUP GRANTS WORK WITH entity_access:
+--   When a permission rule grants view access to tier-1, the rule
+--   materializer inserts entity_access rows with group_id = tier-1
+--   AND also group_id = tier-2 AND group_id = tier-3 (all children
+--   that inherit tier-1). This means:
+--     - entity_access is explicit about exactly which groups have access
+--     - No recursive CTE needed at read time for group-based grants
+--     - When checking "can actor X see entity Y", just check if any of
+--       actor's DIRECT groups appear in entity_access for Y
+--
+--   Actor's effective groups are still computed via the recursive CTE
+--   (for things like "which groups am I in?" display), but for the
+--   hot path (RLS / permission checks), the expansion is pre-computed
+--   in entity_access.
+--
+-- =============================================================================
+-- TABLE: group_memberships
+-- =============================================================================
+--
+-- CREATE TABLE group_memberships (
+--   group_id    TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+--   actor_id    TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+--   granted_by  TEXT NOT NULL REFERENCES entities(id),
+--   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--
+--   PRIMARY KEY (group_id, actor_id)
+-- );
+--
+-- Only DIRECT memberships stored. Inherited memberships computed via CTE.
+--
+-- =============================================================================
+-- SQL FUNCTION: actor_effective_groups(actor_id)
+-- =============================================================================
+-- Returns all group IDs an actor belongs to (direct + inherited ancestors).
+-- Used for display/admin purposes and for setting app.actor_groups.
+--
+-- CREATE OR REPLACE FUNCTION actor_effective_groups(aid TEXT)
+-- RETURNS TABLE(group_id TEXT) AS $$
+--   WITH RECURSIVE effective AS (
+--     SELECT gm.group_id
+--     FROM group_memberships gm
+--     WHERE gm.actor_id = aid
+--     UNION
+--     SELECT g.parent_group_id
+--     FROM groups g
+--     JOIN effective e ON e.group_id = g.id
+--     WHERE g.parent_group_id IS NOT NULL
+--   )
+--   SELECT group_id FROM effective;
+-- $$ LANGUAGE sql STABLE;
+--
+-- NOTE: This function is called ONCE per request (in middleware) to
+-- compute app.actor_groups. It is NOT called per-row in RLS.
+--
+-- =============================================================================
+-- SQL FUNCTION: group_with_descendants(gid TEXT)
+-- =============================================================================
+-- Returns a group and all its descendant groups (children, grandchildren, etc).
+-- Used when materializing permission rules into entity_access — a grant to
+-- tier-1 must also create rows for tier-2, tier-3 (children that inherit).
+--
+-- CREATE OR REPLACE FUNCTION group_with_descendants(gid TEXT)
+-- RETURNS TABLE(group_id TEXT) AS $$
+--   WITH RECURSIVE descendants AS (
+--     SELECT gid AS group_id
+--     UNION
+--     SELECT g.id
+--     FROM groups g
+--     JOIN descendants d ON g.parent_group_id = d.group_id
+--   )
+--   SELECT group_id FROM descendants;
+-- $$ LANGUAGE sql STABLE;
+--
+-- =============================================================================
+-- BOOTSTRAP DEFAULT GROUPS
+-- =============================================================================
+-- On network creation (in bootstrap.ts), create these system groups:
+--
+--   { id: ULID, name: "everyone", system_group: true, can_invite: false, parent: NULL }
+--   { id: ULID, name: "admins",   system_group: true, can_invite: true,  parent: NULL }
+--   { id: ULID, name: "members",  system_group: true, can_invite: false, parent: NULL }
+--
+-- The bootstrap admin gets added to "admins" group_memberships.
+-- The "everyone" group has no membership rows — middleware injects it.
+--
+-- =============================================================================
+-- RLS ON THESE TABLES
+-- =============================================================================
+--
+-- groups:
+--   SELECT — any authenticated actor (group names aren't secret)
+--   INSERT/UPDATE/DELETE — network admin only:
+--     EXISTS(SELECT 1 FROM entity_access
+--            WHERE entity_id = ROOT_COMMONS_ID
+--              AND actor_id = current_actor_id()
+--              AND access_type = 'admin')
+--
+-- group_memberships:
+--   SELECT — any authenticated actor
+--   INSERT/DELETE — network admin only (same check as groups)
+--
+-- =============================================================================
+-- API ENDPOINTS
+-- =============================================================================
+--
+-- POST   /groups
+--   Auth: network admin
+--   Body: { name, description?, parent_group_id?, can_invite? }
+--   Validation: unique name, valid parent (no cycles)
+--   Response 201: { group: { id, name, ... } }
+--
+-- GET    /groups
+--   Auth: any authenticated actor
+--   Response 200: { groups: [...] }
+--
+-- GET    /groups/:id
+--   Auth: any authenticated actor
+--   Response 200: { group: { id, name, description, parent_group_id, ... } }
+--
+-- PUT    /groups/:id
+--   Auth: network admin
+--   Body: { name?, description?, parent_group_id?, can_invite? }
+--   Validation: no cycles on parent change, name uniqueness
+--   NOTE: Changing parent_group_id triggers re-materialization of
+--         entity_access rows for affected permission rules. This is
+--         because the set of descendant groups changes, which affects
+--         which groups inherit which grants.
+--   Response 200: { group: {...} }
+--
+-- DELETE /groups/:id
+--   Auth: network admin
+--   Validation: not system_group, no child groups
+--   NOTE: Deleting a group cascades to group_memberships (FK CASCADE)
+--         and entity_access rows with this group_id (FK CASCADE).
+--   Response 204
+--
+-- POST   /groups/:id/members
+--   Auth: network admin
+--   Body: { actor_id }
+--   Idempotent: if already member, return 200
+--   Response 201: { group_id, actor_id, granted_by, created_at }
+--
+-- GET    /groups/:id/members
+--   Auth: any authenticated actor
+--   Response 200: { members: [{ actor_id, granted_by, created_at }] }
+--
+-- DELETE /groups/:id/members/:actor_id
+--   Auth: network admin
+--   Validation: cannot remove last admin from "admins" group
+--   Response 204
+--
+-- GET    /auth/me/groups
+--   Auth: required
+--   Returns both direct and effective (inherited) groups.
+--   Response 200: { groups: [{ id, name, direct: boolean }] }
+--
+-- =============================================================================

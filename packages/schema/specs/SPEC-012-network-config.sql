@@ -1,0 +1,106 @@
+-- =============================================================================
+-- SPEC: Network Configuration
+-- =============================================================================
+-- Status: DESIGN SPEC — not executable SQL. Comments describe intent.
+--
+-- CONCEPT:
+-- Each Arke deployment is a "network." The network IS the root commons.
+-- Network-level configuration lives in the root commons' properties JSONB,
+-- not in a separate table. This means:
+--   - "Editing the network" = "editing the root commons entity"
+--   - Admin access to the network = admin grant on the root commons
+--   - No new table needed — reuse entities + entity_access
+--
+-- CHANGES TO BOOTSTRAP (packages/api/src/lib/bootstrap.ts):
+--   - Generate ROOT_COMMONS_ID as a random ULID if not provided via env var
+--   - Seed the root commons properties with default network config:
+--
+--     {
+--       "label": "My Network",
+--       "registration_mode": "open",        -- "open" | "invite_only"
+--       "default_visibility": "public",      -- "public" | "private"
+--       "pow_difficulty": 22,                -- PoW leading zero bits (only when mode=open)
+--       "policy_mutability": true            -- can these policies change after creation?
+--     }
+--
+--   - If ADMIN_BOOTSTRAP_KEY env var is set:
+--       1. Create an agent entity for the bootstrap admin
+--       2. Hash ADMIN_BOOTSTRAP_KEY and insert into api_keys
+--       3. Insert into entity_access:
+--            (entity_id=ROOT_COMMONS_ID, actor_id=admin_id, access_type='admin')
+--       4. Add admin to the "admins" system group (see SPEC-013)
+--       5. Idempotent — if admin agent already exists, skip
+--
+-- NETWORK CONFIG PROPERTIES (stored in root commons properties JSONB):
+--
+--   registration_mode TEXT
+--     "open"        — Anyone can register via Ed25519 + PoW. No invite needed.
+--     "invite_only" — Registration requires a valid invitation code.
+--                     PoW is skipped (the invite code is the gate).
+--
+--   default_visibility TEXT
+--     "public"  — New entities default to view_access = 'public'
+--     "private" — New entities default to view_access = 'private'
+--     NOTE: This is a default. Creators can override per-entity.
+--
+--   pow_difficulty INT
+--     Number of leading zero bits required in PoW hash.
+--     Only applies when registration_mode = 'open'.
+--     Default: 22 (~5-10 seconds on modern hardware)
+--
+--   policy_mutability BOOLEAN
+--     If false, registration_mode and default_visibility cannot be changed
+--     after initial bootstrap. For networks that want immutable rules.
+--     Default: true
+--
+-- ADMIN DETERMINATION:
+--   Admin = has 'admin' grant on the root commons entity in entity_access.
+--   Checked via: SELECT 1 FROM entity_access
+--                WHERE entity_id = ROOT_COMMONS_ID
+--                  AND actor_id = current_actor_id()
+--                  AND access_type = 'admin'
+--
+--   This reuses the unified entity_access system. No new role table.
+--
+-- API ENDPOINTS:
+--
+--   GET  /network
+--     Auth: none (public)
+--     Returns root commons properties (network config).
+--     Clients call this before registration to discover mode.
+--     Response 200: { id, name, registration_mode, default_visibility,
+--                     pow_difficulty, policy_mutability }
+--
+--   PUT  /network
+--     Auth: required, must be network admin
+--     Updates network config properties.
+--     Respects policy_mutability — if false, rejects changes to
+--     registration_mode and default_visibility with 409.
+--     Body: { name?, registration_mode?, default_visibility?, pow_difficulty? }
+--     Response 200: { ...updated config }
+--     Errors: 401, 403, 409 (immutable policy)
+--
+-- CHANGES TO AUTH ROUTES (packages/api/src/routes/auth.ts):
+--
+--   POST /auth/challenge:
+--     Before creating challenge, load network config.
+--     If registration_mode = 'invite_only', return 403:
+--       "Registration requires an invitation code."
+--     If registration_mode = 'open', use pow_difficulty from config
+--     instead of hardcoded 22.
+--
+--   POST /auth/register:
+--     Load network config at start.
+--     If registration_mode = 'invite_only':
+--       - Require invitation_code in body (else 400)
+--       - Validate + consume invitation code (see SPEC-014)
+--       - Require signature of invitation_code (proves key ownership)
+--       - Skip PoW entirely
+--       - Auto-add to groups from invitation's assign_groups
+--     If registration_mode = 'open':
+--       - Existing PoW + Ed25519 flow (unchanged)
+--       - invitation_code optional; if provided, validate + consume + add groups
+--
+-- =============================================================================
+-- No new tables. All config stored in root commons properties.
+-- =============================================================================

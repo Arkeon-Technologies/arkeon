@@ -14,6 +14,7 @@ import {
   pathParam,
   queryParam,
 } from "../lib/schemas";
+import { setActorContext } from "../lib/permissions";
 import { createSql } from "../lib/sql";
 
 
@@ -75,8 +76,9 @@ actorsRouter.openapi(actorActivityRoute, async (c) => {
   const action = c.req.query("action");
   const cursor = parseCursorParam(c);
 
-  const [, rows] = await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${requestActorId}, true)`,
+  const actorCtx = { id: requestActorId, groups: c.get("actor")?.groups ?? [] };
+  const [,, rows] = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
     sql.query(
       `
         SELECT ea.*, json_build_object('id', e.id, 'kind', e.kind, 'type', e.type, 'properties', json_build_object('label', e.properties->>'label')) AS entity
