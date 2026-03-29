@@ -69,6 +69,49 @@ Arke Network (single machine, single Docker container)
 
 **The agent loop** is straightforward: call the LLM with the agent's system prompt + conversation history + available tools, execute any tool calls in the sandbox, feed results back, repeat until done. No heavyweight framework needed — this is the same pattern as Claude Code.
 
+## LLM interface: OpenAI-compatible format (BYOK)
+
+Agents are model-agnostic. The operator or agent creator provides three fields:
+
+```
+base_url:  https://api.groq.com/openai/v1
+api_key:   gsk_...
+model:     llama-3.1-70b-versatile
+```
+
+The OpenAI chat completions API (`/v1/chat/completions`) is the de facto standard. Nearly every provider supports it natively: OpenAI, Groq, Together, Fireworks, DeepSeek, Mistral, Cerebras, SambaNova, and aggregators like OpenRouter (which also bridges Anthropic and Google). Local inference servers (Ollama, LM Studio, vLLM) expose the same format at `localhost`.
+
+**Implementation**: use the `openai` npm package with a swapped `baseURL`. No multi-provider SDK needed.
+
+```typescript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: agent.llm.base_url,
+  apiKey: decrypt(agent.llm.encrypted_key),
+});
+
+const response = await client.chat.completions.create({
+  model: agent.llm.model,
+  messages,
+  tools,
+});
+```
+
+Tool use follows the OpenAI tools format (`tools` array + `tool_choice: "auto"`). This is well-supported across all major providers. Stick to `tool_choice: "auto"` for maximum compatibility — `"required"` and forced-tool modes have spotty support outside OpenAI.
+
+## API key storage
+
+AES-256-GCM encryption with a server-side `ENCRYPTION_KEY` environment variable. This is the industry standard for self-hosted software (n8n, Retool, Supabase Vault all use this pattern).
+
+- Auto-generate `ENCRYPTION_KEY` on first run if not provided (32 random bytes, hex-encoded)
+- Store encrypted keys in the database (never plaintext)
+- Never log or return decrypted keys in API responses
+- Show a hint for identification: `...abc1`
+- If `ENCRYPTION_KEY` is lost, stored keys become unrecoverable (document this clearly)
+
+The key lives in the same `.env` as `DATABASE_URL`. The operator controls the machine — there's no deeper secret to hide it behind.
+
 ## Schema additions
 
 The `actors` table already supports `kind = 'agent'` and `owner_id`. The `properties` JSONB column stores agent-specific config:
@@ -78,17 +121,17 @@ The `actors` table already supports `kind = 'agent'` and `owner_id`. The `proper
   "name": "research-assistant",
   "system_prompt": "You are a research assistant on the Arke network...",
   "llm": {
-    "provider": "anthropic",     // or "openai", "ollama", etc.
-    "model": "claude-sonnet-4-6",
-    "api_key_ref": "encrypted-ref" // never stored in plaintext
+    "base_url": "https://api.groq.com/openai/v1",
+    "model": "llama-3.1-70b-versatile",
+    "encrypted_key": "aes-256-gcm:iv:tag:ciphertext",
+    "key_hint": "...abc1"
   },
   "schedule": "0 */8 * * *",    // cron expression: every 8 hours
   "resource_limits": {
     "memory_mb": 256,
     "cpu_fraction": 0.25,
     "max_pids": 128
-  },
-  "tools": ["shell", "arke-cli", "web-search"] // pre-built tool modules
+  }
 }
 ```
 
@@ -123,26 +166,22 @@ BullMQ (Redis-backed, MIT licensed) handles cron-based scheduling. Each agent wi
 
 For the MVP, scheduling is simple: cron expression + max concurrent runs + timeout. Temporal.io is available as an upgrade path if durable long-running workflows become necessary.
 
-## Pre-built tools
+## Tools: shell-first, not pre-built
 
-Agents get a base set of tools, extensible over time:
+The agent's tool surface is deliberately minimal — the same approach as Claude Code:
 
-- **shell**: execute commands in the sandbox
-- **arke-cli**: interact with the network (create entities, query, manage relationships)
-- **file-read / file-write**: operate on workspace files
+1. **Shell**: execute any command in the sandbox
+2. **File read/write**: operate on workspace files
+3. **Arke CLI**: pre-installed, pre-configured with the agent's API key
 
-Future additions:
+That's it. There is no pre-built PDF parser tool, no web search tool, no code runner tool. If an agent needs to parse a PDF, it writes a Python script. If it needs OCR, it `apt-get install`s Tesseract. If it needs to call a web API, it uses `curl`. The LLM figures out how to accomplish the task using the shell.
 
-- **web-search**: search the web via a provider API
-- **web-fetch**: retrieve and parse web pages
-- **pdf-parse**: extract text from PDFs
-- **code-run**: execute Python/JS snippets with output capture
+This is far more generalizable than trying to anticipate every tool an agent might need. The sandbox gives the agent a real Linux environment — anything you can do in a terminal, the agent can do. The Arke CLI gives it network access. The rest is emergent.
 
-Tools are defined as modules that the agent loop can call. Adding a new tool means writing a function that executes in the sandbox and returns structured output.
+The base sandbox image ships with common utilities pre-installed (Node.js, Python, curl, git, jq) to avoid repeated installs. Agents can install additional packages in their persistent workspace as needed.
 
 ## Open questions
 
-- **API key storage**: encrypted in the database? Vault? Environment variable injected at sandbox creation? Needs a decision before implementation.
 - **Agent-to-agent communication**: can an agent invoke another agent? Probably yes, via the same `/agents/:id/invoke` route, subject to permissions.
 - **Ollama / local models**: if the operator runs Ollama on the same machine, agents could use local models with zero API cost. The sandbox network proxy would need to allowlist localhost:11434.
 - **Persistent processes vs on-demand**: some agents may need to stay running (e.g., listening for events). The MVP is on-demand/cron, but a "daemon mode" is a natural extension.
