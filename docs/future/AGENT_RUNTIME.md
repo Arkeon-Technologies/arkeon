@@ -180,6 +180,104 @@ This is far more generalizable than trying to anticipate every tool an agent mig
 
 The base sandbox image ships with common utilities pre-installed (Node.js, Python, curl, git, jq) to avoid repeated installs. Agents can install additional packages in their persistent workspace as needed.
 
+## Arke SDK: lightweight API wrappers (`packages/sdk-python`, `packages/sdk-ts`)
+
+The CLI covers shell usage. For programmatic access — Python scripts, TypeScript code — agents need a way to call the API without writing auth boilerplate every time. The Arke SDK is a zero-abstraction HTTP wrapper: four functions (`get`, `post`, `put`, `delete`), auth from env vars, raw JSON responses.
+
+These live in the monorepo as `packages/sdk-python` and `packages/sdk-ts`. Both are pre-installed in agent sandboxes.
+
+### Python (`arke-sdk` on PyPI)
+
+```python
+# arke_sdk/__init__.py — the entire package
+import os, httpx
+
+_url = os.environ.get("ARKE_API_URL", "http://localhost:8000")
+_key = os.environ.get("ARKE_API_KEY", "")
+_client = httpx.Client(
+    base_url=_url,
+    headers={"Authorization": f"ApiKey {_key}", "Content-Type": "application/json"},
+)
+
+def get(path, params=None):
+    return _client.get(path, params=params).json()
+
+def post(path, json=None):
+    return _client.post(path, json=json).json()
+
+def put(path, json=None):
+    return _client.put(path, json=json).json()
+
+def delete(path):
+    return _client.delete(path).json()
+```
+
+Usage:
+```python
+import arke_sdk as arke
+
+entities = arke.get("/entities", params={"limit": 10})
+arke.post("/entities", {"kind": "entity", "properties": {"label": "Notes"}})
+arke.put(f"/entities/{eid}", {"properties_merge": {"label": "Updated"}})
+arke.delete(f"/entities/{eid}")
+```
+
+One dependency: `httpx`. ~30 lines of code.
+
+### TypeScript (`arke-sdk` on npm)
+
+```typescript
+// src/index.ts — the entire package
+const baseUrl = process.env.ARKE_API_URL ?? 'http://localhost:8000';
+const apiKey = process.env.ARKE_API_KEY ?? '';
+const headers = { 'Authorization': `ApiKey ${apiKey}`, 'Content-Type': 'application/json' };
+
+async function request(method: string, path: string, opts?: { json?: any; params?: Record<string, string> }) {
+    const url = new URL(path, baseUrl);
+    if (opts?.params) Object.entries(opts.params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const res = await fetch(url, { method, headers, body: opts?.json ? JSON.stringify(opts.json) : undefined });
+    return res.json();
+}
+
+export const get = (path: string, opts?: { params?: Record<string, string> }) => request('GET', path, opts);
+export const post = (path: string, json?: any) => request('POST', path, { json });
+export const put = (path: string, json?: any) => request('PUT', path, { json });
+export const del = (path: string) => request('DELETE', path);
+```
+
+Usage:
+```typescript
+import * as arke from 'arke-sdk';
+
+const entities = await arke.get('/entities', { params: { limit: '10' } });
+await arke.post('/entities', { kind: 'entity', properties: { label: 'Notes' } });
+```
+
+Zero dependencies — uses native `fetch` (Node 18+). ~15 lines of code.
+
+### What the SDK is NOT
+
+- No entity/space/relationship models or types
+- No pagination helpers, retry logic, or error classes
+- No validation or schema enforcement
+- No auth token management (reads env vars, that's it)
+- No CLI (already exists as `packages/cli`)
+
+It's a pre-authenticated `fetch` wrapper. If an agent needs something fancier, it writes it.
+
+### Agent system prompt
+
+```
+Network access is pre-configured:
+
+  CLI:        arke entities list
+  Python:     import arke_sdk as arke; arke.get("/entities")
+  TypeScript: import * as arke from 'arke-sdk'; await arke.get('/entities')
+
+Env vars $ARKE_API_URL and $ARKE_API_KEY are set.
+For API docs: arke help   OR   curl $ARKE_API_URL/llms.txt
+```
+
 ## Open questions
 
 - **Agent-to-agent communication**: can an agent invoke another agent? Probably yes, via the same `/agents/:id/invoke` route, subject to permissions.
