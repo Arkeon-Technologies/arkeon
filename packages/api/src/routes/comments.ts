@@ -3,7 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { encodeCursor } from "../lib/cursor";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseJsonBody, parseLimit } from "../lib/http";
-import { setActorContext } from "../lib/permissions";
+import { setActorContext } from "../lib/actor-context";
 import { generateUlid } from "../lib/ids";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
@@ -136,7 +136,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
   const sql = createSql();
 
   if (parentId) {
-    const [,, parentRows] = await sql.transaction([
+    const [,,,, parentRows] = await sql.transaction([
       ...setActorContext(sql, actor),
       sql`SELECT id, parent_id FROM comments WHERE id = ${parentId} AND entity_id = ${entityId} LIMIT 1`,
     ]);
@@ -149,7 +149,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
     }
   }
 
-  const [,, rows] = await sql.transaction([
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO comments (id, entity_id, author_id, body, parent_id, created_at)
@@ -157,11 +157,10 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
       RETURNING *
     `,
     sql`
-      INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
-      SELECT id, commons_id, ${actor.id}, 'comment_created',
+      INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+      VALUES (${entityId}, ${actor.id}, 'comment_created',
              ${JSON.stringify({ comment_id: id, ...(parentId ? { parent_id: parentId } : {}) })}::jsonb,
-             ${now}::timestamptz
-      FROM entities WHERE id = ${entityId}
+             ${now}::timestamptz)
     `,
   ]);
 
@@ -185,8 +184,8 @@ commentsRouter.openapi(listCommentsRoute, async (c) => {
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
 
-  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
-  const [,, topRows, replyRows] = await sql.transaction([
+  const actorCtx = c.get("actor");
+  const [,,,, topRows, replyRows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -235,30 +234,25 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,, rows] = await sql.transaction([
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
         SELECT c.author_id, e.owner_id,
-               EXISTS (
-                 SELECT 1 FROM entity_access ea
-                 WHERE ea.entity_id = e.id
-                   AND ea.actor_id = $2
-                   AND ea.access_type = 'admin'
-               ) AS is_admin
+               (actor_has_entity_role(e.id, ARRAY['admin'])) AS is_entity_admin
         FROM comments c
         JOIN entities e ON e.id = c.entity_id
         WHERE c.id = $1 AND c.entity_id = e.id
         LIMIT 1
       `,
-      [commentId, actor.id],
+      [commentId],
     ),
   ]);
-  const info = (rows as Array<{ author_id: string; owner_id: string; is_admin: boolean }>)[0];
+  const info = (rows as Array<{ author_id: string; owner_id: string; is_entity_admin: boolean }>)[0];
   if (!info) {
     throw new ApiError(404, "not_found", "Comment not found");
   }
-  if (info.author_id !== actor.id && info.owner_id !== actor.id && !info.is_admin) {
+  if (info.author_id !== actor.id && info.owner_id !== actor.id && !info.is_entity_admin && !actor.isAdmin) {
     throw new ApiError(403, "forbidden", "Forbidden");
   }
 
@@ -266,11 +260,10 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql`DELETE FROM comments WHERE id = ${commentId}`,
     sql`
-      INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
-      SELECT id, commons_id, ${actor.id}, 'comment_deleted',
+      INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+      VALUES (${entityId}, ${actor.id}, 'comment_deleted',
              ${JSON.stringify({ comment_id: commentId })}::jsonb,
-             ${now}::timestamptz
-      FROM entities WHERE id = ${entityId}
+             ${now}::timestamptz)
     `,
   ]);
 

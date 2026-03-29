@@ -23,59 +23,54 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
   const keyHash = await sha256Hex(apiKey);
   const sql = createSql();
 
-  const [setActorResult, keyRows] = await sql.transaction([
+  // Look up key and join with actors table to get clearance levels
+  const [, keyRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`
-      SELECT id, actor_id, key_prefix
-      FROM api_keys
-      WHERE key_hash = ${keyHash}
-        AND revoked_at IS NULL
+      SELECT k.id AS key_id, k.actor_id, k.key_prefix,
+             a.max_read_level, a.max_write_level, a.is_admin, a.can_publish_public, a.status
+      FROM api_keys k
+      JOIN actors a ON a.id = k.actor_id
+      WHERE k.key_hash = ${keyHash}
+        AND k.revoked_at IS NULL
+        AND a.status = 'active'
       LIMIT 1
     `,
   ]);
 
-  void setActorResult;
+  const row = (keyRows as Array<{
+    key_id: string;
+    actor_id: string;
+    key_prefix: string;
+    max_read_level: number;
+    max_write_level: number;
+    is_admin: boolean;
+    can_publish_public: boolean;
+    status: string;
+  }>)[0];
 
-  const key = (keyRows as Array<{ id: string; actor_id: string; key_prefix: string }>)[0];
-  if (!key) {
+  if (!row) {
     await next();
     return;
   }
 
-  // Compute effective groups (direct + inherited + "everyone")
-  let groups: string[] = [];
-  try {
-    const [, groupRows, everyoneRows] = await sql.transaction([
-      sql`SELECT set_config('app.actor_id', '', true)`,
-      sql`SELECT group_id FROM actor_effective_groups(${key.actor_id})`,
-      sql`SELECT id FROM groups WHERE network_id = ${process.env.ROOT_COMMONS_ID ?? ''} AND name = 'everyone' LIMIT 1`,
-    ]);
-    groups = (groupRows as Array<{ group_id: string }>).map((r) => r.group_id);
-    const everyoneId = (everyoneRows as Array<{ id: string }>)[0]?.id;
-    if (everyoneId && !groups.includes(everyoneId)) {
-      groups.push(everyoneId);
-    }
-  } catch {
-    // groups table or function may not exist yet (pre-migration)
-  }
-
   const actor: Actor = {
-    id: key.actor_id,
-    apiKeyId: key.id,
-    keyPrefix: key.key_prefix,
-    groups,
+    id: row.actor_id,
+    apiKeyId: row.key_id,
+    keyPrefix: row.key_prefix,
+    maxReadLevel: row.max_read_level,
+    maxWriteLevel: row.max_write_level,
+    isAdmin: row.is_admin,
+    canPublishPublic: row.can_publish_public,
   };
 
   c.set("actor", actor);
 
+  // Background update last_used_at
   backgroundTask(
     sql.transaction([
       sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
-      sql`
-        UPDATE api_keys
-        SET last_used_at = NOW()
-        WHERE id = ${actor.apiKeyId}
-      `,
+      sql`UPDATE api_keys SET last_used_at = NOW() WHERE id = ${actor.apiKeyId}`,
     ]).then(() => undefined),
   );
 

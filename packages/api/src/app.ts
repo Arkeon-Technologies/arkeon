@@ -8,19 +8,17 @@ import { authMiddleware } from "./middleware/auth";
 import { ApiError, errorBody } from "./lib/errors";
 import { activityRouter, entityActivityRouter } from "./routes/activity";
 import { actorsRouter } from "./routes/actors";
+import { arkesRouter } from "./routes/arkes";
 import { authRouter } from "./routes/auth";
 import { commentsRouter } from "./routes/comments";
-import { commonsRouter } from "./routes/commons";
 import { contentRouter } from "./routes/content";
 import { entitiesRouter } from "./routes/entities";
+import { groupsRouter } from "./routes/groups";
 import { createHelpRouter } from "./routes/help";
 import { inboxRouter } from "./routes/inbox";
-import { groupsRouter } from "./routes/groups";
-import { invitationsRouter } from "./routes/invitations";
-import { networkRouter } from "./routes/network";
-import { permissionRulesRouter } from "./routes/permission-rules";
 import { entityRelationshipsRouter, relationshipDirectRouter } from "./routes/relationships";
 import { searchRouter } from "./routes/search";
+import { spacesRouter } from "./routes/spaces";
 
 export function createApp() {
   const app = new OpenAPIHono<AppBindings>({
@@ -41,7 +39,7 @@ export function createApp() {
     openapi: "3.1.0" as const,
     info: {
       title: "Arke API",
-      version: "0.1.0",
+      version: "2.0.0",
     },
     servers: [{ url: "https://api.arke.institute" }],
   };
@@ -58,20 +56,18 @@ export function createApp() {
 
   app.route("/activity", activityRouter);
   app.route("/actors", actorsRouter);
+  app.route("/arkes", arkesRouter);
   app.route("/auth", authRouter);
   app.route("/auth", inboxRouter);
-  app.route("/commons", commonsRouter);
   app.route("/entities", commentsRouter);
   app.route("/entities", contentRouter);
   app.route("/entities", entitiesRouter);
   app.route("/entities", entityActivityRouter);
   app.route("/entities", entityRelationshipsRouter);
   app.route("/groups", groupsRouter);
-  app.route("/invitations", invitationsRouter);
-  app.route("/network", networkRouter);
-  app.route("/permission-rules", permissionRulesRouter);
   app.route("/relationships", relationshipDirectRouter);
   app.route("/search", searchRouter);
+  app.route("/spaces", spacesRouter);
 
   app.notFound((c) => {
     const requestId = c.get("requestId");

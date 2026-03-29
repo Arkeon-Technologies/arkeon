@@ -62,7 +62,7 @@ export function parseSort(raw: string | undefined, allowed: string[], defaultSor
  * Merges implicit filters (from the route) with user-supplied filters.
  * Implicit filters are prepended so they always apply.
  *
- * Example: mergeFilters("kind:commons", userFilter) ensures kind=commons
+ * Example: mergeFilters("kind:entity", userFilter) ensures kind=commons
  * even if the user supplies their own filter string.
  */
 export function mergeFilters(implicit: string, userFilter?: string): string {

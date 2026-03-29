@@ -1,11 +1,10 @@
 import { createHash, randomUUID, webcrypto } from "node:crypto";
 import { expect } from "vitest";
 
-export const baseUrl =
-  process.env.E2E_BASE_URL ??
-  "https://arke-api.nick-chimicles-professional.workers.dev";
+export const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:8000";
 
-export const runPresignedE2E = process.env.E2E_PRESIGNED === "1";
+// Admin key set via ADMIN_BOOTSTRAP_KEY env var at server startup
+export const adminApiKey = process.env.ADMIN_BOOTSTRAP_KEY ?? "ak_test_admin_key_e2e";
 
 type RequestOptions = {
   method?: string;
@@ -14,56 +13,19 @@ type RequestOptions = {
   body?: BodyInit | null;
 };
 
-export type RegisteredAgent = {
-  publicKey: string;
-  privateKey: CryptoKey;
+export type CreatedActor = {
+  id: string;
   apiKey: string;
-  entityId: string;
-  keyId?: string;
+  maxReadLevel: number;
+  maxWriteLevel: number;
+  isAdmin: boolean;
 };
 
 export function uniqueName(prefix: string) {
   return `${prefix}-${randomUUID().slice(0, 8)}`;
 }
 
-function bytesToBase64(bytes: Uint8Array) {
-  return Buffer.from(bytes).toString("base64");
-}
-
-export function base64FromBytes(bytes: Uint8Array) {
-  return bytesToBase64(bytes);
-}
-
-function countLeadingZeroBits(buffer: Uint8Array) {
-  let count = 0;
-  for (const byte of buffer) {
-    if (byte === 0) {
-      count += 8;
-      continue;
-    }
-    for (let bit = 7; bit >= 0; bit -= 1) {
-      if ((byte & (1 << bit)) === 0) {
-        count += 1;
-      } else {
-        return count;
-      }
-    }
-  }
-  return count;
-}
-
-export function solvePow(nonce: string, publicKey: string, difficulty: number) {
-  let counter = 0;
-  while (true) {
-    const digest = createHash("sha256")
-      .update(`${nonce}${publicKey}${counter}`)
-      .digest();
-    if (countLeadingZeroBits(digest) >= difficulty) {
-      return counter;
-    }
-    counter += 1;
-  }
-}
+// --- HTTP helpers ---
 
 export async function apiRequest(path: string, options: RequestOptions = {}) {
   const headers = new Headers(options.headers ?? {});
@@ -100,104 +62,60 @@ export async function jsonRequest(path: string, options: RequestOptions & { json
   });
 }
 
-export async function getJson(path: string) {
-  const { response, body } = await apiRequest(path);
+export async function getJson(path: string, apiKey?: string) {
+  const { response, body } = await apiRequest(path, { apiKey });
   return { response, body: body as Record<string, any> };
 }
 
-export async function registerAgent(name = uniqueName("agent")): Promise<RegisteredAgent> {
-  const keyPair = await generateSigningKeyPair();
-  const publicKey = keyPair.publicKey;
+// --- Actor helpers ---
 
-  const { challengeBody } = await requestChallenge(publicKey);
-  const solution = solvePow(challengeBody.nonce, publicKey, challengeBody.difficulty);
-  const signature = await signText(keyPair.privateKey, challengeBody.nonce);
+/** Get the network (arke) ID from the server */
+export async function getArkeId(): Promise<string> {
+  const { response, body } = await apiRequest("/arkes", { apiKey: adminApiKey });
+  expect(response.status).toBe(200);
+  const arkes = (body as { arkes: Array<{ id: string }> }).arkes;
+  expect(arkes.length).toBeGreaterThan(0);
+  return arkes[0].id;
+}
 
-  const { response: registerResponse, body: registerBodyRaw } = await jsonRequest("/auth/register", {
+/** Create an actor via POST /actors (requires admin or actor with sufficient level) */
+export async function createActor(
+  callerApiKey: string,
+  options: {
+    kind?: string;
+    maxReadLevel?: number;
+    maxWriteLevel?: number;
+    canPublishPublic?: boolean;
+    properties?: Record<string, unknown>;
+  } = {},
+): Promise<CreatedActor> {
+  const { response, body } = await jsonRequest("/actors", {
     method: "POST",
+    apiKey: callerApiKey,
     json: {
-      public_key: publicKey,
-      nonce: challengeBody.nonce,
-      solution,
-      signature,
-      name,
+      kind: options.kind ?? "agent",
+      max_read_level: options.maxReadLevel ?? 1,
+      max_write_level: options.maxWriteLevel ?? 1,
+      can_publish_public: options.canPublishPublic ?? false,
+      properties: options.properties ?? { label: uniqueName("actor") },
     },
-  });
-  const registerBody = registerBodyRaw as { api_key: string; entity: { id: string } };
-  expect(registerResponse.status).toBe(201);
-
-  return {
-    publicKey,
-    privateKey: keyPair.privateKey,
-    apiKey: registerBody.api_key,
-    entityId: registerBody.entity.id,
-  };
-}
-
-export async function generateSigningKeyPair() {
-  const keyPair = await webcrypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-  const rawPublicKey = new Uint8Array(await webcrypto.subtle.exportKey("raw", keyPair.publicKey));
-  return {
-    publicKey: bytesToBase64(rawPublicKey),
-    privateKey: keyPair.privateKey,
-    publicCryptoKey: keyPair.publicKey,
-  };
-}
-
-export async function requestChallenge(publicKey: string) {
-  const { response: challengeResponse, body: challengeBodyRaw } = await jsonRequest("/auth/challenge", {
-    method: "POST",
-    json: { public_key: publicKey },
-  });
-  const challengeBody = challengeBodyRaw as { nonce: string; difficulty: number };
-  expect(challengeResponse.status).toBe(200);
-  return { response: challengeResponse, challengeBody };
-}
-
-export async function signText(privateKey: CryptoKey, text: string) {
-  const signatureBytes = new Uint8Array(
-    await webcrypto.subtle.sign(
-      "Ed25519",
-      privateKey,
-      new TextEncoder().encode(text),
-    ),
-  );
-  return bytesToBase64(signatureBytes);
-}
-
-export async function recoverAgent(agent: RegisteredAgent) {
-  const timestamp = new Date().toISOString();
-  const payload = JSON.stringify({ action: "recover", timestamp });
-  const signature = await signText(agent.privateKey, payload);
-
-  const { response, body } = await jsonRequest("/auth/recover", {
-    method: "POST",
-    json: {
-      public_key: agent.publicKey,
-      timestamp,
-      signature,
-    },
-  });
-
-  return {
-    response,
-    body: body as { api_key: string; entity_id: string; key_prefix: string },
-  };
-}
-
-export async function createCommons(apiKey: string, properties: Record<string, unknown>, extra: Record<string, unknown> = {}) {
-  const { response, body } = await jsonRequest("/commons", {
-    method: "POST",
-    apiKey,
-    json: { properties, ...extra },
   });
   expect(response.status).toBe(201);
-  return (body as { commons: Record<string, any> }).commons;
+  const data = body as { actor: Record<string, any>; api_key: string };
+  return {
+    id: data.actor.id,
+    apiKey: data.api_key,
+    maxReadLevel: data.actor.max_read_level,
+    maxWriteLevel: data.actor.max_write_level,
+    isAdmin: data.actor.is_admin,
+  };
 }
+
+// --- Entity helpers ---
 
 export async function createEntity(
   apiKey: string,
-  commonsId: string,
+  networkId: string,
   type: string,
   properties: Record<string, unknown>,
   extra: Record<string, unknown> = {},
@@ -205,30 +123,10 @@ export async function createEntity(
   const { response, body } = await jsonRequest("/entities", {
     method: "POST",
     apiKey,
-    json: { type, commons_id: commonsId, properties, ...extra },
+    json: { network_id: networkId, type, properties, ...extra },
   });
   expect(response.status).toBe(201);
   return (body as { entity: Record<string, any> }).entity;
-}
-
-export async function createGrant(apiKey: string, entityId: string, actorId: string, accessType: string) {
-  const { response, body } = await jsonRequest(`/entities/${entityId}/access/grants`, {
-    method: "POST",
-    apiKey,
-    json: { actor_id: actorId, access_type: accessType },
-  });
-  expect(response.status).toBe(201);
-  return body as { grant: Record<string, any> };
-}
-
-export async function createComment(apiKey: string, entityId: string, body: string, parentId?: string) {
-  const { response, body: responseBody } = await jsonRequest(`/entities/${entityId}/comments`, {
-    method: "POST",
-    apiKey,
-    json: { body, ...(parentId ? { parent_id: parentId } : {}) },
-  });
-  expect(response.status).toBe(201);
-  return responseBody as Record<string, any>;
 }
 
 export async function createRelationship(
@@ -244,8 +142,83 @@ export async function createRelationship(
     json: { predicate, target_id: targetId, properties },
   });
   expect(response.status).toBe(201);
-  return body as { relationship_entity: Record<string, any>; edge: Record<string, any> };
+  return body as Record<string, any>;
 }
+
+// --- Space helpers ---
+
+export async function createSpace(
+  apiKey: string,
+  networkId: string,
+  name: string,
+  extra: Record<string, unknown> = {},
+) {
+  const { response, body } = await jsonRequest("/spaces", {
+    method: "POST",
+    apiKey,
+    json: { network_id: networkId, name, ...extra },
+  });
+  expect(response.status).toBe(201);
+  return (body as { space: Record<string, any> }).space;
+}
+
+export async function addEntityToSpace(apiKey: string, spaceId: string, entityId: string) {
+  const { response, body } = await jsonRequest(`/spaces/${spaceId}/entities`, {
+    method: "POST",
+    apiKey,
+    json: { entity_id: entityId },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
+// --- Permission helpers ---
+
+export async function grantEntityPermission(
+  apiKey: string,
+  entityId: string,
+  granteeType: string,
+  granteeId: string,
+  role: string,
+) {
+  const { response, body } = await jsonRequest(`/entities/${entityId}/permissions`, {
+    method: "POST",
+    apiKey,
+    json: { grantee_type: granteeType, grantee_id: granteeId, role },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
+export async function grantSpacePermission(
+  apiKey: string,
+  spaceId: string,
+  granteeType: string,
+  granteeId: string,
+  role: string,
+) {
+  const { response, body } = await jsonRequest(`/spaces/${spaceId}/permissions`, {
+    method: "POST",
+    apiKey,
+    json: { grantee_type: granteeType, grantee_id: granteeId, role },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
+// --- Comment helpers ---
+
+export async function createComment(apiKey: string, entityId: string, body: string, parentId?: string) {
+  const { response, body: responseBody } = await jsonRequest(`/entities/${entityId}/comments`, {
+    method: "POST",
+    apiKey,
+    json: { body, ...(parentId ? { parent_id: parentId } : {}) },
+  });
+  expect(response.status).toBe(201);
+  return responseBody as Record<string, any>;
+}
+
+// --- Content helpers ---
 
 export async function uploadDirectContent(apiKey: string, entityId: string, key: string, ver: number, content: string, filename?: string) {
   const { response, body } = await apiRequest(
@@ -261,6 +234,30 @@ export async function uploadDirectContent(apiKey: string, entityId: string, key:
   return body as { cid: string; size: number; key: string; ver: number };
 }
 
+// --- Group helpers ---
+
+export async function createGroup(apiKey: string, networkId: string, name: string) {
+  const { response, body } = await jsonRequest("/groups", {
+    method: "POST",
+    apiKey,
+    json: { network_id: networkId, name },
+  });
+  expect(response.status).toBe(201);
+  return (body as { group: Record<string, any> }).group;
+}
+
+export async function addGroupMember(apiKey: string, groupId: string, actorId: string, role = "member") {
+  const { response, body } = await jsonRequest(`/groups/${groupId}/members`, {
+    method: "POST",
+    apiKey,
+    json: { actor_id: actorId, role_in_group: role },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
+// --- Notification helpers ---
+
 export async function waitForNotifications(apiKey: string, minCount = 1, since?: string, attempts = 10, delayMs = 300) {
   const sinceParam = since ? `?since=${encodeURIComponent(since)}` : "";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -272,6 +269,8 @@ export async function waitForNotifications(apiKey: string, minCount = 1, since?:
   }
   return apiRequest(`/auth/me/inbox/count${sinceParam}`, { apiKey }).then(({ body }) => body as { count: number });
 }
+
+// --- CID helpers ---
 
 function encodeVarint(value: number) {
   const bytes: number[] = [];
@@ -289,7 +288,6 @@ function encodeBase32Lower(bytes: Uint8Array) {
   let bits = 0;
   let value = 0;
   let output = "";
-
   for (const byte of bytes) {
     value = (value << 8) | byte;
     bits += 8;
@@ -298,11 +296,9 @@ function encodeBase32Lower(bytes: Uint8Array) {
       bits -= 5;
     }
   }
-
   if (bits > 0) {
     output += alphabet[(value << (5 - bits)) & 31];
   }
-
   return output;
 }
 
@@ -316,17 +312,11 @@ export async function computeCidFromText(value: string) {
   const cidBytes = new Uint8Array(
     version.length + codec.length + multihashCode.length + multihashLength.length + digest.length,
   );
-
   let offset = 0;
-  cidBytes.set(version, offset);
-  offset += version.length;
-  cidBytes.set(codec, offset);
-  offset += codec.length;
-  cidBytes.set(multihashCode, offset);
-  offset += multihashCode.length;
-  cidBytes.set(multihashLength, offset);
-  offset += multihashLength.length;
+  cidBytes.set(version, offset); offset += version.length;
+  cidBytes.set(codec, offset); offset += codec.length;
+  cidBytes.set(multihashCode, offset); offset += multihashCode.length;
+  cidBytes.set(multihashLength, offset); offset += multihashLength.length;
   cidBytes.set(digest, offset);
-
   return `b${encodeBase32Lower(cidBytes)}`;
 }

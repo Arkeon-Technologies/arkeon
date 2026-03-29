@@ -2,7 +2,10 @@ export interface Actor {
   id: string;
   apiKeyId: string;
   keyPrefix: string;
-  groups: string[];
+  maxReadLevel: number;
+  maxWriteLevel: number;
+  isAdmin: boolean;
+  canPublishPublic: boolean;
 }
 
 export interface AppBindings {

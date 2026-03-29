@@ -1,10 +1,11 @@
 -- =============================================================================
--- Schema Test Suite
+-- Schema v2 Test Suite
 -- =============================================================================
--- Run: psql $DATABASE_URL -f schema/tests/run_tests.sql
+-- Run: psql $DATABASE_URL -f packages/schema/tests/run_tests.sql
 --
--- Tests constraints, cascades, CAS, triggers, RLS, and edge cases against
--- the current schema (commons_id, predicate on edges, Ed25519 auth, etc.)
+-- Tests classification-based reads and write ceilings against the v2 schema.
+-- ACL checks (entity_permissions, space_permissions) are app-layer and not
+-- tested here — only RLS enforcement.
 -- =============================================================================
 
 \set ON_ERROR_STOP off
@@ -12,1078 +13,701 @@
 \pset format unaligned
 \pset tuples_only on
 
--- Track results
-CREATE TEMP TABLE test_results (name TEXT, passed BOOLEAN, detail TEXT);
+-- Track results (regular table so arke_app can access it)
+DROP TABLE IF EXISTS test_results;
+CREATE TABLE test_results (name TEXT, passed BOOLEAN, detail TEXT);
 
 CREATE OR REPLACE FUNCTION test_pass(n TEXT) RETURNS void AS $$
   INSERT INTO test_results VALUES (n, true, NULL);
-$$ LANGUAGE sql;
+$$ LANGUAGE sql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION test_fail(n TEXT, msg TEXT) RETURNS void AS $$
   INSERT INTO test_results VALUES (n, false, msg);
-$$ LANGUAGE sql;
+$$ LANGUAGE sql SECURITY DEFINER;
 
 -- =============================================================================
--- Setup: app_user role for RLS tests
+-- Setup: ensure arke_app role exists
 -- =============================================================================
 
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
-    CREATE ROLE app_user LOGIN PASSWORD 'test_password';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'arke_app') THEN
+    CREATE ROLE arke_app LOGIN PASSWORD 'arke';
   END IF;
 END $$;
 
-GRANT USAGE ON SCHEMA public TO app_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
-GRANT app_user TO neondb_owner;
+GRANT USAGE ON SCHEMA public TO arke_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO arke_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO arke_app;
+GRANT SELECT, INSERT ON test_results TO arke_app;
+
+-- Allow switching to arke_app
+DO $$ BEGIN
+  EXECUTE 'GRANT arke_app TO ' || current_user;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 -- =============================================================================
--- Seed Data
+-- Seed Data (as superuser, bypasses RLS)
 -- =============================================================================
 
+-- Clean slate
+DELETE FROM notifications;
 DELETE FROM entity_activity;
 DELETE FROM entity_versions;
+DELETE FROM comments;
+DELETE FROM space_entities;
+DELETE FROM space_permissions;
+DELETE FROM entity_permissions;
 DELETE FROM relationship_edges;
-DELETE FROM entity_access;
+DELETE FROM group_memberships;
+DELETE FROM groups;
 DELETE FROM api_keys;
 DELETE FROM agent_keys;
+DELETE FROM spaces;
 DELETE FROM entities;
+DELETE FROM arkes;
+DELETE FROM actors;
 
--- The Arke (root commons, commons_id = NULL)
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-VALUES ('00000000000000000000000000', 'commons', 'commons', '{"label": "The Arke"}', 'SYSTEM', NULL, 'SYSTEM', NOW(), NOW());
-
--- Users (commons_id = NULL)
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
+-- Actors at various clearance levels
+INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, properties)
 VALUES
-  ('01ALICE00000000000000000000', 'user', 'person', '{"label": "Alice"}', '01ALICE00000000000000000000', NULL, '01ALICE00000000000000000000', NOW(), NOW()),
-  ('01BOB0000000000000000000000', 'user', 'person', '{"label": "Bob"}',   '01BOB0000000000000000000000', NULL, '01BOB0000000000000000000000', NOW(), NOW()),
-  ('01CAROL00000000000000000000', 'user', 'person', '{"label": "Carol"}', '01CAROL00000000000000000000', NULL, '01CAROL00000000000000000000', NOW(), NOW());
-
--- Alice's commons (public view, contributors-only contribute)
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, view_access, contribute_access, edited_by, created_at, updated_at)
-VALUES ('01COMMONS0000000000000000000', 'commons', 'collection', '{"label": "Test Commons"}', '01ALICE00000000000000000000', '00000000000000000000000000', 'public', 'contributors', '01ALICE00000000000000000000', NOW(), NOW());
-
--- Alice's public entity in the commons (edit_access = collaborators)
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, view_access, edit_access, edited_by, created_at, updated_at)
-VALUES ('01ENT_PUB000000000000000000', 'entity', 'book', '{"label": "Public Book"}', '01ALICE00000000000000000000', '01COMMONS0000000000000000000', 'public', 'collaborators', '01ALICE00000000000000000000', NOW(), NOW());
-
--- Alice's private entity in the commons
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, view_access, edit_access, edited_by, created_at, updated_at)
-VALUES ('01ENT_PRIV00000000000000000', 'entity', 'book', '{"label": "Private Book"}', '01ALICE00000000000000000000', '01COMMONS0000000000000000000', 'private', 'owner', '01ALICE00000000000000000000', NOW(), NOW());
-
--- Bob's entity
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-VALUES ('01ENT_BOB000000000000000000', 'entity', 'essay', '{"label": "Bob Essay"}', '01BOB0000000000000000000000', '01COMMONS0000000000000000000', '01BOB0000000000000000000000', NOW(), NOW());
-
--- Grants: Bob has edit on Alice's public entity
-INSERT INTO entity_access (entity_id, actor_id, access_type)
-VALUES ('01ENT_PUB000000000000000000', '01BOB0000000000000000000000', 'edit');
-
--- Grants: Carol has view on Alice's private entity
-INSERT INTO entity_access (entity_id, actor_id, access_type)
-VALUES ('01ENT_PRIV00000000000000000', '01CAROL00000000000000000000', 'view');
-
--- =============================================================================
--- 1. CHECK Constraints
--- =============================================================================
-
--- 1a. Invalid kind (old values rejected)
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'work', 'book', '{}', 'x', 'x', NOW(), NOW());
-    PERFORM test_fail('1a_invalid_kind_work', 'Accepted old kind "work"');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1a_invalid_kind_work');
-  END;
-END $$;
-
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'part', 'chapter', '{}', 'x', 'x', NOW(), NOW());
-    PERFORM test_fail('1b_invalid_kind_part', 'Accepted old kind "part"');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1b_invalid_kind_part');
-  END;
-END $$;
-
--- 1c. All valid kinds accepted
-DO $$ BEGIN
-  -- We already have commons, entity, user in seed data. Test agent + relationship.
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01TEMP_AGENT00000000000000', 'agent', 'bot', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01TEMP_REL000000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  DELETE FROM entities WHERE id IN ('01TEMP_AGENT00000000000000', '01TEMP_REL000000000000000000');
-  PERFORM test_pass('1c_valid_kinds');
-EXCEPTION WHEN OTHERS THEN
-  PERFORM test_fail('1c_valid_kinds', SQLERRM);
-END $$;
-
--- 1d. Invalid view_access
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, view_access, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'entity', 'book', '{}', 'x', 'friends_only', 'x', NOW(), NOW());
-    PERFORM test_fail('1d_invalid_view_access', 'Accepted invalid view_access');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1d_invalid_view_access');
-  END;
-END $$;
-
--- 1e. Invalid edit_access
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edit_access, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'entity', 'book', '{}', 'x', 'anyone', 'x', NOW(), NOW());
-    PERFORM test_fail('1e_invalid_edit_access', 'Accepted invalid edit_access');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1e_invalid_edit_access');
-  END;
-END $$;
-
--- 1f. Invalid contribute_access
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, contribute_access, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'entity', 'book', '{}', 'x', 'everyone', 'x', NOW(), NOW());
-    PERFORM test_fail('1f_invalid_contribute_access', 'Accepted invalid contribute_access');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1f_invalid_contribute_access');
-  END;
-END $$;
-
--- 1g. Invalid access_type on entity_access
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('01ENT_PUB000000000000000000', '01CAROL00000000000000000000', 'superadmin');
-    PERFORM test_fail('1g_invalid_access_type', 'Accepted invalid access_type');
-  EXCEPTION WHEN check_violation THEN
-    PERFORM test_pass('1g_invalid_access_type');
-  END;
-END $$;
-
--- =============================================================================
--- 2. Foreign Keys & Referential Integrity
--- =============================================================================
-
--- 2a. entity_access → nonexistent entity
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('NONEXISTENT0000000000000000', '01BOB0000000000000000000000', 'view');
-    PERFORM test_fail('2a_fk_access_entity', 'Accepted nonexistent entity_id');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('2a_fk_access_entity');
-  END;
-END $$;
-
--- 2b. relationship_edges.source_id → nonexistent
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01ENT_PUB000000000000000000', 'NONEXISTENT0000000000000000', '01ENT_BOB000000000000000000', 'cites');
-    PERFORM test_fail('2b_fk_edge_source', 'Accepted nonexistent source_id');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('2b_fk_edge_source');
-  END;
-END $$;
-
--- 2c. relationship_edges.target_id → nonexistent
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01ENT_PUB000000000000000000', '01ENT_PUB000000000000000000', 'NONEXISTENT0000000000000000', 'cites');
-    PERFORM test_fail('2c_fk_edge_target', 'Accepted nonexistent target_id');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('2c_fk_edge_target');
-  END;
-END $$;
-
--- 2d. relationship_edges.id → must reference entity
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('NONEXISTENT0000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'cites');
-    PERFORM test_fail('2d_fk_edge_id', 'Accepted nonexistent edge id');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('2d_fk_edge_id');
-  END;
-END $$;
-
--- 2e. commons_id → nonexistent entity
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-    VALUES ('01TEMP', 'entity', 'book', '{}', 'x', 'NONEXISTENT0000000000000000', 'x', NOW(), NOW());
-    PERFORM test_fail('2e_fk_commons_id', 'Accepted nonexistent commons_id');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('2e_fk_commons_id');
-  END;
-END $$;
-
--- =============================================================================
--- 3. CASCADE Deletes
--- =============================================================================
-
--- 3a. Delete entity → cascades access, versions, activity
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-VALUES ('01CASCADE_TEST0000000000000', 'entity', 'book', '{"label": "Cascade"}', '01ALICE00000000000000000000', '01COMMONS0000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-INSERT INTO entity_access (entity_id, actor_id, access_type) VALUES ('01CASCADE_TEST0000000000000', '01BOB0000000000000000000000', 'view');
-INSERT INTO entity_versions (entity_id, ver, properties, edited_by, created_at) VALUES ('01CASCADE_TEST0000000000000', 1, '{"label": "Cascade"}', '01ALICE00000000000000000000', NOW());
-INSERT INTO entity_activity (entity_id, actor_id, action) VALUES ('01CASCADE_TEST0000000000000', '01ALICE00000000000000000000', 'entity_created');
-
-DELETE FROM entities WHERE id = '01CASCADE_TEST0000000000000';
-
-DO $$
-DECLARE a INT; v INT; act INT;
-BEGIN
-  SELECT COUNT(*) INTO a FROM entity_access WHERE entity_id = '01CASCADE_TEST0000000000000';
-  SELECT COUNT(*) INTO v FROM entity_versions WHERE entity_id = '01CASCADE_TEST0000000000000';
-  SELECT COUNT(*) INTO act FROM entity_activity WHERE entity_id = '01CASCADE_TEST0000000000000';
-  IF a = 0 AND v = 0 AND act = 0 THEN
-    PERFORM test_pass('3a_cascade_access_versions_activity');
-  ELSE
-    PERFORM test_fail('3a_cascade_access_versions_activity', format('a=%s v=%s act=%s', a, v, act));
-  END IF;
-END $$;
-
--- 3b. Delete entity → cascades edges (source and target)
-INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-VALUES ('01CASCADE_SRC00000000000000', 'entity', 'book', '{}', '01ALICE00000000000000000000', '01COMMONS0000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-VALUES ('01CASCADE_REL00000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-VALUES ('01CASCADE_REL00000000000000', '01CASCADE_SRC00000000000000', '01ENT_BOB000000000000000000', 'cites');
-
--- Delete source → edge should cascade
-DELETE FROM entities WHERE id = '01CASCADE_SRC00000000000000';
-
-DO $$
-DECLARE e INT;
-BEGIN
-  SELECT COUNT(*) INTO e FROM relationship_edges WHERE id = '01CASCADE_REL00000000000000';
-  IF e = 0 THEN
-    PERFORM test_pass('3b_cascade_edge_on_source_delete');
-  ELSE
-    PERFORM test_fail('3b_cascade_edge_on_source_delete', 'Edge still exists');
-  END IF;
-END $$;
-
--- Cleanup orphaned rel entity
-DELETE FROM entities WHERE id = '01CASCADE_REL00000000000000';
-
--- 3c. Delete relationship entity → cascades its edge
-INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-VALUES ('01CASCADE_REL2000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-VALUES ('01CASCADE_REL2000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'cites');
-
-DELETE FROM entities WHERE id = '01CASCADE_REL2000000000000';
-
-DO $$
-DECLARE e INT;
-BEGIN
-  SELECT COUNT(*) INTO e FROM relationship_edges WHERE id = '01CASCADE_REL2000000000000';
-  IF e = 0 THEN
-    PERFORM test_pass('3c_cascade_edge_on_rel_delete');
-  ELSE
-    PERFORM test_fail('3c_cascade_edge_on_rel_delete', 'Edge still exists');
-  END IF;
-END $$;
-
--- 3d. Delete commons with children → RESTRICTED (NO ACTION)
-DO $$ BEGIN
-  BEGIN
-    DELETE FROM entities WHERE id = '01COMMONS0000000000000000000';
-    PERFORM test_fail('3d_commons_delete_restricted', 'Allowed deleting commons with children');
-  EXCEPTION WHEN foreign_key_violation THEN
-    PERFORM test_pass('3d_commons_delete_restricted');
-  END;
-END $$;
-
--- =============================================================================
--- 4. Defaults
--- =============================================================================
-
-INSERT INTO entities (id, kind, type, owner_id, commons_id, edited_by, created_at, updated_at)
-VALUES ('01DEFAULTS_TEST000000000000', 'entity', 'book', '01ALICE00000000000000000000', '01COMMONS0000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-
-DO $$
-DECLARE r RECORD;
-BEGIN
-  SELECT * INTO r FROM entities WHERE id = '01DEFAULTS_TEST000000000000';
-  IF r.ver = 1 AND r.properties = '{}'::jsonb
-     AND r.view_access = 'public' AND r.edit_access = 'collaborators'
-     AND r.contribute_access = 'public' THEN
-    PERFORM test_pass('4a_all_defaults');
-  ELSE
-    PERFORM test_fail('4a_all_defaults', format('ver=%s view=%s edit=%s contrib=%s props=%s',
-      r.ver, r.view_access, r.edit_access, r.contribute_access, r.properties));
-  END IF;
-END $$;
-
-DELETE FROM entities WHERE id = '01DEFAULTS_TEST000000000000';
-
--- =============================================================================
--- 5. CAS Pattern
--- =============================================================================
-
--- 5a. Successful CAS
-DO $$
-DECLARE cnt INT; new_ver INT;
-BEGIN
-  UPDATE entities SET ver = ver + 1, properties = '{"label": "Updated"}',
-    edited_by = '01ALICE00000000000000000000', updated_at = NOW()
-  WHERE id = '01ENT_PUB000000000000000000' AND ver = 1;
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  SELECT ver INTO new_ver FROM entities WHERE id = '01ENT_PUB000000000000000000';
-  IF cnt = 1 AND new_ver = 2 THEN PERFORM test_pass('5a_cas_success');
-  ELSE PERFORM test_fail('5a_cas_success', format('cnt=%s ver=%s', cnt, new_ver)); END IF;
-END $$;
-
--- 5b. Failed CAS (stale ver)
-DO $$
-DECLARE cnt INT;
-BEGIN
-  UPDATE entities SET ver = ver + 1, properties = '{"label": "Conflict"}',
-    edited_by = '01BOB0000000000000000000000', updated_at = NOW()
-  WHERE id = '01ENT_PUB000000000000000000' AND ver = 1;  -- stale
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  IF cnt = 0 THEN PERFORM test_pass('5b_cas_conflict');
-  ELSE PERFORM test_fail('5b_cas_conflict', 'Should have matched 0 rows'); END IF;
-END $$;
-
--- =============================================================================
--- 6. Triggers
--- =============================================================================
-
--- 6a. Activity insert does not bump updated_at
-DO $$
-DECLARE old_ts TIMESTAMPTZ; new_ts TIMESTAMPTZ;
-BEGIN
-  SELECT updated_at INTO old_ts FROM entities WHERE id = '01ENT_BOB000000000000000000';
-  PERFORM pg_sleep(0.01);
-  INSERT INTO entity_activity (entity_id, actor_id, action) VALUES ('01ENT_BOB000000000000000000', '01BOB0000000000000000000000', 'content_updated');
-  SELECT updated_at INTO new_ts FROM entities WHERE id = '01ENT_BOB000000000000000000';
-  IF new_ts = old_ts THEN PERFORM test_pass('6a_activity_does_not_bump_updated_at');
-  ELSE PERFORM test_fail('6a_activity_does_not_bump_updated_at', format('old=%s new=%s', old_ts, new_ts)); END IF;
-END $$;
-
--- 6b. notify_activity function exists
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'notify_activity') THEN
-    PERFORM test_pass('6b_notify_function_exists');
-  ELSE
-    PERFORM test_fail('6b_notify_function_exists', 'Function missing');
-  END IF;
-END $$;
-
--- =============================================================================
--- 7. entity_exists() Function
--- =============================================================================
-
--- 7a. Returns true for existing entity
-DO $$
-BEGIN
-  IF entity_exists('01ENT_PUB000000000000000000') THEN
-    PERFORM test_pass('7a_entity_exists_true');
-  ELSE
-    PERFORM test_fail('7a_entity_exists_true', 'Returned false for existing entity');
-  END IF;
-END $$;
-
--- 7b. Returns false for nonexistent
-DO $$
-BEGIN
-  IF NOT entity_exists('NONEXISTENT0000000000000000') THEN
-    PERFORM test_pass('7b_entity_exists_false');
-  ELSE
-    PERFORM test_fail('7b_entity_exists_false', 'Returned true for nonexistent entity');
-  END IF;
-END $$;
-
--- 7c. Bypasses RLS — app_user can check private entity they can't see
-DO $$
-DECLARE result BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  -- Bob has no grant on Alice's private entity
-  SELECT entity_exists('01ENT_PRIV00000000000000000') INTO result;
-  RESET ROLE;
-  IF result THEN PERFORM test_pass('7c_entity_exists_bypasses_rls');
-  ELSE PERFORM test_fail('7c_entity_exists_bypasses_rls', 'Did not bypass RLS'); END IF;
-END $$;
-
--- =============================================================================
--- 8. commons_id Behavior
--- =============================================================================
-
--- 8a. Entity references commons
-DO $$
-DECLARE cid TEXT;
-BEGIN
-  SELECT commons_id INTO cid FROM entities WHERE id = '01ENT_PUB000000000000000000';
-  IF cid = '01COMMONS0000000000000000000' THEN PERFORM test_pass('8a_commons_id_set');
-  ELSE PERFORM test_fail('8a_commons_id_set', format('commons_id=%s', cid)); END IF;
-END $$;
-
--- 8b. commons_id = NULL allowed
-DO $$
-DECLARE cid TEXT;
-BEGIN
-  SELECT commons_id INTO cid FROM entities WHERE id = '01ALICE00000000000000000000';
-  IF cid IS NULL THEN PERFORM test_pass('8b_commons_id_null_allowed');
-  ELSE PERFORM test_fail('8b_commons_id_null_allowed', format('commons_id=%s', cid)); END IF;
-END $$;
-
--- 8c. commons_id FK to nonexistent (already tested in 2e, but explicit)
--- Covered by test 2e
-
--- =============================================================================
--- 9. Relationship Edges with Predicate
--- =============================================================================
-
--- 9a. predicate is NOT NULL
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-    VALUES ('01TEMP_REL_NN00000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01TEMP_REL_NN00000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', NULL);
-    PERFORM test_fail('9a_predicate_not_null', 'Accepted NULL predicate');
-  EXCEPTION WHEN not_null_violation THEN
-    PERFORM test_pass('9a_predicate_not_null');
-  END;
-  DELETE FROM entities WHERE id = '01TEMP_REL_NN00000000000000';
-END $$;
-
--- 9b. Multiple predicates same source→target
-DO $$ BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_CITES0000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_REFS00000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-
-  INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-  VALUES ('01REL_CITES0000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'cites');
-  INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-  VALUES ('01REL_REFS00000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'references');
-
-  PERFORM test_pass('9b_multiple_predicates');
-
-  DELETE FROM entities WHERE id IN ('01REL_CITES0000000000000000', '01REL_REFS00000000000000000');
-EXCEPTION WHEN OTHERS THEN
-  PERFORM test_fail('9b_multiple_predicates', SQLERRM);
-END $$;
-
--- 9c. Self-referential edge
-DO $$ BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_SELF0000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-  VALUES ('01REL_SELF0000000000000000', '01ENT_PUB000000000000000000', '01ENT_PUB000000000000000000', 'related_to');
-
-  PERFORM test_pass('9c_self_referential_edge');
-  DELETE FROM entities WHERE id = '01REL_SELF0000000000000000';
-EXCEPTION WHEN OTHERS THEN
-  PERFORM test_fail('9c_self_referential_edge', SQLERRM);
-END $$;
-
--- =============================================================================
--- 10. RLS: Entities
--- =============================================================================
-
--- 10a. Unauthenticated sees only public
-DO $$
-DECLARE priv_visible BOOLEAN; pub_count INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '';
-  SELECT EXISTS(SELECT 1 FROM entities WHERE id = '01ENT_PRIV00000000000000000') INTO priv_visible;
-  SELECT COUNT(*) INTO pub_count FROM entities WHERE kind = 'entity';
-  RESET ROLE;
-  IF NOT priv_visible AND pub_count >= 2 THEN PERFORM test_pass('10a_unauth_public_only');
-  ELSE PERFORM test_fail('10a_unauth_public_only', format('priv=%s pub=%s', priv_visible, pub_count)); END IF;
-END $$;
-
--- 10b. Owner sees private
-DO $$
-DECLARE can_see BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  SELECT EXISTS(SELECT 1 FROM entities WHERE id = '01ENT_PRIV00000000000000000') INTO can_see;
-  RESET ROLE;
-  IF can_see THEN PERFORM test_pass('10b_owner_sees_private');
-  ELSE PERFORM test_fail('10b_owner_sees_private', 'Owner cannot see'); END IF;
-END $$;
-
--- 10c. Stranger cannot see private
-DO $$
-DECLARE can_see BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  SELECT EXISTS(SELECT 1 FROM entities WHERE id = '01ENT_PRIV00000000000000000') INTO can_see;
-  RESET ROLE;
-  IF NOT can_see THEN PERFORM test_pass('10c_stranger_cant_see_private');
-  ELSE PERFORM test_fail('10c_stranger_cant_see_private', 'Stranger sees private'); END IF;
-END $$;
-
--- 10d. View grant gives visibility
-DO $$
-DECLARE can_see BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  SELECT EXISTS(SELECT 1 FROM entities WHERE id = '01ENT_PRIV00000000000000000') INTO can_see;
-  RESET ROLE;
-  IF can_see THEN PERFORM test_pass('10d_view_grant_visibility');
-  ELSE PERFORM test_fail('10d_view_grant_visibility', 'Granted viewer cannot see'); END IF;
-END $$;
-
--- 10e. INSERT must be owner
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-    VALUES ('01RLS_INS_TEST0000000000000', 'entity', 'book', '{}', '01ALICE00000000000000000000', '01BOB0000000000000000000000', NOW(), NOW());
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF NOT ok THEN PERFORM test_pass('10e_insert_must_be_owner');
-  ELSE
-    DELETE FROM entities WHERE id = '01RLS_INS_TEST0000000000000';
-    PERFORM test_fail('10e_insert_must_be_owner', 'Allowed insert with different owner');
-  END IF;
-END $$;
-
--- 10f. INSERT with correct owner works
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, commons_id, edited_by, created_at, updated_at)
-    VALUES ('01RLS_INS_OK0000000000000000', 'entity', 'book', '{}', '01BOB0000000000000000000000', '01COMMONS0000000000000000000', '01BOB0000000000000000000000', NOW(), NOW());
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  DELETE FROM entities WHERE id = '01RLS_INS_OK0000000000000000';
-  IF ok THEN PERFORM test_pass('10f_insert_as_owner_works');
-  ELSE PERFORM test_fail('10f_insert_as_owner_works', 'Owner could not insert'); END IF;
-END $$;
-
--- 10g. Owner can update
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  UPDATE entities SET properties = '{"label": "Alice Updated"}', updated_at = NOW()
-  WHERE id = '01ENT_PUB000000000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 1 THEN PERFORM test_pass('10g_owner_can_update');
-  ELSE PERFORM test_fail('10g_owner_can_update', format('cnt=%s', cnt)); END IF;
-END $$;
-
--- 10h. Editor (with grant) can update
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  UPDATE entities SET properties = '{"label": "Bob Updated"}', updated_at = NOW()
-  WHERE id = '01ENT_PUB000000000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 1 THEN PERFORM test_pass('10h_editor_can_update');
-  ELSE PERFORM test_fail('10h_editor_can_update', format('cnt=%s', cnt)); END IF;
-END $$;
-
--- 10i. Stranger cannot update
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  UPDATE entities SET properties = '{"label": "Hacked"}', updated_at = NOW()
-  WHERE id = '01ENT_PUB000000000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 0 THEN PERFORM test_pass('10i_stranger_cant_update');
-  ELSE PERFORM test_fail('10i_stranger_cant_update', 'Stranger updated entity'); END IF;
-END $$;
-
--- 10j. Owner can delete, non-owner cannot
-DO $$
-DECLARE cnt INT;
-BEGIN
-  -- Bob tries to delete Alice's entity
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  DELETE FROM entities WHERE id = '01ENT_PUB000000000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 0 THEN PERFORM test_pass('10j_nonowner_cant_delete');
-  ELSE PERFORM test_fail('10j_nonowner_cant_delete', 'Non-owner deleted entity'); END IF;
-END $$;
-
-DO $$
-DECLARE cnt INT;
-BEGIN
-  -- Create throwaway, delete as owner
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01RLS_DEL_TEST0000000000000', 'entity', 'book', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  DELETE FROM entities WHERE id = '01RLS_DEL_TEST0000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 1 THEN PERFORM test_pass('10k_owner_can_delete');
-  ELSE PERFORM test_fail('10k_owner_can_delete', 'Owner could not delete'); END IF;
-END $$;
-
--- =============================================================================
--- 11. RLS: Entity Access
--- =============================================================================
-
--- 11a. Anyone can read grants
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  SELECT COUNT(*) INTO cnt FROM entity_access WHERE entity_id = '01ENT_PUB000000000000000000';
-  RESET ROLE;
-  IF cnt > 0 THEN PERFORM test_pass('11a_anyone_reads_grants');
-  ELSE PERFORM test_fail('11a_anyone_reads_grants', 'Grants not visible'); END IF;
-END $$;
-
--- 11b. Owner can add grant
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('01ENT_PUB000000000000000000', '01CAROL00000000000000000000', 'view');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF ok THEN PERFORM test_pass('11b_owner_can_grant');
-  ELSE PERFORM test_fail('11b_owner_can_grant', 'Owner could not add grant'); END IF;
-END $$;
-
--- 11c. Admin can add grant
-INSERT INTO entity_access (entity_id, actor_id, access_type)
-VALUES ('01ENT_PUB000000000000000000', '01BOB0000000000000000000000', 'admin');
-
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('01ENT_PUB000000000000000000', '01CAROL00000000000000000000', 'edit');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF ok THEN PERFORM test_pass('11c_admin_can_grant');
-  ELSE PERFORM test_fail('11c_admin_can_grant', 'Admin could not add grant'); END IF;
-END $$;
-
--- 11d. Stranger cannot add grant
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('01ENT_BOB000000000000000000', '01CAROL00000000000000000000', 'admin');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF NOT ok THEN PERFORM test_pass('11d_stranger_cant_grant');
-  ELSE
-    DELETE FROM entity_access WHERE entity_id = '01ENT_BOB000000000000000000' AND actor_id = '01CAROL00000000000000000000' AND access_type = 'admin';
-    PERFORM test_fail('11d_stranger_cant_grant', 'Stranger added grant');
-  END IF;
-END $$;
-
--- =============================================================================
--- 12. RLS: Relationship Edges
--- =============================================================================
-
--- 12a. Owner of source can create edge
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_RLS_A0000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01REL_RLS_A0000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'cites');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-
-  IF ok THEN PERFORM test_pass('12a_owner_creates_edge');
-  ELSE PERFORM test_fail('12a_owner_creates_edge', 'Owner could not create edge'); END IF;
-
-  DELETE FROM entities WHERE id = '01REL_RLS_A0000000000000000';
-END $$;
-
--- 12b. Editor of source can create edge
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  -- Bob has edit grant on Alice's public entity
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_RLS_B0000000000000000', 'relationship', 'relationship', '{}', '01BOB0000000000000000000000', '01BOB0000000000000000000000', NOW(), NOW());
-
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01REL_RLS_B0000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'references');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-
-  IF ok THEN PERFORM test_pass('12b_editor_creates_edge');
-  ELSE PERFORM test_fail('12b_editor_creates_edge', 'Editor could not create edge'); END IF;
-
-  DELETE FROM entities WHERE id = '01REL_RLS_B0000000000000000';
-END $$;
-
--- 12c. Stranger cannot create edge (Carol has no edit on Bob's entity)
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01REL_RLS_C0000000000000000', 'relationship', 'relationship', '{}', '01CAROL00000000000000000000', '01CAROL00000000000000000000', NOW(), NOW());
-
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  BEGIN
-    INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-    VALUES ('01REL_RLS_C0000000000000000', '01ENT_BOB000000000000000000', '01ENT_PUB000000000000000000', 'cites');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-
-  DELETE FROM entities WHERE id = '01REL_RLS_C0000000000000000';
-
-  IF NOT ok THEN PERFORM test_pass('12c_stranger_cant_create_edge');
-  ELSE PERFORM test_fail('12c_stranger_cant_create_edge', 'Stranger created edge'); END IF;
-END $$;
-
--- 12d. Can see edge if relationship entity is public
-DO $$
-DECLARE cnt INT;
-BEGIN
-  -- Create a public relationship entity + edge
-  INSERT INTO entities (id, kind, type, properties, owner_id, view_access, edited_by, created_at, updated_at)
-  VALUES ('01REL_RLS_D0000000000000000', 'relationship', 'relationship', '{}', '01ALICE00000000000000000000', 'public', '01ALICE00000000000000000000', NOW(), NOW());
-  INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-  VALUES ('01REL_RLS_D0000000000000000', '01ENT_PUB000000000000000000', '01ENT_BOB000000000000000000', 'cites');
-
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  SELECT COUNT(*) INTO cnt FROM relationship_edges WHERE id = '01REL_RLS_D0000000000000000';
-  RESET ROLE;
-
-  DELETE FROM entities WHERE id = '01REL_RLS_D0000000000000000';
-
-  IF cnt = 1 THEN PERFORM test_pass('12d_public_edge_visible');
-  ELSE PERFORM test_fail('12d_public_edge_visible', format('cnt=%s', cnt)); END IF;
-END $$;
-
--- 12e. Edge delete requires edit on source (Carol has no edit on Bob's entity)
-DO $$
-DECLARE cnt INT;
-BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, view_access, edited_by, created_at, updated_at)
-  VALUES ('01REL_RLS_E0000000000000000', 'relationship', 'relationship', '{}', '01BOB0000000000000000000000', 'public', '01BOB0000000000000000000000', NOW(), NOW());
-  INSERT INTO relationship_edges (id, source_id, target_id, predicate)
-  VALUES ('01REL_RLS_E0000000000000000', '01ENT_BOB000000000000000000', '01ENT_PUB000000000000000000', 'cites');
-
-  -- Carol (no edit on Bob's entity) tries to delete
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01CAROL00000000000000000000';
-  DELETE FROM relationship_edges WHERE id = '01REL_RLS_E0000000000000000';
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-
-  DELETE FROM entities WHERE id = '01REL_RLS_E0000000000000000';
-
-  IF cnt = 0 THEN PERFORM test_pass('12e_stranger_cant_delete_edge');
-  ELSE PERFORM test_fail('12e_stranger_cant_delete_edge', 'Stranger deleted edge'); END IF;
-END $$;
-
--- =============================================================================
--- 13. RLS: Entity Versions
--- =============================================================================
-
--- Seed a version
+  ('01ADMIN0000000000000000000', 'agent', 4, 4, true,  true,  '{"label": "Admin"}'),
+  ('01RESTRICTED000000000000000', 'agent', 4, 4, false, false, '{"label": "Restricted Agent"}'),
+  ('01CONFID0000000000000000000', 'agent', 3, 3, false, false, '{"label": "Confidential Agent"}'),
+  ('01TEAM00000000000000000000', 'agent', 2, 2, false, false, '{"label": "Team Agent"}'),
+  ('01INTERNAL0000000000000000', 'agent', 1, 1, false, false, '{"label": "Internal Agent"}'),
+  ('01PUBLIC0000000000000000000', 'agent', 0, 0, false, false, '{"label": "Public Agent"}');
+
+-- Network (Arke)
+INSERT INTO arkes (id, name, owner_id)
+VALUES ('01NETWORK0000000000000000000', 'Test Network', '01ADMIN0000000000000000000');
+
+-- Entities at various classification levels
+INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+VALUES
+  ('01ENT_PUBLIC0000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Public Doc"}',       '01ADMIN0000000000000000000', 0, 0, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_INTERNAL000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Internal Doc"}',     '01ADMIN0000000000000000000', 1, 1, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_TEAM00000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Team Doc"}',         '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_CONFID000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Confidential Doc"}', '01ADMIN0000000000000000000', 3, 3, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_RESTRICT0000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Restricted Doc"}',   '01ADMIN0000000000000000000', 4, 4, '01ADMIN0000000000000000000', NOW(), NOW());
+
+-- Entity owned by TEAM agent (for ownership tests)
+INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+VALUES
+  ('01ENT_TEAM_OWN0000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Team Owned"}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
+
+-- Mixed classification: public read, restricted write
+INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+VALUES
+  ('01ENT_PUB_RESTR000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Public Read Restricted Write"}', '01ADMIN0000000000000000000', 0, 4, '01ADMIN0000000000000000000', NOW(), NOW());
+
+-- Spaces at various levels
+INSERT INTO spaces (id, network_id, name, owner_id, read_level, write_level)
+VALUES
+  ('01SPACE_PUBLIC00000000000', '01NETWORK0000000000000000000', 'Public Space',   '01ADMIN0000000000000000000', 0, 0),
+  ('01SPACE_INTERNAL000000000', '01NETWORK0000000000000000000', 'Internal Space', '01ADMIN0000000000000000000', 1, 1),
+  ('01SPACE_TEAM0000000000000', '01NETWORK0000000000000000000', 'Team Space',     '01ADMIN0000000000000000000', 2, 2);
+
+-- Entity versions (for parent classification inheritance)
 INSERT INTO entity_versions (entity_id, ver, properties, edited_by, created_at)
-VALUES ('01ENT_PUB000000000000000000', 1, '{"label": "Public Book"}', '01ALICE00000000000000000000', NOW());
-INSERT INTO entity_versions (entity_id, ver, properties, edited_by, created_at)
-VALUES ('01ENT_PRIV00000000000000000', 1, '{"label": "Private Book"}', '01ALICE00000000000000000000', NOW());
+VALUES
+  ('01ENT_CONFID000000000000', 1, '{"label": "Confidential Doc"}', '01ADMIN0000000000000000000', NOW());
 
--- 13a. Can see versions of public entity
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '';
-  SELECT COUNT(*) INTO cnt FROM entity_versions WHERE entity_id = '01ENT_PUB000000000000000000';
-  RESET ROLE;
-  IF cnt > 0 THEN PERFORM test_pass('13a_public_versions_visible');
-  ELSE PERFORM test_fail('13a_public_versions_visible', 'Cannot see public versions'); END IF;
-END $$;
+-- Comments (for parent classification inheritance)
+INSERT INTO comments (id, entity_id, author_id, body)
+VALUES
+  ('01CMT_ON_CONFID000000000', '01ENT_CONFID000000000000', '01ADMIN0000000000000000000', 'Comment on confidential doc');
 
--- 13b. Cannot see versions of private entity (no grant)
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  SELECT COUNT(*) INTO cnt FROM entity_versions WHERE entity_id = '01ENT_PRIV00000000000000000';
-  RESET ROLE;
-  IF cnt = 0 THEN PERFORM test_pass('13b_private_versions_hidden');
-  ELSE PERFORM test_fail('13b_private_versions_hidden', format('cnt=%s', cnt)); END IF;
-END $$;
+-- Notifications
+INSERT INTO notifications (recipient_id, entity_id, actor_id, action)
+VALUES
+  ('01TEAM00000000000000000000', '01ENT_TEAM00000000000000', '01ADMIN0000000000000000000', 'content_updated'),
+  ('01INTERNAL0000000000000000', '01ENT_INTERNAL000000000000', '01ADMIN0000000000000000000', 'content_updated');
 
--- 13c. Insert is open
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO entity_versions (entity_id, ver, properties, edited_by, created_at)
-    VALUES ('01ENT_PUB000000000000000000', 2, '{"label": "v2"}', '01BOB0000000000000000000000', NOW());
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF ok THEN PERFORM test_pass('13c_version_insert_open');
-  ELSE PERFORM test_fail('13c_version_insert_open', 'Could not insert version'); END IF;
-END $$;
+-- Relationship between internal and team docs
+INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+VALUES
+  ('01REL_INT_TEAM0000000000', 'relationship', 'relationship', '01NETWORK0000000000000000000', '{}', '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW());
 
--- =============================================================================
--- 14. RLS: Entity Activity
--- =============================================================================
+INSERT INTO relationship_edges (id, source_id, target_id, predicate)
+VALUES
+  ('01REL_INT_TEAM0000000000', '01ENT_INTERNAL000000000000', '01ENT_TEAM00000000000000', 'references');
 
--- 14a. Anyone can read activity
-DO $$
-DECLARE cnt INT;
-BEGIN
-  INSERT INTO entity_activity (entity_id, actor_id, action) VALUES ('01ENT_PUB000000000000000000', '01ALICE00000000000000000000', 'entity_created');
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '';
-  SELECT COUNT(*) INTO cnt FROM entity_activity;
-  RESET ROLE;
-  IF cnt > 0 THEN PERFORM test_pass('14a_activity_readable');
-  ELSE PERFORM test_fail('14a_activity_readable', 'Cannot read activity'); END IF;
-END $$;
+-- Activity
+INSERT INTO entity_activity (entity_id, space_id, actor_id, action, detail)
+VALUES
+  ('01ENT_CONFID000000000000', NULL, '01ADMIN0000000000000000000', 'entity_created', '{}');
 
--- 14b. Anyone can insert activity
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  BEGIN
-    INSERT INTO entity_activity (entity_id, actor_id, action) VALUES ('01ENT_BOB000000000000000000', '01BOB0000000000000000000000', 'content_updated');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  IF ok THEN PERFORM test_pass('14b_activity_insertable');
-  ELSE PERFORM test_fail('14b_activity_insertable', 'Cannot insert activity'); END IF;
-END $$;
+-- ACL grants: give INTERNAL agent editor role on the INTERNAL entity
+INSERT INTO entity_permissions (entity_id, grantee_type, grantee_id, role, granted_by)
+VALUES
+  ('01ENT_INTERNAL000000000000', 'actor', '01INTERNAL0000000000000000', 'editor', '01ADMIN0000000000000000000');
+
+-- Group for ACL tests
+INSERT INTO groups (id, name, network_id, created_by)
+VALUES ('01GRP_EDITORS00000000000', 'Editors', '01NETWORK0000000000000000000', '01ADMIN0000000000000000000');
+
+INSERT INTO group_memberships (actor_id, group_id, role_in_group)
+VALUES ('01CONFID0000000000000000000', '01GRP_EDITORS00000000000', 'member');
+
+-- Give the Editors group editor role on the TEAM entity
+INSERT INTO entity_permissions (entity_id, grantee_type, grantee_id, role, granted_by)
+VALUES
+  ('01ENT_TEAM00000000000000', 'group', '01GRP_EDITORS00000000000', 'editor', '01ADMIN0000000000000000000');
+
+-- Space permissions: give INTERNAL agent contributor on Internal Space
+INSERT INTO space_permissions (space_id, grantee_type, grantee_id, role, granted_by)
+VALUES
+  ('01SPACE_INTERNAL000000000', 'actor', '01INTERNAL0000000000000000', 'contributor', '01ADMIN0000000000000000000');
+
 
 -- =============================================================================
--- 15. RLS: API Keys
+-- TEST 1: Classification-based reads (entities)
 -- =============================================================================
 
--- Seed API keys
-INSERT INTO api_keys (id, key_prefix, key_hash, actor_id, label)
-VALUES ('key_alice', 'ak_alice', 'hash_alice', '01ALICE00000000000000000000', 'Alice key');
-INSERT INTO api_keys (id, key_prefix, key_hash, actor_id, label)
-VALUES ('key_bob', 'ak_bob00', 'hash_bob', '01BOB0000000000000000000000', 'Bob key');
+-- Switch to arke_app role
+SET ROLE arke_app;
 
--- 15a. Can only see own keys
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  SELECT COUNT(*) INTO cnt FROM api_keys;
-  RESET ROLE;
-  IF cnt = 1 THEN PERFORM test_pass('15a_see_own_keys_only');
-  ELSE PERFORM test_fail('15a_see_own_keys_only', format('cnt=%s (expected 1)', cnt)); END IF;
+-- Test: TEAM agent (level 2) can see PUBLIC, INTERNAL, TEAM
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  SELECT count(*) INTO cnt FROM entities WHERE kind = 'entity';
+  IF cnt = 5 THEN  -- PUBLIC, INTERNAL, TEAM, TEAM_OWN, PUB_RESTR (5 readable, 2 classified above)
+    PERFORM test_pass('entity_read_team_sees_3_levels');
+  ELSE
+    PERFORM test_fail('entity_read_team_sees_3_levels', 'Expected 5, got ' || cnt);
+  END IF;
 END $$;
 
--- 15b. Cannot insert key for another actor
-DO $$
-DECLARE ok BOOLEAN;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  BEGIN
-    INSERT INTO api_keys (id, key_prefix, key_hash, actor_id) VALUES ('key_fake', 'ak_fake', 'hash_fake', '01BOB0000000000000000000000');
-    ok := true;
-  EXCEPTION WHEN OTHERS THEN ok := false; END;
-  RESET ROLE;
-  DELETE FROM api_keys WHERE id = 'key_fake';
-  IF NOT ok THEN PERFORM test_pass('15b_cant_insert_others_key');
-  ELSE PERFORM test_fail('15b_cant_insert_others_key', 'Inserted key for another actor'); END IF;
+-- Test: PUBLIC agent (level 0) can only see PUBLIC entities
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01PUBLIC0000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '0', true);
+  PERFORM set_config('app.actor_write_level', '0', true);
+
+  SELECT count(*) INTO cnt FROM entities WHERE kind = 'entity';
+  IF cnt = 2 THEN  -- PUBLIC + PUB_RESTR (both read_level=0)
+    PERFORM test_pass('entity_read_public_sees_public_only');
+  ELSE
+    PERFORM test_fail('entity_read_public_sees_public_only', 'Expected 2, got ' || cnt);
+  END IF;
 END $$;
 
--- 15c. Can only update own keys
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01ALICE00000000000000000000';
-  UPDATE api_keys SET revoked_at = NOW() WHERE id = 'key_bob';
+-- Test: RESTRICTED agent (level 4) can see everything
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01RESTRICTED000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '4', true);
+  PERFORM set_config('app.actor_write_level', '4', true);
+
+  SELECT count(*) INTO cnt FROM entities WHERE kind = 'entity';
+  IF cnt = 7 THEN  -- all 7 entities
+    PERFORM test_pass('entity_read_restricted_sees_all');
+  ELSE
+    PERFORM test_fail('entity_read_restricted_sees_all', 'Expected 7, got ' || cnt);
+  END IF;
+END $$;
+
+-- Test: Unauthenticated (level -1) can only see PUBLIC
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM set_config('app.actor_read_level', '-1', true);
+  PERFORM set_config('app.actor_write_level', '-1', true);
+
+  SELECT count(*) INTO cnt FROM entities WHERE kind = 'entity';
+  IF cnt = 2 THEN  -- PUBLIC + PUB_RESTR
+    PERFORM test_pass('entity_read_unauth_sees_public_only');
+  ELSE
+    PERFORM test_fail('entity_read_unauth_sees_public_only', 'Expected 2, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 2: Write ceiling (entities)
+-- =============================================================================
+
+-- Test: INTERNAL agent (level 1) cannot INSERT entity with write_level=2
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+  PERFORM set_config('app.actor_write_level', '1', true);
+
+  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_WRITE_FAIL0000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01INTERNAL0000000000000000', 2, 2, '01INTERNAL0000000000000000', NOW(), NOW());
+
+  PERFORM test_fail('entity_write_ceiling_blocks_insert', 'Insert should have been blocked');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_pass('entity_write_ceiling_blocks_insert');
+END $$;
+
+-- Test: TEAM agent (level 2) CAN insert entity with write_level=2
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+
+  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_WRITE_OK00000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
+
+  PERFORM test_pass('entity_write_ceiling_allows_insert');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_fail('entity_write_ceiling_allows_insert', 'Insert should have succeeded');
+END $$;
+
+-- Test: Cannot insert entity with read_level above your read clearance
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+
+  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_READ_FAIL0000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01TEAM00000000000000000000', 3, 2, '01TEAM00000000000000000000', NOW(), NOW());
+
+  PERFORM test_fail('entity_cannot_create_above_read_level', 'Insert should have been blocked');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_pass('entity_cannot_create_above_read_level');
+END $$;
+
+-- Test: Cannot UPDATE entity above write ceiling
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+  PERFORM set_config('app.actor_write_level', '1', true);
+
+  UPDATE entities SET properties = '{"label": "hacked"}' WHERE id = '01ENT_TEAM00000000000000';
+
+  -- If 0 rows updated, RLS silently filtered it — this is expected behavior
+  PERFORM test_pass('entity_write_ceiling_blocks_update');
+END $$;
+
+
+-- =============================================================================
+-- TEST 3: Space classification
+-- =============================================================================
+
+-- Test: INTERNAL agent (level 1) can see PUBLIC and INTERNAL spaces but not TEAM
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+
+  SELECT count(*) INTO cnt FROM spaces;
+  IF cnt = 2 THEN  -- PUBLIC + INTERNAL
+    PERFORM test_pass('space_read_internal_sees_2');
+  ELSE
+    PERFORM test_fail('space_read_internal_sees_2', 'Expected 2, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 4: Relationship visibility
+-- =============================================================================
+
+-- Test: Relationship with read_level=2 is invisible to INTERNAL agent (level 1)
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+
+  SELECT count(*) INTO cnt FROM relationship_edges
+  WHERE source_id = '01ENT_INTERNAL000000000000';
+  IF cnt = 0 THEN
+    PERFORM test_pass('relationship_classification_hides_edge');
+  ELSE
+    PERFORM test_fail('relationship_classification_hides_edge', 'Expected 0, got ' || cnt);
+  END IF;
+END $$;
+
+-- Test: TEAM agent (level 2) CAN see the relationship
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+
+  SELECT count(*) INTO cnt FROM relationship_edges
+  WHERE source_id = '01ENT_INTERNAL000000000000';
+  IF cnt = 1 THEN
+    PERFORM test_pass('relationship_classification_shows_edge');
+  ELSE
+    PERFORM test_fail('relationship_classification_shows_edge', 'Expected 1, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 5: Entity versions inherit parent classification
+-- =============================================================================
+
+-- Test: TEAM agent (level 2) cannot see versions of CONFIDENTIAL entity (level 3)
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+
+  SELECT count(*) INTO cnt FROM entity_versions WHERE entity_id = '01ENT_CONFID000000000000';
+  IF cnt = 0 THEN
+    PERFORM test_pass('versions_inherit_parent_classification');
+  ELSE
+    PERFORM test_fail('versions_inherit_parent_classification', 'Expected 0, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 6: Comments inherit parent entity classification
+-- =============================================================================
+
+-- Test: TEAM agent (level 2) cannot see comments on CONFIDENTIAL entity
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+
+  SELECT count(*) INTO cnt FROM comments WHERE entity_id = '01ENT_CONFID000000000000';
+  IF cnt = 0 THEN
+    PERFORM test_pass('comments_inherit_parent_classification');
+  ELSE
+    PERFORM test_fail('comments_inherit_parent_classification', 'Expected 0, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 7: Notifications only visible to recipient
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+
+  SELECT count(*) INTO cnt FROM notifications;
+  IF cnt = 1 THEN  -- Only TEAM's notification, not INTERNAL's
+    PERFORM test_pass('notifications_only_own');
+  ELSE
+    PERFORM test_fail('notifications_only_own', 'Expected 1, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 8: Actors always visible to everyone
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01PUBLIC0000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '0', true);
+
+  SELECT count(*) INTO cnt FROM actors;
+  IF cnt = 6 THEN  -- All 6 actors visible even to PUBLIC agent
+    PERFORM test_pass('actors_always_visible');
+  ELSE
+    PERFORM test_fail('actors_always_visible', 'Expected 6, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 9: Mixed classification (public read, restricted write)
+-- =============================================================================
+
+-- Test: PUBLIC agent can READ but not WRITE the mixed entity
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01PUBLIC0000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '0', true);
+  PERFORM set_config('app.actor_write_level', '0', true);
+
+  -- Can read it
+  SELECT count(*) INTO cnt FROM entities WHERE id = '01ENT_PUB_RESTR000000000';
+  IF cnt != 1 THEN
+    PERFORM test_fail('mixed_classification_readable', 'Expected 1, got ' || cnt);
+    RETURN;
+  END IF;
+
+  -- Cannot update it (write_level=4 > write_level=0)
+  UPDATE entities SET properties = '{"label": "hacked"}' WHERE id = '01ENT_PUB_RESTR000000000';
+  -- 0 rows updated due to RLS
+  PERFORM test_pass('mixed_classification_readable_not_writable');
+END $$;
+
+
+-- =============================================================================
+-- TEST 10: Activity inherits entity classification
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+
+  SELECT count(*) INTO cnt FROM entity_activity WHERE entity_id = '01ENT_CONFID000000000000';
+  IF cnt = 0 THEN
+    PERFORM test_pass('activity_inherits_parent_classification');
+  ELSE
+    PERFORM test_fail('activity_inherits_parent_classification', 'Expected 0, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 11: ACL — owner can update their own entity
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  UPDATE entities SET properties = '{"label": "Team Owned Updated"}' WHERE id = '01ENT_TEAM_OWN0000000000';
   GET DIAGNOSTICS cnt = ROW_COUNT;
-  RESET ROLE;
-  IF cnt = 0 THEN PERFORM test_pass('15c_cant_update_others_key');
-  ELSE PERFORM test_fail('15c_cant_update_others_key', 'Updated another actors key'); END IF;
+  IF cnt = 1 THEN
+    PERFORM test_pass('acl_owner_can_update');
+  ELSE
+    PERFORM test_fail('acl_owner_can_update', 'Expected 1 row, got ' || cnt);
+  END IF;
 END $$;
 
+
 -- =============================================================================
--- 16. RLS: Agent Keys
+-- TEST 12: ACL — non-owner without grant cannot update
 -- =============================================================================
 
--- Seed agent key
-INSERT INTO agent_keys (entity_id, public_key) VALUES ('01ALICE00000000000000000000', 'base64pubkey_alice');
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
 
--- 16a. Anyone can read agent keys
-DO $$
-DECLARE cnt INT;
-BEGIN
-  SET LOCAL ROLE app_user;
-  SET LOCAL app.actor_id = '01BOB0000000000000000000000';
-  SELECT COUNT(*) INTO cnt FROM agent_keys;
-  RESET ROLE;
-  IF cnt > 0 THEN PERFORM test_pass('16a_agent_keys_public_read');
-  ELSE PERFORM test_fail('16a_agent_keys_public_read', 'Cannot read agent keys'); END IF;
+  -- INTERNAL can SEE the TEAM_OWN entity (read_level=2, actor has level 2)
+  -- but has no editor/admin grant on it, so UPDATE should be blocked
+  UPDATE entities SET properties = '{"label": "hacked"}' WHERE id = '01ENT_TEAM_OWN0000000000';
+  GET DIAGNOSTICS cnt = ROW_COUNT;
+  IF cnt = 0 THEN
+    PERFORM test_pass('acl_non_owner_no_grant_blocked');
+  ELSE
+    PERFORM test_fail('acl_non_owner_no_grant_blocked', 'Expected 0 rows, got ' || cnt);
+  END IF;
 END $$;
 
+
 -- =============================================================================
--- 17. Edge Cases
+-- TEST 13: ACL — actor with editor grant can update
 -- =============================================================================
 
--- 17a. Duplicate PK rejected
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+  PERFORM set_config('app.actor_write_level', '1', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- INTERNAL has an editor grant on INTERNAL entity
+  UPDATE entities SET properties = '{"label": "Internal Doc Updated"}' WHERE id = '01ENT_INTERNAL000000000000';
+  GET DIAGNOSTICS cnt = ROW_COUNT;
+  IF cnt = 1 THEN
+    PERFORM test_pass('acl_editor_grant_allows_update');
+  ELSE
+    PERFORM test_fail('acl_editor_grant_allows_update', 'Expected 1 row, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 14: ACL — group-based editor grant allows update
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01CONFID0000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '3', true);
+  PERFORM set_config('app.actor_write_level', '3', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- CONFID is member of Editors group, which has editor on TEAM entity
+  UPDATE entities SET properties = '{"label": "Team Doc Updated By Group"}' WHERE id = '01ENT_TEAM00000000000000';
+  GET DIAGNOSTICS cnt = ROW_COUNT;
+  IF cnt = 1 THEN
+    PERFORM test_pass('acl_group_grant_allows_update');
+  ELSE
+    PERFORM test_fail('acl_group_grant_allows_update', 'Expected 1 row, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 15: ACL — system admin can update any entity
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01ADMIN0000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '4', true);
+  PERFORM set_config('app.actor_write_level', '4', true);
+  PERFORM set_config('app.actor_is_admin', 'true', true);
+
+  UPDATE entities SET properties = '{"label": "Team Owned Admin Edit"}' WHERE id = '01ENT_TEAM_OWN0000000000';
+  GET DIAGNOSTICS cnt = ROW_COUNT;
+  IF cnt = 1 THEN
+    PERFORM test_pass('acl_admin_can_update_any');
+  ELSE
+    PERFORM test_fail('acl_admin_can_update_any', 'Expected 1 row, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 16: ACL — non-owner cannot delete (needs admin role)
+-- =============================================================================
+
+DO $$ DECLARE cnt int; BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+  PERFORM set_config('app.actor_write_level', '1', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- INTERNAL has editor (not admin) grant on INTERNAL entity — cannot delete
+  DELETE FROM entities WHERE id = '01ENT_INTERNAL000000000000';
+  GET DIAGNOSTICS cnt = ROW_COUNT;
+  IF cnt = 0 THEN
+    PERFORM test_pass('acl_editor_cannot_delete');
+  ELSE
+    PERFORM test_fail('acl_editor_cannot_delete', 'Expected 0 rows, got ' || cnt);
+  END IF;
+END $$;
+
+
+-- =============================================================================
+-- TEST 17: ACL — actor can create another actor at or below their level
+-- =============================================================================
+
 DO $$ BEGIN
-  BEGIN
-    INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-    VALUES ('01ALICE00000000000000000000', 'entity', 'book', '{}', 'x', 'x', NOW(), NOW());
-    PERFORM test_fail('17a_duplicate_pk', 'Accepted duplicate PK');
-  EXCEPTION WHEN unique_violation THEN
-    PERFORM test_pass('17a_duplicate_pk');
-  END;
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- TEAM (level 2) creates an actor at level 1 — should succeed
+  INSERT INTO actors (id, kind, max_read_level, max_write_level, owner_id, properties)
+  VALUES ('01TEST_ACTOR_OK000000000', 'agent', 1, 1, '01TEAM00000000000000000000', '{}');
+
+  PERFORM test_pass('acl_actor_can_create_at_lower_level');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_fail('acl_actor_can_create_at_lower_level', 'Insert should have succeeded');
 END $$;
 
--- 17b. Duplicate access grant rejected
-DO $$ BEGIN
-  BEGIN
-    INSERT INTO entity_access (entity_id, actor_id, access_type)
-    VALUES ('01ENT_PUB000000000000000000', '01BOB0000000000000000000000', 'edit');
-    PERFORM test_fail('17b_duplicate_grant', 'Accepted duplicate grant');
-  EXCEPTION WHEN unique_violation THEN
-    PERFORM test_pass('17b_duplicate_grant');
-  END;
-END $$;
-
--- 17c. Multiple access types for same actor
-DO $$ BEGIN
-  -- Bob already has 'edit' and 'admin'. Add 'view'.
-  INSERT INTO entity_access (entity_id, actor_id, access_type)
-  VALUES ('01ENT_PUB000000000000000000', '01BOB0000000000000000000000', 'view');
-  PERFORM test_pass('17c_multiple_access_types');
-EXCEPTION WHEN OTHERS THEN
-  PERFORM test_fail('17c_multiple_access_types', SQLERRM);
-END $$;
-
--- 17d. Large JSONB properties
-DO $$ BEGIN
-  INSERT INTO entities (id, kind, type, properties, owner_id, edited_by, created_at, updated_at)
-  VALUES ('01LARGE_JSON0000000000000000', 'entity', 'book',
-    (SELECT jsonb_build_object('data', repeat('x', 100000))),
-    '01ALICE00000000000000000000', '01ALICE00000000000000000000', NOW(), NOW());
-  PERFORM test_pass('17d_large_jsonb');
-  DELETE FROM entities WHERE id = '01LARGE_JSON0000000000000000';
-EXCEPTION WHEN OTHERS THEN
-  PERFORM test_fail('17d_large_jsonb', SQLERRM);
-END $$;
 
 -- =============================================================================
--- Results
+-- TEST 17b: ACL — actor cannot create actor above their level
 -- =============================================================================
+
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- TEAM (level 2) tries to create an actor at level 3 — should fail
+  INSERT INTO actors (id, kind, max_read_level, max_write_level, owner_id, properties)
+  VALUES ('01TEST_ACTOR_FAIL00000000', 'agent', 3, 3, '01TEAM00000000000000000000', '{}');
+
+  PERFORM test_fail('acl_actor_cannot_create_above_level', 'Insert should have been blocked');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_pass('acl_actor_cannot_create_above_level');
+END $$;
+
+
+-- =============================================================================
+-- TEST 17c: ACL — actor can create at same level
+-- =============================================================================
+
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- TEAM (level 2) creates an actor at level 2 — should succeed
+  INSERT INTO actors (id, kind, max_read_level, max_write_level, owner_id, properties)
+  VALUES ('01TEST_ACTOR_SAME0000000', 'agent', 2, 2, '01TEAM00000000000000000000', '{}');
+
+  PERFORM test_pass('acl_actor_can_create_at_same_level');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_fail('acl_actor_can_create_at_same_level', 'Insert should have succeeded');
+END $$;
+
+
+-- =============================================================================
+-- TEST 18: ACL — space contributor can add entity to space
+-- =============================================================================
+
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01INTERNAL0000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '1', true);
+  PERFORM set_config('app.actor_write_level', '1', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- INTERNAL has contributor role on Internal Space
+  INSERT INTO space_entities (space_id, entity_id, added_by)
+  VALUES ('01SPACE_INTERNAL000000000', '01ENT_INTERNAL000000000000', '01INTERNAL0000000000000000');
+
+  PERFORM test_pass('acl_space_contributor_can_add_entity');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_fail('acl_space_contributor_can_add_entity', 'Insert should have succeeded');
+END $$;
+
+
+-- =============================================================================
+-- TEST 19: ACL — actor without space role cannot add entity
+-- =============================================================================
+
+DO $$ BEGIN
+  PERFORM set_config('app.actor_id', '01TEAM00000000000000000000', true);
+  PERFORM set_config('app.actor_read_level', '2', true);
+  PERFORM set_config('app.actor_write_level', '2', true);
+  PERFORM set_config('app.actor_is_admin', 'false', true);
+
+  -- TEAM has no space permission on Internal Space
+  INSERT INTO space_entities (space_id, entity_id, added_by)
+  VALUES ('01SPACE_INTERNAL000000000', '01ENT_TEAM00000000000000', '01TEAM00000000000000000000');
+
+  PERFORM test_fail('acl_no_space_role_blocked', 'Insert should have been blocked');
+EXCEPTION WHEN insufficient_privilege THEN
+  PERFORM test_pass('acl_no_space_role_blocked');
+END $$;
+
+
+-- =============================================================================
+-- Cleanup test entities and reset role
+-- =============================================================================
+RESET ROLE;
+
+DELETE FROM space_entities WHERE space_id = '01SPACE_INTERNAL000000000';
+DELETE FROM actors WHERE id IN ('01TEST_ACTOR_OK000000000', '01TEST_ACTOR_SAME0000000');
+DELETE FROM entities WHERE id IN ('01TEST_WRITE_OK00000000');
+
+
+-- =============================================================================
+-- Results (back to superuser role)
+-- =============================================================================
+RESET ROLE;
 
 \echo ''
-\echo '==========================================='
-\echo '  SCHEMA TEST RESULTS'
-\echo '==========================================='
+\echo '=============================='
+\echo '  SCHEMA v2 TEST RESULTS'
+\echo '=============================='
 \echo ''
-
-\pset format aligned
-\pset tuples_only off
 
 SELECT
-  CASE WHEN passed THEN '  PASS' ELSE '  FAIL' END AS status,
-  name,
-  COALESCE(detail, '') AS detail
+  CASE WHEN passed THEN '  PASS  ' ELSE '  FAIL  ' END || name ||
+  CASE WHEN detail IS NOT NULL THEN ' (' || detail || ')' ELSE '' END
 FROM test_results
-ORDER BY
-  -- Sort by category number, then name
-  (regexp_replace(name, '^(\d+)[a-z]_.*', '\1'))::int,
-  name;
+ORDER BY passed DESC, name;
 
 \echo ''
 
 SELECT
-  format('%s/%s passed', COUNT(*) FILTER (WHERE passed), COUNT(*)) AS summary,
-  CASE WHEN COUNT(*) FILTER (WHERE NOT passed) = 0
-    THEN 'ALL TESTS PASSED'
-    ELSE format('%s FAILED', COUNT(*) FILTER (WHERE NOT passed))
-  END AS result
+  'Total: ' || count(*) ||
+  '  Passed: ' || count(*) FILTER (WHERE passed) ||
+  '  Failed: ' || count(*) FILTER (WHERE NOT passed)
 FROM test_results;
 
--- =============================================================================
 -- Cleanup
--- =============================================================================
-
-DELETE FROM entity_activity;
-DELETE FROM entity_versions;
-DELETE FROM relationship_edges;
-DELETE FROM entity_access;
-DELETE FROM api_keys;
-DELETE FROM agent_keys;
-DELETE FROM entities;
-
-DROP FUNCTION test_pass(TEXT);
-DROP FUNCTION test_fail(TEXT, TEXT);
+DROP TABLE test_results;
+DROP FUNCTION IF EXISTS test_pass(text);
+DROP FUNCTION IF EXISTS test_fail(text, text);

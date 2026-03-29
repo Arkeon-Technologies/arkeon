@@ -2,7 +2,7 @@ import { createSql } from "./sql";
 
 export interface NotificationActivity {
   entity_id: string;
-  commons_id?: string | null;
+  space_id?: string | null;
   actor_id: string;
   action: string;
   detail?: Record<string, unknown>;
@@ -16,16 +16,19 @@ export async function fanOutNotifications(
   const ts = activity.ts ?? new Date().toISOString();
   const detail = activity.detail ?? {};
 
-  const [, ownerRows, grantRows, targetOwnerRows, commonsOwnerRows] = await sql.transaction([
+  // Gather recipients: entity owner + permission holders + related owners
+  const [, ownerRows, permRows, targetOwnerRows] = await sql.transaction([
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`SELECT owner_id FROM entities WHERE id = ${activity.entity_id} LIMIT 1`,
-    sql`SELECT DISTINCT actor_id FROM entity_access WHERE entity_id = ${activity.entity_id}`,
+    sql`
+      SELECT DISTINCT grantee_id AS actor_id
+      FROM entity_permissions
+      WHERE entity_id = ${activity.entity_id}
+        AND grantee_type = 'actor'
+    `,
     ["relationship_created", "relationship_removed", "relationship_updated"].includes(activity.action) &&
     typeof detail.target_id === "string"
       ? sql`SELECT owner_id FROM entities WHERE id = ${detail.target_id} LIMIT 1`
-      : sql`SELECT NULL::text AS owner_id LIMIT 0`,
-    activity.action === "entity_created" && activity.commons_id
-      ? sql`SELECT owner_id FROM entities WHERE id = ${activity.commons_id} LIMIT 1`
       : sql`SELECT NULL::text AS owner_id LIMIT 0`,
   ]);
 
@@ -34,7 +37,7 @@ export async function fanOutNotifications(
   if (owner && owner !== activity.actor_id) {
     recipients.add(owner);
   }
-  for (const row of grantRows as Array<{ actor_id: string }>) {
+  for (const row of permRows as Array<{ actor_id: string }>) {
     if (row.actor_id !== activity.actor_id) {
       recipients.add(row.actor_id);
     }
@@ -44,12 +47,7 @@ export async function fanOutNotifications(
       recipients.add(row.owner_id);
     }
   }
-  for (const row of commonsOwnerRows as Array<{ owner_id: string }>) {
-    if (row.owner_id && row.owner_id !== activity.actor_id) {
-      recipients.add(row.owner_id);
-    }
-  }
-  if (activity.action === "access_granted" && typeof detail.target_actor_id === "string") {
+  if (activity.action === "permission_granted" && typeof detail.target_actor_id === "string") {
     if (detail.target_actor_id !== activity.actor_id) {
       recipients.add(detail.target_actor_id);
     }

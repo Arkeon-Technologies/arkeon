@@ -3,7 +3,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { encodeCursor } from "../lib/cursor";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseLimit, parseOptionalTimestamp } from "../lib/http";
-import { setActorContext } from "../lib/permissions";
+import { setActorContext } from "../lib/actor-context";
 import { createRouter } from "../lib/openapi";
 import {
   DateTimeSchema,

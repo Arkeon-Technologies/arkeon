@@ -16,7 +16,7 @@ import {
   paginationQuerySchema,
   queryParam,
 } from "../lib/schemas";
-import { setActorContext } from "../lib/permissions";
+import { setActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
 
 
@@ -25,10 +25,10 @@ const SearchQuery = filterQuerySchema(["updated_at", "created_at"], "updated_at"
   .merge(paginationQuerySchema(50, 200))
   .extend({
     q: queryParam("q", z.string().min(1), "Search query string"),
-    commons_id: queryParam(
-      "commons_id",
+    network_id: queryParam(
+      "network_id",
       z.string().optional(),
-      "Comma-separated commons ULIDs to scope search",
+      "Network (Arke) ULID to scope search",
     ),
   });
 
@@ -66,7 +66,7 @@ searchRouter.openapi(searchRoute, async (c) => {
   const cursor = parseCursorParam(c);
   const order = parseOrder(c.req.query("order"));
   const sort = parseSort(c.req.query("sort"), ["updated_at", "created_at"], "updated_at");
-  const commonsIds = c.req.query("commons_id")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  const networkId = c.req.query("network_id");
 
   // Default: exclude relationships from search unless the user explicitly
   // includes kind in their filter (e.g. filter=kind:relationship)
@@ -86,23 +86,24 @@ searchRouter.openapi(searchRoute, async (c) => {
 
   let query = listing.query;
   const params = [...listing.params];
-  if (commonsIds.length) {
-    params.splice(params.length - 1, 0, commonsIds);
+  if (networkId) {
+    params.splice(params.length - 1, 0, networkId);
     const limitIndex = params.length;
     query = `
       SELECT * FROM (
         ${query.replace(/LIMIT \$\d+$/, "")}
       ) q
-      WHERE commons_id = ANY($${limitIndex - 1}::text[])
+      WHERE network_id = $${limitIndex - 1}
       LIMIT $${limitIndex}
     `;
   }
 
-  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
-  const [,, rows] = await sql.transaction([
+  const actorCtx = c.get("actor");
+  const txResults = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(query, params),
   ]);
+  const rows = txResults[txResults.length - 1];
   const results = (rows as Array<Record<string, unknown>>).slice(0, limit);
   const next = (rows as Array<Record<string, unknown>>).length > limit ? results[results.length - 1] : null;
 

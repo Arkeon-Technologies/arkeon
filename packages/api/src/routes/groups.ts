@@ -1,56 +1,69 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
 import { ApiError } from "../lib/errors";
-import { requireActor, parseJsonBody } from "../lib/http";
+import { requireActor, parseJsonBody, parseLimit, parseCursorParam } from "../lib/http";
 import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
-import { setActorContext, isNetworkAdmin } from "../lib/permissions";
+import { encodeCursor } from "../lib/cursor";
 import {
+  ActorSchema,
   DateTimeSchema,
   EntityIdParam,
+  GroupSchema,
+  cursorResponseSchema,
+  entityIdParams,
   errorResponses,
   jsonContent,
+  paginationQuerySchema,
   pathParam,
+  queryParam,
 } from "../lib/schemas";
+import { setActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
 
-const GroupSchema = z.object({
-  id: EntityIdParam,
-  network_id: EntityIdParam,
-  name: z.string(),
-  description: z.string().nullable(),
-  parent_group_id: EntityIdParam.nullable(),
-  system_group: z.boolean(),
-  can_invite: z.boolean(),
-  created_at: DateTimeSchema,
-});
+type GroupRecord = {
+  id: string;
+  name: string;
+  type: string;
+  network_id: string;
+  created_by: string;
+  created_at: string;
+};
 
-const GroupMembershipSchema = z.object({
+type GroupMemberRecord = {
+  group_id: string;
+  actor_id: string;
+  role_in_group: string;
+
+};
+
+const GroupMemberSchema = z.object({
   group_id: EntityIdParam,
   actor_id: EntityIdParam,
-  granted_by: EntityIdParam,
-  created_at: DateTimeSchema,
+  role_in_group: z.enum(["member", "admin"]),
+
 });
 
-// --- Route definitions ---
+const GroupWithMembersSchema = GroupSchema.extend({
+  members: z.array(GroupMemberSchema),
+});
 
 const createGroupRoute = createRoute({
   method: "post",
   path: "/",
   operationId: "createGroup",
   tags: ["Groups"],
-  summary: "Create a group (admin only)",
+  summary: "Create a new group (admin only via RLS)",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups", "GET /groups/{id}"],
+  "x-arke-related": ["GET /groups/{id}", "GET /groups"],
   request: {
     body: {
       required: true,
       content: jsonContent(
         z.object({
-          name: z.string().min(1).max(255).describe("Group name"),
-          description: z.string().max(4096).optional().describe("Group description"),
-          parent_group_id: EntityIdParam.optional().describe("Parent group ULID"),
-          can_invite: z.boolean().optional().describe("Whether members can generate invites"),
+          name: z.string().min(1).describe("Group name"),
+          type: z.enum(["org", "project", "editorial", "admin"]).optional().describe("Group type (default: project)"),
+          network_id: EntityIdParam.describe("Network (arke) ULID"),
         }),
       ),
     },
@@ -60,7 +73,7 @@ const createGroupRoute = createRoute({
       description: "Group created",
       content: jsonContent(z.object({ group: GroupSchema })),
     },
-    ...errorResponses([400, 401, 403, 404, 409]),
+    ...errorResponses([400, 401, 403]),
   },
 });
 
@@ -69,15 +82,25 @@ const listGroupsRoute = createRoute({
   path: "/",
   operationId: "listGroups",
   tags: ["Groups"],
-  summary: "List all groups in the network",
-  "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups/{id}", "POST /groups"],
+  summary: "List groups",
+  "x-arke-auth": "optional",
+  "x-arke-related": ["POST /groups", "GET /groups/{id}"],
+  request: {
+    query: paginationQuerySchema(50, 200).extend({
+      network_id: queryParam("network_id", EntityIdParam.optional(), "Filter by network"),
+      type: queryParam(
+        "type",
+        z.enum(["org", "project", "editorial", "admin"]).optional(),
+        "Filter by type",
+      ),
+    }),
+  },
   responses: {
     200: {
-      description: "List of groups",
-      content: jsonContent(z.object({ groups: z.array(GroupSchema) })),
+      description: "Group listing",
+      content: jsonContent(cursorResponseSchema("groups", GroupSchema)),
     },
-    ...errorResponses([401]),
+    ...errorResponses([400]),
   },
 });
 
@@ -86,20 +109,18 @@ const getGroupRoute = createRoute({
   path: "/{id}",
   operationId: "getGroup",
   tags: ["Groups"],
-  summary: "Get a group by ID",
-  "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups", "GET /groups/{id}/members"],
+  summary: "Fetch a group with its members",
+  "x-arke-auth": "optional",
+  "x-arke-related": ["PUT /groups/{id}", "POST /groups/{id}/members"],
   request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Group ULID"),
-    }),
+    params: entityIdParams("Group ULID"),
   },
   responses: {
     200: {
-      description: "Group details",
-      content: jsonContent(z.object({ group: GroupSchema })),
+      description: "Group with members",
+      content: jsonContent(z.object({ group: GroupWithMembersSchema })),
     },
-    ...errorResponses([401, 404]),
+    ...errorResponses([404]),
   },
 });
 
@@ -108,21 +129,17 @@ const updateGroupRoute = createRoute({
   path: "/{id}",
   operationId: "updateGroup",
   tags: ["Groups"],
-  summary: "Update a group (admin only)",
+  summary: "Update a group (admin or group admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /groups/{id}"],
   request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Group ULID"),
-    }),
+    params: entityIdParams("Group ULID"),
     body: {
       required: true,
       content: jsonContent(
         z.object({
-          name: z.string().min(1).max(255).optional().describe("Group name"),
-          description: z.string().max(4096).nullable().optional().describe("Group description"),
-          parent_group_id: EntityIdParam.nullable().optional().describe("Parent group ULID or null"),
-          can_invite: z.boolean().optional().describe("Whether members can generate invites"),
+          name: z.string().min(1).optional().describe("New group name"),
+          type: z.enum(["org", "project", "editorial", "admin"]).optional().describe("New group type"),
         }),
       ),
     },
@@ -132,7 +149,7 @@ const updateGroupRoute = createRoute({
       description: "Group updated",
       content: jsonContent(z.object({ group: GroupSchema })),
     },
-    ...errorResponses([400, 401, 403, 404, 409]),
+    ...errorResponses([400, 401, 403, 404]),
   },
 });
 
@@ -141,19 +158,16 @@ const deleteGroupRoute = createRoute({
   path: "/{id}",
   operationId: "deleteGroup",
   tags: ["Groups"],
-  summary: "Delete a group (admin only)",
+  summary: "Delete a group (admin or group admin)",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups"],
   request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Group ULID"),
-    }),
+    params: entityIdParams("Group ULID"),
   },
   responses: {
     204: {
       description: "Group deleted",
     },
-    ...errorResponses([401, 403, 404, 409]),
+    ...errorResponses([401, 403, 404]),
   },
 });
 
@@ -162,18 +176,17 @@ const addMemberRoute = createRoute({
   path: "/{id}/members",
   operationId: "addGroupMember",
   tags: ["Groups"],
-  summary: "Add a member to a group (admin only)",
+  summary: "Add a member to a group (admin or group admin)",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups/{id}/members", "DELETE /groups/{id}/members/{actorId}"],
+  "x-arke-related": ["DELETE /groups/{id}/members/{actorId}"],
   request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Group ULID"),
-    }),
+    params: entityIdParams("Group ULID"),
     body: {
       required: true,
       content: jsonContent(
         z.object({
           actor_id: EntityIdParam.describe("Actor ULID to add"),
+          role: z.enum(["member", "admin"]).optional().describe("Role (default: member)"),
         }),
       ),
     },
@@ -181,31 +194,9 @@ const addMemberRoute = createRoute({
   responses: {
     201: {
       description: "Member added",
-      content: jsonContent(GroupMembershipSchema),
+      content: jsonContent(z.object({ member: GroupMemberSchema })),
     },
     ...errorResponses([400, 401, 403, 404]),
-  },
-});
-
-const listMembersRoute = createRoute({
-  method: "get",
-  path: "/{id}/members",
-  operationId: "listGroupMembers",
-  tags: ["Groups"],
-  summary: "List members of a group",
-  "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups/{id}", "POST /groups/{id}/members"],
-  request: {
-    params: z.object({
-      id: pathParam("id", EntityIdParam, "Group ULID"),
-    }),
-  },
-  responses: {
-    200: {
-      description: "Group members",
-      content: jsonContent(z.object({ members: z.array(GroupMembershipSchema) })),
-    },
-    ...errorResponses([401, 404]),
   },
 });
 
@@ -214,9 +205,8 @@ const removeMemberRoute = createRoute({
   path: "/{id}/members/{actorId}",
   operationId: "removeGroupMember",
   tags: ["Groups"],
-  summary: "Remove a member from a group (admin only)",
+  summary: "Remove a member from a group (admin or group admin)",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /groups/{id}/members", "POST /groups/{id}/members"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Group ULID"),
@@ -227,388 +217,255 @@ const removeMemberRoute = createRoute({
     204: {
       description: "Member removed",
     },
-    ...errorResponses([401, 403, 404, 409]),
+    ...errorResponses([401, 403, 404]),
   },
 });
 
-// --- Helpers ---
-
-async function requireNetworkAdmin(actorId: string): Promise<void> {
-  if (!(await isNetworkAdmin(actorId))) {
-    throw new ApiError(403, "forbidden", "Network admin required");
-  }
-}
-
-async function detectCycle(
+/**
+ * Checks whether the caller is a platform admin or an admin of the specified group.
+ */
+async function requireGroupAdmin(
   sql: ReturnType<typeof createSql>,
-  actor: { id: string; groups: string[] },
+  actor: { id: string; isAdmin: boolean },
   groupId: string,
-  parentGroupId: string,
 ): Promise<void> {
-  const networkId = process.env.ROOT_COMMONS_ID!;
-  let current: string | null = parentGroupId;
-  while (current) {
-    if (current === groupId) {
-      throw new ApiError(409, "conflict", "Circular group hierarchy");
-    }
-    const [,, rows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql.query(
-        `SELECT parent_group_id FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-        [current, networkId],
-      ),
-    ]);
-    const row = (rows as Array<{ parent_group_id: string | null }>)[0];
-    current = row?.parent_group_id ?? null;
+  if (actor.isAdmin) return;
+
+  const [membership] = await sql`
+    SELECT role FROM group_memberships
+    WHERE group_id = ${groupId} AND actor_id = ${actor.id} AND role_in_group = 'admin'
+    LIMIT 1
+  `;
+  if (!membership) {
+    throw new ApiError(403, "forbidden", "Admin or group admin access required");
   }
 }
-
-// --- Router ---
 
 export const groupsRouter = createRouter();
 
-// POST / — Create group
 groupsRouter.openapi(createGroupRoute, async (c) => {
   const actor = requireActor(c);
-  await requireNetworkAdmin(actor.id);
-
   const body = await parseJsonBody<Record<string, unknown>>(c);
-  const name = body.name;
-  const description = body.description ?? null;
-  const parentGroupId = body.parent_group_id ?? null;
-  const canInvite = body.can_invite ?? false;
 
-  if (typeof name !== "string" || name.length < 1 || name.length > 255) {
-    throw new ApiError(400, "invalid_body", "Invalid group name");
+  if (typeof body.name !== "string" || body.name.length === 0) {
+    throw new ApiError(400, "missing_required_field", "Missing name");
+  }
+  const groupType = typeof body.type === "string" ? body.type : "project";
+  if (!["org", "project", "editorial", "admin"].includes(groupType)) {
+    throw new ApiError(400, "invalid_body", "Invalid type");
+  }
+  if (typeof body.network_id !== "string") {
+    throw new ApiError(400, "missing_required_field", "Missing network_id");
   }
 
-  const networkId = process.env.ROOT_COMMONS_ID!;
-  const sql = createSql();
-
-  // Validate parent exists in same network
-  if (parentGroupId) {
-    const [,, parentRows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql.query(
-        `SELECT id FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-        [parentGroupId, networkId],
-      ),
-    ]);
-    if ((parentRows as Array<Record<string, unknown>>).length === 0) {
-      throw new ApiError(404, "not_found", "Parent group not found");
-    }
+  if (!actor.isAdmin) {
+    throw new ApiError(403, "forbidden", "Admin access required");
   }
 
   const id = generateUlid();
   const now = new Date().toISOString();
+  const sql = createSql();
 
-  const [,, rows] = await sql.transaction([
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
-      `INSERT INTO groups (id, network_id, name, description, parent_group_id, system_group, can_invite, created_at)
-       VALUES ($1, $2, $3, $4, $5, false, $6, $7::timestamptz)
-       RETURNING *`,
-      [id, networkId, name, description, parentGroupId, canInvite, now],
+      `
+        INSERT INTO groups (id, name, type, network_id, created_by, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+        RETURNING *
+      `,
+      [id, body.name, groupType, body.network_id, actor.id, now],
     ),
   ]);
 
-  return c.json({ group: (rows as Array<Record<string, unknown>>)[0] }, 201);
+  const group = (rows as GroupRecord[])[0];
+  if (!group) {
+    throw new ApiError(500, "internal_error", "Failed to create group");
+  }
+
+  return c.json({ group }, 201);
 });
 
-// GET / — List groups
 groupsRouter.openapi(listGroupsRoute, async (c) => {
-  const actor = requireActor(c);
-  const networkId = process.env.ROOT_COMMONS_ID!;
   const sql = createSql();
+  const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
+  const cursor = parseCursorParam(c);
+  const networkId = c.req.query("network_id");
+  const type = c.req.query("type");
 
-  const [,, rows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT * FROM groups WHERE network_id = $1 ORDER BY created_at ASC`,
-      [networkId],
-    ),
-  ]);
+  const rows = await sql.query(
+    `
+      SELECT *
+      FROM groups
+      WHERE ($1::text IS NULL OR network_id = $1)
+        AND ($2::text IS NULL OR type = $2)
+        AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
+      ORDER BY created_at DESC
+      LIMIT $4
+    `,
+    [networkId ?? null, type ?? null, cursor?.t ?? null, limit + 1],
+  );
 
-  return c.json({ groups: rows as Array<Record<string, unknown>> }, 200);
+  const groups = (rows as GroupRecord[]).slice(0, limit);
+  const next = (rows as GroupRecord[]).length > limit ? groups[groups.length - 1] : null;
+
+  return c.json({
+    groups,
+    cursor: next ? encodeCursor({ t: next.created_at, i: next.id }) : null,
+  }, 200);
 });
 
-// GET /:id — Get group
 groupsRouter.openapi(getGroupRoute, async (c) => {
-  const actor = requireActor(c);
-  const groupId = c.req.param("id");
-  const networkId = process.env.ROOT_COMMONS_ID!;
   const sql = createSql();
+  const groupId = c.req.param("id");
 
-  const [,, rows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT * FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-
-  const group = (rows as Array<Record<string, unknown>>)[0];
+  const [group] = await sql`SELECT * FROM groups WHERE id = ${groupId} LIMIT 1`;
   if (!group) {
     throw new ApiError(404, "not_found", "Group not found");
   }
 
-  return c.json({ group }, 200);
+  const members = await sql`
+    SELECT actor_id, group_id, role_in_group
+    FROM group_memberships
+    WHERE group_id = ${groupId}
+    ORDER BY actor_id ASC
+  `;
+
+  return c.json({
+    group: { ...group, members } as unknown as GroupRecord & { members: GroupMemberRecord[] },
+  }, 200);
 });
 
-// PUT /:id — Update group
 groupsRouter.openapi(updateGroupRoute, async (c) => {
   const actor = requireActor(c);
-  await requireNetworkAdmin(actor.id);
-
   const groupId = c.req.param("id");
-  const networkId = process.env.ROOT_COMMONS_ID!;
+  const body = await parseJsonBody<Record<string, unknown>>(c);
   const sql = createSql();
 
-  // Fetch existing group
-  const [,, existingRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT * FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-  const existing = (existingRows as Array<Record<string, unknown>>)[0];
-  if (!existing) {
+  await requireGroupAdmin(sql, actor, groupId);
+
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  let paramIdx = 1;
+
+  if (typeof body.name === "string") {
+    sets.push(`name = $${paramIdx++}`);
+    params.push(body.name);
+  }
+  if (typeof body.type === "string") {
+    if (!["org", "project", "editorial", "admin"].includes(body.type)) {
+      throw new ApiError(400, "invalid_body", "Invalid type");
+    }
+    sets.push(`type = $${paramIdx++}`);
+    params.push(body.type);
+  }
+
+  if (sets.length === 0) {
+    throw new ApiError(400, "invalid_body", "No changes requested");
+  }
+
+  const idParamIdx = paramIdx++;
+  params.push(groupId);
+
+  const rows = await sql.query(
+    `
+      UPDATE groups
+      SET ${sets.join(", ")}
+      WHERE id = $${idParamIdx}
+      RETURNING *
+    `,
+    params,
+  );
+
+  const updated = (rows as GroupRecord[])[0];
+  if (!updated) {
     throw new ApiError(404, "not_found", "Group not found");
   }
 
-  const body = await parseJsonBody<Record<string, unknown>>(c);
-  const name = body.name !== undefined ? body.name : existing.name;
-  const description = body.description !== undefined ? body.description : existing.description;
-  const parentGroupId = body.parent_group_id !== undefined ? body.parent_group_id : existing.parent_group_id;
-  const canInvite = body.can_invite !== undefined ? body.can_invite : existing.can_invite;
-
-  // Cannot modify system_group via update
-  if (body.system_group !== undefined) {
-    throw new ApiError(400, "invalid_body", "Cannot modify system_group flag");
-  }
-
-  // Validate parent exists
-  if (parentGroupId) {
-    const [,, parentRows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql.query(
-        `SELECT id FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-        [parentGroupId, networkId],
-      ),
-    ]);
-    if ((parentRows as Array<Record<string, unknown>>).length === 0) {
-      throw new ApiError(404, "not_found", "Parent group not found");
-    }
-
-    // Detect cycles
-    await detectCycle(sql, actor, groupId, parentGroupId as string);
-  }
-
-  const now = new Date().toISOString();
-  const [,, rows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `UPDATE groups
-       SET name = $1, description = $2, parent_group_id = $3, can_invite = $4
-       WHERE id = $5 AND network_id = $6
-       RETURNING *`,
-      [name, description, parentGroupId, canInvite, groupId, networkId],
-    ),
-  ]);
-
-  return c.json({ group: (rows as Array<Record<string, unknown>>)[0] }, 200);
+  return c.json({ group: updated }, 200);
 });
 
-// DELETE /:id — Delete group
 groupsRouter.openapi(deleteGroupRoute, async (c) => {
   const actor = requireActor(c);
-  await requireNetworkAdmin(actor.id);
-
   const groupId = c.req.param("id");
-  const networkId = process.env.ROOT_COMMONS_ID!;
   const sql = createSql();
 
-  // Fetch group
-  const [,, existingRows] = await sql.transaction([
+  await requireGroupAdmin(sql, actor, groupId);
+
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT * FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
+    sql`DELETE FROM groups WHERE id = ${groupId} RETURNING id`,
   ]);
-  const existing = (existingRows as Array<Record<string, unknown>>)[0];
-  if (!existing) {
+  if ((results[results.length - 1] as Array<{ id: string }>).length === 0) {
     throw new ApiError(404, "not_found", "Group not found");
   }
-
-  if (existing.system_group) {
-    throw new ApiError(403, "forbidden", "Cannot delete a system group");
-  }
-
-  // Check for child groups
-  const [,, childRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT id FROM groups WHERE parent_group_id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-  if ((childRows as Array<Record<string, unknown>>).length > 0) {
-    throw new ApiError(409, "conflict", "Cannot delete group with child groups");
-  }
-
-  await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql`DELETE FROM group_memberships WHERE group_id = ${groupId}`,
-    sql`DELETE FROM groups WHERE id = ${groupId} AND network_id = ${networkId}`,
-  ]);
 
   return new Response(null, { status: 204 });
 });
 
-// POST /:id/members — Add member
 groupsRouter.openapi(addMemberRoute, async (c) => {
   const actor = requireActor(c);
-  await requireNetworkAdmin(actor.id);
-
   const groupId = c.req.param("id");
-  const networkId = process.env.ROOT_COMMONS_ID!;
-  const sql = createSql();
-
-  // Verify group exists
-  const [,, groupRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT id FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-  if ((groupRows as Array<Record<string, unknown>>).length === 0) {
-    throw new ApiError(404, "not_found", "Group not found");
-  }
-
   const body = await parseJsonBody<Record<string, unknown>>(c);
-  const actorId = body.actor_id;
-  if (typeof actorId !== "string") {
-    throw new ApiError(400, "invalid_body", "actor_id is required");
-  }
-
-  const now = new Date().toISOString();
-  const [,, rows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `INSERT INTO group_memberships (group_id, actor_id, granted_by, created_at)
-       VALUES ($1, $2, $3, $4::timestamptz)
-       ON CONFLICT (group_id, actor_id) DO NOTHING
-       RETURNING *`,
-      [groupId, actorId, actor.id, now],
-    ),
-  ]);
-
-  const membership = (rows as Array<Record<string, unknown>>)[0];
-  // If ON CONFLICT hit, fetch existing
-  if (!membership) {
-    const [,, existingRows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql.query(
-        `SELECT * FROM group_memberships WHERE group_id = $1 AND actor_id = $2 LIMIT 1`,
-        [groupId, actorId],
-      ),
-    ]);
-    return c.json((existingRows as Array<Record<string, unknown>>)[0]!, 201);
-  }
-
-  return c.json(membership, 201);
-});
-
-// GET /:id/members — List members
-groupsRouter.openapi(listMembersRoute, async (c) => {
-  const actor = requireActor(c);
-  const groupId = c.req.param("id");
-  const networkId = process.env.ROOT_COMMONS_ID!;
   const sql = createSql();
+
+  if (typeof body.actor_id !== "string") {
+    throw new ApiError(400, "missing_required_field", "Missing actor_id");
+  }
+
+  const roleValue = body.role_in_group ?? body.role;
+  const role = typeof roleValue === "string" && ["member", "admin"].includes(roleValue)
+    ? roleValue
+    : "member";
+
+  await requireGroupAdmin(sql, actor, groupId);
 
   // Verify group exists
-  const [,, groupRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT id FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-  if ((groupRows as Array<Record<string, unknown>>).length === 0) {
-    throw new ApiError(404, "not_found", "Group not found");
-  }
-
-  const [,, rows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT * FROM group_memberships WHERE group_id = $1 ORDER BY created_at ASC`,
-      [groupId],
-    ),
-  ]);
-
-  return c.json({ members: rows as Array<Record<string, unknown>> }, 200);
-});
-
-// DELETE /:id/members/:actorId — Remove member
-groupsRouter.openapi(removeMemberRoute, async (c) => {
-  const actor = requireActor(c);
-  await requireNetworkAdmin(actor.id);
-
-  const groupId = c.req.param("id");
-  const actorId = c.req.param("actorId");
-  const networkId = process.env.ROOT_COMMONS_ID!;
-  const sql = createSql();
-
-  // Verify group exists and check if it's the admins group
-  const [,, groupRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT id, name, system_group FROM groups WHERE id = $1 AND network_id = $2 LIMIT 1`,
-      [groupId, networkId],
-    ),
-  ]);
-  const group = (groupRows as Array<{ id: string; name: string; system_group: boolean }>)[0];
+  const [group] = await sql`SELECT id FROM groups WHERE id = ${groupId} LIMIT 1`;
   if (!group) {
     throw new ApiError(404, "not_found", "Group not found");
   }
 
-  // Guard: cannot remove last member of "admins" group
-  if (group.name === "admins") {
-    const [,, countRows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql.query(
-        `SELECT COUNT(*)::int AS count FROM group_memberships WHERE group_id = $1`,
-        [groupId],
-      ),
-    ]);
-    const count = (countRows as Array<{ count: number }>)[0]?.count ?? 0;
-    if (count <= 1) {
-      throw new ApiError(409, "conflict", "Cannot remove the last member of the admins group");
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `INSERT INTO group_memberships (actor_id, group_id, role_in_group)
+       VALUES ($2, $1, $3)
+       ON CONFLICT (actor_id, group_id) DO UPDATE SET role_in_group = $3
+       RETURNING actor_id, group_id, role_in_group`,
+      [groupId, body.actor_id, role],
+    ),
+  ]);
+
+  const member = (results[results.length - 1] as GroupMemberRecord[])[0];
+  return c.json({ member }, 201);
+});
+
+groupsRouter.openapi(removeMemberRoute, async (c) => {
+  const actor = requireActor(c);
+  const groupId = c.req.param("id");
+  const targetActorId = c.req.param("actorId");
+  const sql = createSql();
+
+  await requireGroupAdmin(sql, actor, groupId);
+
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      DELETE FROM group_memberships
+      WHERE group_id = ${groupId} AND actor_id = ${targetActorId}
+      RETURNING group_id
+    `,
+  ]);
+
+  if ((results[results.length - 1] as Array<{ group_id: string }>).length === 0) {
+    // Distinguish group not found vs member not found
+    const [group] = await sql`SELECT id FROM groups WHERE id = ${groupId} LIMIT 1`;
+    if (!group) {
+      throw new ApiError(404, "not_found", "Group not found");
     }
+    throw new ApiError(404, "not_found", "Member not found in group");
   }
-
-  // Verify membership exists
-  const [,, memberRows] = await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `SELECT 1 FROM group_memberships WHERE group_id = $1 AND actor_id = $2 LIMIT 1`,
-      [groupId, actorId],
-    ),
-  ]);
-  if ((memberRows as Array<Record<string, unknown>>).length === 0) {
-    throw new ApiError(404, "not_found", "Membership not found");
-  }
-
-  await sql.transaction([
-    ...setActorContext(sql, actor),
-    sql.query(
-      `DELETE FROM group_memberships WHERE group_id = $1 AND actor_id = $2`,
-      [groupId, actorId],
-    ),
-  ]);
 
   return new Response(null, { status: 204 });
 });

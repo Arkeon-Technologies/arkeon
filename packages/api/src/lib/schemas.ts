@@ -11,17 +11,12 @@ export const UlidSchema = z
 
 export const EntityIdParam = UlidSchema.describe("ULID string");
 
-export const AccessPolicy = z
-  .enum(["public", "private", "collaborators", "contributors", "owner"])
-  .openapi("AccessPolicy");
-
-export const ViewAccessPolicy = z.enum(["public", "private"]).openapi("ViewAccessPolicy");
-export const EditAccessPolicy = z
-  .enum(["public", "collaborators", "owner"])
-  .openapi("EditAccessPolicy");
-export const ContributeAccessPolicy = z
-  .enum(["public", "contributors", "owner"])
-  .openapi("ContributeAccessPolicy");
+export const ClassificationLevel = z
+  .number()
+  .int()
+  .min(0)
+  .max(4)
+  .openapi({ description: "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED" });
 
 export const DateTimeSchema = z
   .string()
@@ -41,18 +36,19 @@ export const ErrorResponse = z
   })
   .openapi("ErrorResponse");
 
+// --- Entity ---
+
 export const EntitySchema = z
   .object({
     id: UlidSchema,
-    kind: z.string(),
+    kind: z.enum(["entity", "relationship"]),
     type: z.string(),
+    network_id: UlidSchema,
     ver: z.number().int(),
     properties: JsonObjectSchema,
     owner_id: UlidSchema,
-    commons_id: UlidSchema.nullable(),
-    view_access: ViewAccessPolicy,
-    edit_access: EditAccessPolicy,
-    contribute_access: ContributeAccessPolicy,
+    read_level: ClassificationLevel,
+    write_level: ClassificationLevel,
     edited_by: UlidSchema,
     note: z.string().nullable(),
     created_at: DateTimeSchema,
@@ -66,6 +62,81 @@ export const EntityResponse = z
   })
   .openapi("EntityResponse");
 
+// --- Actor ---
+
+export const ActorSchema = z
+  .object({
+    id: UlidSchema,
+    kind: z.enum(["user", "agent"]),
+    max_read_level: ClassificationLevel,
+    max_write_level: ClassificationLevel,
+    is_admin: z.boolean(),
+    can_publish_public: z.boolean(),
+    owner_id: UlidSchema.nullable(),
+    properties: JsonObjectSchema,
+    status: z.enum(["active", "suspended", "deactivated"]),
+    created_at: DateTimeSchema,
+    updated_at: DateTimeSchema,
+  })
+  .openapi("Actor");
+
+export const ActorResponse = z
+  .object({
+    actor: ActorSchema,
+  })
+  .openapi("ActorResponse");
+
+// --- Arke (Network) ---
+
+export const ArkeSchema = z
+  .object({
+    id: UlidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    owner_id: UlidSchema,
+    default_read_level: ClassificationLevel,
+    default_write_level: ClassificationLevel,
+    properties: JsonObjectSchema,
+    created_at: DateTimeSchema,
+    updated_at: DateTimeSchema,
+  })
+  .openapi("Arke");
+
+// --- Space ---
+
+export const SpaceSchema = z
+  .object({
+    id: UlidSchema,
+    network_id: UlidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    owner_id: UlidSchema,
+    read_level: ClassificationLevel,
+    write_level: ClassificationLevel,
+    status: z.enum(["active", "archived", "deleted"]),
+    entity_count: z.number().int(),
+    last_activity_at: DateTimeSchema.nullable(),
+    properties: JsonObjectSchema,
+    created_at: DateTimeSchema,
+    updated_at: DateTimeSchema,
+  })
+  .openapi("Space");
+
+// --- Group ---
+
+export const GroupSchema = z
+  .object({
+    id: UlidSchema,
+    name: z.string(),
+    type: z.enum(["org", "project", "editorial", "admin"]),
+    network_id: UlidSchema,
+    created_by: UlidSchema,
+    created_at: DateTimeSchema,
+  })
+  .openapi("Group");
+
+// --- Pagination ---
+
 export const CursorSchema = z
   .string()
   .nullable()
@@ -77,6 +148,8 @@ export function cursorResponseSchema(key: string, itemSchema: ZodTypeAny) {
     cursor: CursorSchema,
   });
 }
+
+// --- Query helpers ---
 
 export function pathParam(name: string, schema: ZodTypeAny, description: string) {
   return schema.openapi({

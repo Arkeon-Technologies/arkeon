@@ -4,7 +4,7 @@ import { encodeCursor } from "../lib/cursor";
 import { assertBodyObject } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseJsonBody, parseLimit } from "../lib/http";
-import { setActorContext } from "../lib/permissions";
+import { setActorContext } from "../lib/actor-context";
 import { generateUlid } from "../lib/ids";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
@@ -209,8 +209,8 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
   const joinColumn = direction === "in" ? "re.source_id" : "re.target_id";
   const counterpartKey = direction === "in" ? "source" : "target";
 
-  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
-  const [,, rows] = await sql.transaction([
+  const actorCtx = c.get("actor");
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -269,18 +269,22 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,, entityRows, edgeRows] = await sql.transaction([
+  const [,,,, entityRows, edgeRows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO entities (
-        id, kind, type, ver, properties, owner_id, commons_id,
+        id, kind, type, network_id, ver, properties, owner_id,
+        read_level, write_level,
         edited_by, note, created_at, updated_at
       )
       SELECT
-        ${relId}, 'relationship', 'relationship', 1, ${JSON.stringify(properties)}::jsonb,
-        ${actor.id}, commons_id, ${actor.id}, NULL, ${now}::timestamptz, ${now}::timestamptz
-      FROM entities
-      WHERE id = ${sourceId}
+        ${relId}, 'relationship', 'relationship', src.network_id, 1, ${JSON.stringify(properties)}::jsonb,
+        ${actor.id},
+        GREATEST(src.read_level, tgt.read_level),
+        GREATEST(src.write_level, tgt.write_level),
+        ${actor.id}, NULL, ${now}::timestamptz, ${now}::timestamptz
+      FROM entities src, entities tgt
+      WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
       RETURNING *
     `,
     sql`
@@ -293,11 +297,10 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
       VALUES (${relId}, 1, ${JSON.stringify(properties)}::jsonb, ${actor.id}, NULL, ${now}::timestamptz)
     `,
     sql`
-      INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
-      SELECT ${sourceId}, commons_id, ${actor.id}, 'relationship_created',
+      INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+      VALUES (${sourceId}, ${actor.id}, 'relationship_created',
              ${JSON.stringify({ relationship_id: relId, predicate: body.predicate, target_id: body.target_id })}::jsonb,
-             ${now}::timestamptz
-      FROM entities WHERE id = ${sourceId}
+             ${now}::timestamptz)
     `,
   ]);
 
@@ -325,8 +328,8 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
   const actorId = c.get("actor")?.id ?? "";
   const relId = c.req.param("relId");
 
-  const actorCtx = { id: actorId, groups: c.get("actor")?.groups ?? [] };
-  const [,, rows] = await sql.transaction([
+  const actorCtx = c.get("actor");
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -368,7 +371,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,, rows] = await sql.transaction([
+  const [,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -403,11 +406,10 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
     ),
     sql.query(
       `
-        INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
-        SELECT re.source_id, source.commons_id, $2, 'relationship_updated',
+        INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+        SELECT re.source_id, $2, 'relationship_updated',
                $3::jsonb, $4::timestamptz
         FROM relationship_edges re
-        JOIN entities source ON source.id = re.source_id
         WHERE re.id = $1
       `,
       [relId, actor.id, JSON.stringify({ relationship_id: relId, ver: row.ver }), now],
@@ -422,20 +424,19 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,, relRows] = await sql.transaction([
+  const [,,,, relRows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
-        SELECT re.source_id, re.target_id, re.predicate, source.commons_id
+        SELECT re.source_id, re.target_id, re.predicate
         FROM relationship_edges re
-        JOIN entities source ON source.id = re.source_id
         WHERE re.id = $1
       `,
       [relId],
     ),
   ]);
 
-  const rel = (relRows as Array<{ source_id: string; target_id: string; predicate: string; commons_id: string | null }>)[0];
+  const rel = (relRows as Array<{ source_id: string; target_id: string; predicate: string }>)[0];
   if (!rel) {
     throw new ApiError(404, "not_found", "Relationship not found");
   }
@@ -444,10 +445,9 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql`DELETE FROM entities WHERE id = ${relId}`,
     sql`
-      INSERT INTO entity_activity (entity_id, commons_id, actor_id, action, detail, ts)
+      INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
       VALUES (
         ${rel.source_id},
-        ${rel.commons_id},
         ${actor.id},
         'relationship_removed',
         ${JSON.stringify({ relationship_id: relId, predicate: rel.predicate, target_id: rel.target_id })}::jsonb,
@@ -459,7 +459,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   backgroundTask(
     fanOutNotifications({
       entity_id: rel.source_id,
-      commons_id: rel.commons_id,
+      space_id: null,
       actor_id: actor.id,
       action: "relationship_removed",
       detail: { relationship_id: relId, predicate: rel.predicate, target_id: rel.target_id },
