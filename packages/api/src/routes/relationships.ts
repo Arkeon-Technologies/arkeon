@@ -224,7 +224,7 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
             'id', other.id,
             'kind', other.kind,
             'type', other.type,
-            'properties', json_build_object('label', other.properties->>'label')
+            'properties', other.properties
           ) AS counterpart,
           rel.created_at
         FROM relationship_edges re
@@ -338,8 +338,8 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
           re.predicate,
           re.source_id,
           re.target_id,
-          json_build_object('id', source.id, 'kind', source.kind, 'type', source.type, 'properties', json_build_object('label', source.properties->>'label')) AS source,
-          json_build_object('id', target.id, 'kind', target.kind, 'type', target.type, 'properties', json_build_object('label', target.properties->>'label')) AS target
+          json_build_object('id', source.id, 'kind', source.kind, 'type', source.type, 'properties', source.properties) AS source,
+          json_build_object('id', target.id, 'kind', target.kind, 'type', target.type, 'properties', target.properties) AS target
         FROM entities rel
         JOIN relationship_edges re ON re.id = rel.id
         JOIN entities source ON source.id = re.source_id
