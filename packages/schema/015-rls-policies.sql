@@ -230,10 +230,20 @@ USING (
   )
 );
 
--- INSERT: system writes (app inserts version snapshots after entity update)
+-- INSERT: must have edit access on the parent entity
 CREATE POLICY versions_insert ON entity_versions
 FOR INSERT TO arke_app
-WITH CHECK (true);
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM entities e
+    WHERE e.id = entity_id
+    AND (
+      e.owner_id = current_actor_id()
+      OR current_actor_is_admin()
+      OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+    )
+  )
+);
 
 
 -- =============================================================================
@@ -253,10 +263,20 @@ USING (
   )
 );
 
--- INSERT: system writes
+-- INSERT: must have edit access on the parent entity
 CREATE POLICY activity_insert ON entity_activity
 FOR INSERT TO arke_app
-WITH CHECK (true);
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM entities e
+    WHERE e.id = entity_id
+    AND (
+      e.owner_id = current_actor_id()
+      OR current_actor_is_admin()
+      OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+    )
+  )
+);
 
 
 -- =============================================================================
