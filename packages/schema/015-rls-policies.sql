@@ -457,6 +457,7 @@ CREATE POLICY spaces_insert ON spaces
 FOR INSERT TO arke_app
 WITH CHECK (
   current_actor_write_level() >= write_level
+  AND current_actor_read_level() >= read_level
 );
 
 -- UPDATE: classification ceiling + ACL (owner, editor/admin, system admin)
