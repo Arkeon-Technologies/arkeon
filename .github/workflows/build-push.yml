@@ -1,0 +1,36 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/api/**'
+      - 'packages/schema/**'
+      - 'packages/runtime/**'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        env:
+          ECR_REPO: 071493678184.dkr.ecr.us-east-1.amazonaws.com/arke
+        run: |
+          docker build -t $ECR_REPO:latest -t $ECR_REPO:sha-${GITHUB_SHA::8} .
+          docker push $ECR_REPO:latest
+          docker push $ECR_REPO:sha-${GITHUB_SHA::8}
