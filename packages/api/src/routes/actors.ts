@@ -12,6 +12,7 @@ import {
 import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
 import { createApiKey, sha256Hex } from "../lib/auth";
+import { encrypt, keyHint } from "../lib/crypto";
 import {
   ActorSchema,
   ClassificationLevel,
@@ -73,7 +74,7 @@ const createActorRoute = createRoute({
       required: true,
       content: jsonContent(
         z.object({
-          kind: z.enum(["user", "agent"]).describe("Actor kind: user or agent"),
+          kind: z.enum(["agent", "worker"]).describe("Actor kind: user or agent"),
           properties: JsonObjectSchema.optional().describe("Actor properties"),
           max_read_level: ClassificationLevel.optional().describe("Max read level (0-4)"),
           max_write_level: ClassificationLevel.optional().describe("Max write level (0-4)"),
@@ -88,7 +89,7 @@ const createActorRoute = createRoute({
       content: jsonContent(
         z.object({
           actor: ActorSchema,
-          api_key: z.string().describe("Plaintext API key (only shown once)"),
+          api_key: z.string().optional().describe("Plaintext API key (only shown once, only for kind=agent)"),
         }),
       ),
     },
@@ -113,7 +114,7 @@ const listActorsRoute = createRoute({
       ),
       kind: queryParam(
         "kind",
-        z.enum(["user", "agent"]).optional(),
+        z.enum(["agent", "worker"]).optional(),
         "Filter by kind",
       ),
     }),
@@ -231,7 +232,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
   const actor = requireActor(c);
   const body = await parseJsonBody<Record<string, unknown>>(c);
 
-  if (typeof body.kind !== "string" || !["user", "agent"].includes(body.kind)) {
+  if (typeof body.kind !== "string" || !["agent", "worker"].includes(body.kind)) {
     throw new ApiError(400, "missing_required_field", "Missing or invalid kind");
   }
 
@@ -253,8 +254,69 @@ actorsRouter.openapi(createActorRoute, async (c) => {
   const key = createApiKey();
   const keyHash = await sha256Hex(key.value);
   const sql = createSql();
-
   const keyId = generateUlid();
+
+  // Worker-specific: validate extra fields, encrypt keys, store in properties
+  if (body.kind === "worker") {
+    const name = body.name;
+    const systemPrompt = body.system_prompt;
+    const llm = body.llm as { base_url?: string; api_key?: string; model?: string } | undefined;
+
+    if (!name || typeof name !== "string") {
+      throw new ApiError(400, "missing_required_field", "name is required for workers");
+    }
+    if (!systemPrompt || typeof systemPrompt !== "string") {
+      throw new ApiError(400, "missing_required_field", "system_prompt is required for workers");
+    }
+    if (!llm?.base_url || !llm?.api_key || !llm?.model) {
+      throw new ApiError(400, "missing_required_field", "llm (base_url, api_key, model) is required for workers");
+    }
+
+    const arkeKeyEncrypted = await encrypt(key.value);
+    const arkeKeyHintVal = keyHint(key.value);
+    const llmKeyEncrypted = await encrypt(llm.api_key);
+    const llmKeyHintVal = keyHint(llm.api_key);
+
+    const workerProperties = {
+      ...properties,
+      name,
+      system_prompt: systemPrompt,
+      llm: {
+        base_url: llm.base_url,
+        model: llm.model,
+        api_key_encrypted: llmKeyEncrypted,
+        api_key_hint: llmKeyHintVal,
+      },
+      arke_key_encrypted: arkeKeyEncrypted,
+      arke_key_hint: arkeKeyHintVal,
+      max_iterations: typeof body.max_iterations === "number" ? body.max_iterations : 50,
+      resource_limits: body.resource_limits ?? {},
+    };
+
+    const results = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, false, $5, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
+         RETURNING *`,
+        [id, "worker", maxReadLevel, maxWriteLevel, canPublishPublic, actor.id, JSON.stringify(workerProperties), now],
+      ),
+      sql.query(
+        `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
+         VALUES ($1, $2, $3, $4, $5::timestamptz)`,
+        [keyId, id, keyHash, key.keyPrefix, now],
+      ),
+    ]);
+
+    const created = (results[4] as ActorRecord[])[0];
+    if (!created) {
+      throw new ApiError(500, "internal_error", "Failed to create worker");
+    }
+
+    return c.json({ actor: created }, 201);
+  }
+
+  // Agent flow: create key and return it
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
@@ -270,7 +332,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     ),
   ]);
 
-  const created = (results[4] as ActorRecord[])[0]; // 4 context queries + actor INSERT
+  const created = (results[4] as ActorRecord[])[0];
   if (!created) {
     throw new ApiError(500, "internal_error", "Failed to create actor");
   }

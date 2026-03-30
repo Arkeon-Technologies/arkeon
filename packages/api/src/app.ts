@@ -19,6 +19,7 @@ import { inboxRouter } from "./routes/inbox";
 import { entityRelationshipsRouter, relationshipDirectRouter } from "./routes/relationships";
 import { searchRouter } from "./routes/search";
 import { spacesRouter } from "./routes/spaces";
+import { workersRouter } from "./routes/workers";
 
 export function createApp() {
   const app = new OpenAPIHono<AppBindings>({
@@ -68,6 +69,7 @@ export function createApp() {
   app.route("/relationships", relationshipDirectRouter);
   app.route("/search", searchRouter);
   app.route("/spaces", spacesRouter);
+  app.route("/workers", workersRouter);
 
   app.notFound((c) => {
     const requestId = c.get("requestId");
