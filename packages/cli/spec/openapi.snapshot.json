@@ -22,8 +22,8 @@
           },
           "kind": {
             "enum": [
-              "user",
-              "agent"
+              "agent",
+              "worker"
             ],
             "type": "string"
           },
@@ -402,6 +402,65 @@
           "updated_at"
         ],
         "type": "object"
+      },
+      "WorkerConfig": {
+        "properties": {
+          "arke_key_hint": {
+            "type": "string"
+          },
+          "llm": {
+            "properties": {
+              "api_key_hint": {
+                "type": "string"
+              },
+              "base_url": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "base_url",
+              "model",
+              "api_key_hint"
+            ],
+            "type": "object"
+          },
+          "max_iterations": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resource_limits": {
+            "properties": {
+              "cpu_percent": {
+                "type": "integer"
+              },
+              "max_pids": {
+                "type": "integer"
+              },
+              "memory_mb": {
+                "type": "integer"
+              },
+              "timeout_ms": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "system_prompt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "system_prompt",
+          "llm",
+          "arke_key_hint"
+        ],
+        "type": "object"
       }
     }
   },
@@ -626,8 +685,8 @@
             "schema": {
               "description": "Filter by kind",
               "enum": [
-                "user",
-                "agent"
+                "agent",
+                "worker"
               ],
               "type": "string"
             }
@@ -709,8 +768,8 @@
                   "kind": {
                     "description": "Actor kind: user or agent",
                     "enum": [
-                      "user",
-                      "agent"
+                      "agent",
+                      "worker"
                     ],
                     "type": "string"
                   },
@@ -756,13 +815,12 @@
                       "$ref": "#/components/schemas/Actor"
                     },
                     "api_key": {
-                      "description": "Plaintext API key (only shown once)",
+                      "description": "Plaintext API key (only shown once, only for kind=agent)",
                       "type": "string"
                     }
                   },
                   "required": [
-                    "actor",
-                    "api_key"
+                    "actor"
                   ],
                   "type": "object"
                 }
@@ -7380,6 +7438,735 @@
           "Spaces"
         ],
         "x-arke-auth": "required"
+      }
+    },
+    "/workers/{id}": {
+      "get": {
+        "operationId": "getWorker",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    },
+                    "config": {
+                      "$ref": "#/components/schemas/WorkerConfig"
+                    }
+                  },
+                  "required": [
+                    "actor",
+                    "config"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Worker details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get worker configuration (keys redacted)",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "PUT /workers/{id}",
+          "POST /workers/{id}/invoke"
+        ]
+      },
+      "put": {
+        "operationId": "updateWorker",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "llm": {
+                    "properties": {
+                      "api_key": {
+                        "description": "New LLM API key (will be re-encrypted)",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "base_url": {
+                        "format": "uri",
+                        "type": "string"
+                      },
+                      "model": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "max_iterations": {
+                    "maximum": 200,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "description": "Worker name",
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "resource_limits": {
+                    "properties": {
+                      "cpu_percent": {
+                        "maximum": 100,
+                        "minimum": 10,
+                        "type": "integer"
+                      },
+                      "max_pids": {
+                        "maximum": 512,
+                        "minimum": 16,
+                        "type": "integer"
+                      },
+                      "memory_mb": {
+                        "maximum": 2048,
+                        "minimum": 64,
+                        "type": "integer"
+                      },
+                      "timeout_ms": {
+                        "maximum": 600000,
+                        "minimum": 1000,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "schedule": {
+                    "description": "Cron expression (null to remove)",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "scheduled_prompt": {
+                    "description": "Prompt used for scheduled runs",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "system_prompt": {
+                    "description": "System prompt",
+                    "maxLength": 50000,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    },
+                    "config": {
+                      "$ref": "#/components/schemas/WorkerConfig"
+                    }
+                  },
+                  "required": [
+                    "actor",
+                    "config"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Worker updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update worker configuration",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /workers/{id}"
+        ]
+      }
+    },
+    "/workers/{id}/invocations": {
+      "get": {
+        "operationId": "listWorkerInvocations",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "invocations": {
+                      "items": {
+                        "properties": {
+                          "completed_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "duration_ms": {
+                            "type": "integer"
+                          },
+                          "error_message": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "invoker_id": {
+                            "type": "string"
+                          },
+                          "iterations": {
+                            "type": "integer"
+                          },
+                          "log": {},
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "enum": [
+                              "http",
+                              "scheduler"
+                            ],
+                            "type": "string"
+                          },
+                          "started_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": "boolean"
+                          },
+                          "summary": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "ts": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "worker_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "worker_id",
+                          "invoker_id",
+                          "source",
+                          "prompt",
+                          "success",
+                          "summary",
+                          "iterations",
+                          "error_message",
+                          "started_at",
+                          "completed_at",
+                          "duration_ms",
+                          "ts"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "invocations",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invocation list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List invocation history for a worker",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /workers/{id}/invoke",
+          "GET /workers/{id}/invocations/latest"
+        ]
+      }
+    },
+    "/workers/{id}/invocations/latest": {
+      "get": {
+        "operationId": "getLatestWorkerInvocation",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "invocation": {
+                      "properties": {
+                        "completed_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "duration_ms": {
+                          "type": "integer"
+                        },
+                        "error_message": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "invoker_id": {
+                          "type": "string"
+                        },
+                        "iterations": {
+                          "type": "integer"
+                        },
+                        "log": {},
+                        "prompt": {
+                          "type": "string"
+                        },
+                        "source": {
+                          "enum": [
+                            "http",
+                            "scheduler"
+                          ],
+                          "type": "string"
+                        },
+                        "started_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "success": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "ts": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "worker_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "worker_id",
+                        "invoker_id",
+                        "source",
+                        "prompt",
+                        "success",
+                        "summary",
+                        "iterations",
+                        "error_message",
+                        "started_at",
+                        "completed_at",
+                        "duration_ms",
+                        "ts"
+                      ],
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "invocation"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Latest invocation (or null if none)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get the most recent invocation for a worker",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /workers/{id}/invocations"
+        ]
+      }
+    },
+    "/workers/{id}/invoke": {
+      "post": {
+        "operationId": "invokeWorker",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "prompt": {
+                    "description": "The task prompt for the worker",
+                    "maxLength": 100000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "store_log": {
+                    "description": "Store full agent log in invocation history (default: false)",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "prompt"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "iterations": {
+                      "type": "integer"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "summary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "summary",
+                    "iterations"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Worker invocation result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Error 408"
+          }
+        },
+        "summary": "Invoke a worker with a prompt",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /actors/{id}",
+          "GET /workers/{id}"
+        ]
       }
     }
   },

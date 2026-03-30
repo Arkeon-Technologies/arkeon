@@ -43,7 +43,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "can_publish_public", description: "Whether actor can publish public content", required: false, type: "boolean" }, { name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["user","agent"] }, { name: "max_read_level", description: "Max read level (0-4)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
+    bodyFields: [{ name: "can_publish_public", description: "Whether actor can publish public content", required: false, type: "boolean" }, { name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["agent","worker"] }, { name: "max_read_level", description: "Max read level (0-4)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
   },
   {
     operationId: "deactivateActor",
@@ -81,7 +81,7 @@ const OPERATIONS: GeneratedOperation[] = [
     description: "List actors (paginated)",
     auth: "required",
     pathParams: [],
-    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "status", description: "Filter by status", required: false, type: "string", enumValues: ["active","suspended","deactivated"] }, { name: "kind", description: "Filter by kind", required: false, type: "string", enumValues: ["user","agent"] }],
+    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "status", description: "Filter by status", required: false, type: "string", enumValues: ["active","suspended","deactivated"] }, { name: "kind", description: "Filter by kind", required: false, type: "string", enumValues: ["agent","worker"] }],
     bodyFields: [],
   },
   {
@@ -772,11 +772,76 @@ const OPERATIONS: GeneratedOperation[] = [
     pathParams: [{ name: "id", description: "Space ULID", required: true, type: "string" }],
     queryParams: [],
     bodyFields: [{ name: "description", description: "New description", required: false, type: "string" }, { name: "name", description: "New name", required: false, type: "string" }, { name: "properties", description: "", required: false, type: "object" }, { name: "read_level", description: "New read level", required: false, type: "integer" }, { name: "write_level", description: "New write level", required: false, type: "integer" }],
+  },
+  {
+    operationId: "getWorker",
+    group: "workers",
+    action: "get",
+    method: "GET",
+    path: "/workers/{id}",
+    summary: "Get worker configuration (keys redacted)",
+    description: "Get worker configuration (keys redacted)",
+    auth: "required",
+    pathParams: [{ name: "id", description: "Worker actor ULID", required: true, type: "string" }],
+    queryParams: [],
+    bodyFields: [],
+  },
+  {
+    operationId: "listWorkerInvocations",
+    group: "workers",
+    action: "invocations",
+    method: "GET",
+    path: "/workers/{id}/invocations",
+    summary: "List invocation history for a worker",
+    description: "List invocation history for a worker",
+    auth: "required",
+    pathParams: [{ name: "id", description: "Worker actor ULID", required: true, type: "string" }],
+    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }],
+    bodyFields: [],
+  },
+  {
+    operationId: "invokeWorker",
+    group: "workers",
+    action: "invoke",
+    method: "POST",
+    path: "/workers/{id}/invoke",
+    summary: "Invoke a worker with a prompt",
+    description: "Invoke a worker with a prompt",
+    auth: "required",
+    pathParams: [{ name: "id", description: "Worker actor ULID", required: true, type: "string" }],
+    queryParams: [],
+    bodyFields: [{ name: "prompt", description: "The task prompt for the worker", required: true, type: "string" }, { name: "store_log", description: "Store full agent log in invocation history (default: false)", required: false, type: "boolean" }],
+  },
+  {
+    operationId: "getLatestWorkerInvocation",
+    group: "workers",
+    action: "latest",
+    method: "GET",
+    path: "/workers/{id}/invocations/latest",
+    summary: "Get the most recent invocation for a worker",
+    description: "Get the most recent invocation for a worker",
+    auth: "required",
+    pathParams: [{ name: "id", description: "Worker actor ULID", required: true, type: "string" }],
+    queryParams: [],
+    bodyFields: [],
+  },
+  {
+    operationId: "updateWorker",
+    group: "workers",
+    action: "update",
+    method: "PUT",
+    path: "/workers/{id}",
+    summary: "Update worker configuration",
+    description: "Update worker configuration",
+    auth: "required",
+    pathParams: [{ name: "id", description: "Worker actor ULID", required: true, type: "string" }],
+    queryParams: [],
+    bodyFields: [{ name: "llm", description: "", required: false, type: "object" }, { name: "max_iterations", description: "", required: false, type: "integer" }, { name: "name", description: "Worker name", required: false, type: "string" }, { name: "resource_limits", description: "", required: false, type: "object" }, { name: "schedule", description: "Cron expression (null to remove)", required: false, type: "string" }, { name: "scheduled_prompt", description: "Prompt used for scheduled runs", required: false, type: "string" }, { name: "system_prompt", description: "System prompt", required: false, type: "string" }],
   }
 ];
 
 export function registerApiCommands(program: Command, options: { skipExisting?: boolean } = {}): void {
-  for (const group of ["activity","actors","arkes","auth","comments","entities","groups","relationships","search","spaces"]) {
+  for (const group of ["activity","actors","arkes","auth","comments","entities","groups","relationships","search","spaces","workers"]) {
     const existing = program.commands.find((command) => command.name() === group);
     if (existing && options.skipExisting) {
       registerGeneratedGroup(existing, OPERATIONS.filter((operation) => operation.group === group));

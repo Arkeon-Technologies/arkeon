@@ -174,6 +174,13 @@ const OVERRIDES: Record<string, Override> = {
   // --- Search ---
   searchEntities: { group: "search", action: "query" },
 
+  // --- Workers ---
+  getWorker: { group: "workers", action: "get" },
+  updateWorker: { group: "workers", action: "update" },
+  invokeWorker: { group: "workers", action: "invoke" },
+  listWorkerInvocations: { group: "workers", action: "invocations" },
+  getLatestWorkerInvocation: { group: "workers", action: "latest" },
+
   // --- Activity ---
   listActivity: { group: "activity", action: "list" },
 };
