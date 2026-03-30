@@ -69,6 +69,20 @@ $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 
 -- =============================================================================
+-- HELPER: get a group's read_level without going through RLS
+-- =============================================================================
+--
+-- Used by group_memberships SELECT policy to avoid infinite recursion
+-- (memberships → groups → memberships cycle via UPDATE/DELETE policies).
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION group_read_level(p_group_id TEXT) RETURNS INT AS $$
+  SELECT read_level FROM groups WHERE id = p_group_id;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+
+-- =============================================================================
 -- ENTITIES
 -- =============================================================================
 
@@ -108,12 +122,13 @@ WITH CHECK (
   AND current_actor_read_level() >= read_level
 );
 
--- DELETE: classification ceiling + admin ACL
+-- DELETE: classification ceiling (read + write) + admin ACL
 -- Must be owner, have admin grant, or be system admin
 CREATE POLICY entities_delete ON entities
 FOR DELETE TO arke_app
 USING (
   current_actor_write_level() >= write_level
+  AND current_actor_read_level() >= read_level
   AND (
     owner_id = current_actor_id()
     OR current_actor_is_admin()
@@ -128,10 +143,17 @@ USING (
 
 ALTER TABLE entity_permissions ENABLE ROW LEVEL SECURITY;
 
--- SELECT: readable by anyone (need to see who has access)
+-- SELECT: visible if the parent entity is visible (classification-gated)
 CREATE POLICY entity_perms_select ON entity_permissions
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM entities e
+    WHERE e.id = entity_id
+    AND (e.read_level = 0 OR current_actor_read_level() >= e.read_level)
+  )
+);
 
 -- INSERT: must be owner or admin of the entity
 CREATE POLICY entity_perms_insert ON entity_permissions
@@ -177,17 +199,24 @@ USING (
   )
 );
 
--- INSERT: must have edit access on the source entity
+-- INSERT: must have edit access on the source entity AND read access on the target
 CREATE POLICY edges_insert ON relationship_edges
 FOR INSERT TO arke_app
 WITH CHECK (
   current_actor_is_admin()
-  OR EXISTS (
-    SELECT 1 FROM entities e
-    WHERE e.id = source_id
-    AND (
-      e.owner_id = current_actor_id()
-      OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+  OR (
+    EXISTS (
+      SELECT 1 FROM entities e
+      WHERE e.id = source_id
+      AND (
+        e.owner_id = current_actor_id()
+        OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+      )
+    )
+    AND EXISTS (
+      SELECT 1 FROM entities e
+      WHERE e.id = target_id
+      AND (e.read_level = 0 OR current_actor_read_level() >= e.read_level)
     )
   )
 );
@@ -361,15 +390,21 @@ USING (current_actor_is_admin());
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_memberships ENABLE ROW LEVEL SECURITY;
 
--- All groups readable
+-- SELECT: classification-gated (same pattern as entities/spaces)
 CREATE POLICY groups_select ON groups
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  read_level = 0
+  OR current_actor_read_level() >= read_level
+);
 
--- Create: system admin only
+-- Create: system admin only + classification ceiling
 CREATE POLICY groups_insert ON groups
 FOR INSERT TO arke_app
-WITH CHECK (current_actor_is_admin());
+WITH CHECK (
+  current_actor_is_admin()
+  AND current_actor_read_level() >= read_level
+);
 
 -- Update: system admin or group admin
 CREATE POLICY groups_update ON groups
@@ -398,15 +433,32 @@ USING (
   )
 );
 
--- Memberships: all readable
+-- Memberships: visible if the parent group is visible (classification-gated)
+-- Uses group_read_level() helper to avoid infinite recursion with groups policies
 CREATE POLICY memberships_select ON group_memberships
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  group_read_level(group_id) = 0
+  OR current_actor_read_level() >= group_read_level(group_id)
+);
 
 -- Insert membership: system admin or group admin
 CREATE POLICY memberships_insert ON group_memberships
 FOR INSERT TO arke_app
 WITH CHECK (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM group_memberships gm
+    WHERE gm.group_id = group_memberships.group_id
+    AND gm.actor_id = current_actor_id()
+    AND gm.role_in_group = 'admin'
+  )
+);
+
+-- Update membership: system admin or group admin (needed for ON CONFLICT DO UPDATE)
+CREATE POLICY memberships_update ON group_memberships
+FOR UPDATE TO arke_app
+USING (
   current_actor_is_admin()
   OR EXISTS (
     SELECT 1 FROM group_memberships gm
@@ -449,6 +501,7 @@ CREATE POLICY spaces_insert ON spaces
 FOR INSERT TO arke_app
 WITH CHECK (
   current_actor_write_level() >= write_level
+  AND current_actor_read_level() >= read_level
 );
 
 -- UPDATE: classification ceiling + ACL (owner, editor/admin, system admin)
@@ -485,10 +538,17 @@ USING (
 
 ALTER TABLE space_permissions ENABLE ROW LEVEL SECURITY;
 
--- Readable by anyone
+-- SELECT: visible if the parent space is visible (classification-gated)
 CREATE POLICY space_perms_select ON space_permissions
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM spaces s
+    WHERE s.id = space_id
+    AND (s.read_level = 0 OR current_actor_read_level() >= s.read_level)
+  )
+);
 
 -- Insert: must be owner or admin of the space
 CREATE POLICY space_perms_insert ON space_permissions
@@ -536,10 +596,17 @@ USING (
 
 ALTER TABLE space_entities ENABLE ROW LEVEL SECURITY;
 
--- Readable by anyone
+-- SELECT: visible if the parent space is visible (classification-gated)
 CREATE POLICY space_entities_select ON space_entities
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM spaces s
+    WHERE s.id = space_id
+    AND (s.read_level = 0 OR current_actor_read_level() >= s.read_level)
+  )
+);
 
 -- Insert: must be contributor+ on the space (owner, contributor, editor, admin)
 CREATE POLICY space_entities_insert ON space_entities
@@ -624,10 +691,10 @@ CREATE POLICY notifications_select ON notifications
 FOR SELECT TO arke_app
 USING (recipient_id = current_actor_id());
 
--- INSERT: system writes (notification fan-out)
+-- INSERT: actor can only insert notifications for actions they performed
 CREATE POLICY notifications_insert ON notifications
 FOR INSERT TO arke_app
-WITH CHECK (true);
+WITH CHECK (actor_id = current_actor_id());
 
 -- DELETE: only your own
 CREATE POLICY notifications_delete ON notifications
@@ -759,3 +826,132 @@ CREATE TRIGGER actor_update_guard
   BEFORE UPDATE ON actors
   FOR EACH ROW
   EXECUTE FUNCTION actor_update_guard();
+
+
+-- =============================================================================
+-- RELATIONSHIP CLASSIFICATION GUARD (BEFORE INSERT trigger)
+-- =============================================================================
+--
+-- The relationship entity's classification must be at least as high as the
+-- max of its source and target entities (the "inference attack" defense).
+-- The app layer already sets GREATEST(src, tgt), but this trigger is the
+-- database-level safety net against direct inserts or future route bugs.
+--
+-- On INSERT: reject if the relationship entity's read_level or write_level
+-- is lower than either endpoint.
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION relationship_classification_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  rel_read  INT;
+  rel_write INT;
+  max_read  INT;
+  max_write INT;
+BEGIN
+  -- Get the relationship entity's classification
+  SELECT read_level, write_level INTO rel_read, rel_write
+  FROM entities WHERE id = NEW.id;
+
+  -- Get the max classification of source and target
+  SELECT
+    GREATEST(src.read_level, tgt.read_level),
+    GREATEST(src.write_level, tgt.write_level)
+  INTO max_read, max_write
+  FROM entities src, entities tgt
+  WHERE src.id = NEW.source_id AND tgt.id = NEW.target_id;
+
+  IF rel_read < max_read THEN
+    RAISE EXCEPTION 'relationship read_level (%) must be >= max of source/target read_level (%)',
+      rel_read, max_read;
+  END IF;
+
+  IF rel_write < max_write THEN
+    RAISE EXCEPTION 'relationship write_level (%) must be >= max of source/target write_level (%)',
+      rel_write, max_write;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS relationship_classification_guard ON relationship_edges;
+CREATE TRIGGER relationship_classification_guard
+  BEFORE INSERT ON relationship_edges
+  FOR EACH ROW
+  EXECUTE FUNCTION relationship_classification_guard();
+
+
+-- =============================================================================
+-- LAST GROUP ADMIN GUARD (BEFORE DELETE trigger)
+-- =============================================================================
+--
+-- Prevents removing the last admin from a group. Without this, a group admin
+-- could self-remove, leaving the group unmanageable by anyone except system
+-- admins.
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION last_group_admin_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Only guard admin removals
+  IF OLD.role_in_group <> 'admin' THEN
+    RETURN OLD;
+  END IF;
+
+  -- Count remaining admins (excluding the one being removed)
+  IF NOT EXISTS (
+    SELECT 1 FROM group_memberships
+    WHERE group_id = OLD.group_id
+    AND role_in_group = 'admin'
+    AND actor_id <> OLD.actor_id
+  ) THEN
+    RAISE EXCEPTION 'cannot remove the last admin from group %', OLD.group_id;
+  END IF;
+
+  RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS last_group_admin_guard_delete ON group_memberships;
+CREATE TRIGGER last_group_admin_guard_delete
+  BEFORE DELETE ON group_memberships
+  FOR EACH ROW
+  EXECUTE FUNCTION last_group_admin_guard();
+
+-- Also guard UPDATE (demoting last admin from 'admin' to 'member')
+CREATE OR REPLACE FUNCTION last_group_admin_demote_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Only guard demotions from admin
+  IF OLD.role_in_group <> 'admin' OR NEW.role_in_group = 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Count remaining admins (excluding the one being demoted)
+  IF NOT EXISTS (
+    SELECT 1 FROM group_memberships
+    WHERE group_id = OLD.group_id
+    AND role_in_group = 'admin'
+    AND actor_id <> OLD.actor_id
+  ) THEN
+    RAISE EXCEPTION 'cannot demote the last admin of group %', OLD.group_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS last_group_admin_demote_guard ON group_memberships;
+CREATE TRIGGER last_group_admin_demote_guard
+  BEFORE UPDATE ON group_memberships
+  FOR EACH ROW
+  EXECUTE FUNCTION last_group_admin_demote_guard();

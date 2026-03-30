@@ -17,7 +17,7 @@ const outputPath = join(__dirname, "..", "spec", "openapi.snapshot.json");
 const remoteUrl =
   process.env.ARKE_OPENAPI_URL ??
   "https://arke-api.nick-chimicles-professional.workers.dev/openapi.json";
-const sourceMode = process.env.ARKE_OPENAPI_SOURCE ?? "remote";
+const sourceMode = process.env.ARKE_OPENAPI_SOURCE ?? "local";
 
 function sortObject(value: unknown): unknown {
   if (Array.isArray(value)) {

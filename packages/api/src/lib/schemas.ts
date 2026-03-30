@@ -67,7 +67,7 @@ export const EntityResponse = z
 export const ActorSchema = z
   .object({
     id: UlidSchema,
-    kind: z.enum(["user", "agent"]),
+    kind: z.enum(["agent", "worker"]),
     max_read_level: ClassificationLevel,
     max_write_level: ClassificationLevel,
     is_admin: z.boolean(),
@@ -85,6 +85,30 @@ export const ActorResponse = z
     actor: ActorSchema,
   })
   .openapi("ActorResponse");
+
+// --- Worker ---
+
+export const WorkerConfigSchema = z
+  .object({
+    name: z.string(),
+    system_prompt: z.string(),
+    llm: z.object({
+      base_url: z.string(),
+      model: z.string(),
+      api_key_hint: z.string(),
+    }),
+    arke_key_hint: z.string(),
+    max_iterations: z.number().int().optional(),
+    resource_limits: z
+      .object({
+        memory_mb: z.number().int().optional(),
+        cpu_percent: z.number().int().optional(),
+        max_pids: z.number().int().optional(),
+        timeout_ms: z.number().int().optional(),
+      })
+      .optional(),
+  })
+  .openapi("WorkerConfig");
 
 // --- Arke (Network) ---
 
@@ -130,6 +154,7 @@ export const GroupSchema = z
     name: z.string(),
     type: z.enum(["org", "project", "editorial", "admin"]),
     network_id: UlidSchema,
+    read_level: ClassificationLevel,
     created_by: UlidSchema,
     created_at: DateTimeSchema,
   })
