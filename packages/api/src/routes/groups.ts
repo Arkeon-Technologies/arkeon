@@ -26,6 +26,7 @@ type GroupRecord = {
   name: string;
   type: string;
   network_id: string;
+  read_level: number;
   created_by: string;
   created_at: string;
 };
@@ -64,6 +65,7 @@ const createGroupRoute = createRoute({
           name: z.string().min(1).describe("Group name"),
           type: z.enum(["org", "project", "editorial", "admin"]).optional().describe("Group type (default: project)"),
           network_id: EntityIdParam.describe("Network (arke) ULID"),
+          read_level: z.number().int().min(0).max(4).optional().describe("Classification level (default: 1 = INTERNAL)"),
         }),
       ),
     },
@@ -226,16 +228,20 @@ const removeMemberRoute = createRoute({
  */
 async function requireGroupAdmin(
   sql: ReturnType<typeof createSql>,
-  actor: { id: string; isAdmin: boolean },
+  actor: { id: string; isAdmin: boolean; maxReadLevel: number; maxWriteLevel: number },
   groupId: string,
 ): Promise<void> {
   if (actor.isAdmin) return;
 
-  const [membership] = await sql`
-    SELECT role FROM group_memberships
-    WHERE group_id = ${groupId} AND actor_id = ${actor.id} AND role_in_group = 'admin'
-    LIMIT 1
-  `;
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor as import("../types").Actor),
+    sql`
+      SELECT role_in_group FROM group_memberships
+      WHERE group_id = ${groupId} AND actor_id = ${actor.id} AND role_in_group = 'admin'
+      LIMIT 1
+    `,
+  ]);
+  const membership = (results[results.length - 1] as Array<{ role_in_group: string }>)[0];
   if (!membership) {
     throw new ApiError(403, "forbidden", "Admin or group admin access required");
   }
@@ -262,6 +268,8 @@ groupsRouter.openapi(createGroupRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Admin access required");
   }
 
+  const readLevel = typeof body.read_level === "number" ? body.read_level : 1;
+
   const id = generateUlid();
   const now = new Date().toISOString();
   const sql = createSql();
@@ -270,11 +278,11 @@ groupsRouter.openapi(createGroupRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql.query(
       `
-        INSERT INTO groups (id, name, type, network_id, created_by, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+        INSERT INTO groups (id, name, type, network_id, read_level, created_by, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
         RETURNING *
       `,
-      [id, body.name, groupType, body.network_id, actor.id, now],
+      [id, body.name, groupType, body.network_id, readLevel, actor.id, now],
     ),
   ]);
 
@@ -287,27 +295,32 @@ groupsRouter.openapi(createGroupRoute, async (c) => {
 });
 
 groupsRouter.openapi(listGroupsRoute, async (c) => {
+  const actor = c.get("actor");
   const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
   const networkId = c.req.query("network_id");
   const type = c.req.query("type");
 
-  const rows = await sql.query(
-    `
-      SELECT *
-      FROM groups
-      WHERE ($1::text IS NULL OR network_id = $1)
-        AND ($2::text IS NULL OR type = $2)
-        AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
-      ORDER BY created_at DESC
-      LIMIT $4
-    `,
-    [networkId ?? null, type ?? null, cursor?.t ?? null, limit + 1],
-  );
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `
+        SELECT *
+        FROM groups
+        WHERE ($1::text IS NULL OR network_id = $1)
+          AND ($2::text IS NULL OR type = $2)
+          AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
+        ORDER BY created_at DESC
+        LIMIT $4
+      `,
+      [networkId ?? null, type ?? null, cursor?.t ?? null, limit + 1],
+    ),
+  ]);
 
-  const groups = (rows as GroupRecord[]).slice(0, limit);
-  const next = (rows as GroupRecord[]).length > limit ? groups[groups.length - 1] : null;
+  const rows = results[results.length - 1] as GroupRecord[];
+  const groups = rows.slice(0, limit);
+  const next = rows.length > limit ? groups[groups.length - 1] : null;
 
   return c.json({
     groups,
@@ -316,20 +329,27 @@ groupsRouter.openapi(listGroupsRoute, async (c) => {
 });
 
 groupsRouter.openapi(getGroupRoute, async (c) => {
+  const actor = c.get("actor");
   const sql = createSql();
   const groupId = c.req.param("id");
 
-  const [group] = await sql`SELECT * FROM groups WHERE id = ${groupId} LIMIT 1`;
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`SELECT * FROM groups WHERE id = ${groupId} LIMIT 1`,
+    sql`
+      SELECT actor_id, group_id, role_in_group
+      FROM group_memberships
+      WHERE group_id = ${groupId}
+      ORDER BY actor_id ASC
+    `,
+  ]);
+
+  const group = (results[results.length - 2] as GroupRecord[])[0];
   if (!group) {
     throw new ApiError(404, "not_found", "Group not found");
   }
 
-  const members = await sql`
-    SELECT actor_id, group_id, role_in_group
-    FROM group_memberships
-    WHERE group_id = ${groupId}
-    ORDER BY actor_id ASC
-  `;
+  const members = results[results.length - 1] as GroupMemberRecord[];
 
   return c.json({
     group: { ...group, members } as unknown as GroupRecord & { members: GroupMemberRecord[] },
@@ -420,12 +440,6 @@ groupsRouter.openapi(addMemberRoute, async (c) => {
 
   await requireGroupAdmin(sql, actor, groupId);
 
-  // Verify group exists
-  const [group] = await sql`SELECT id FROM groups WHERE id = ${groupId} LIMIT 1`;
-  if (!group) {
-    throw new ApiError(404, "not_found", "Group not found");
-  }
-
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
@@ -459,11 +473,6 @@ groupsRouter.openapi(removeMemberRoute, async (c) => {
   ]);
 
   if ((results[results.length - 1] as Array<{ group_id: string }>).length === 0) {
-    // Distinguish group not found vs member not found
-    const [group] = await sql`SELECT id FROM groups WHERE id = ${groupId} LIMIT 1`;
-    if (!group) {
-      throw new ApiError(404, "not_found", "Group not found");
-    }
     throw new ApiError(404, "not_found", "Member not found in group");
   }
 

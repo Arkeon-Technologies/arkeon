@@ -69,6 +69,20 @@ $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 
 -- =============================================================================
+-- HELPER: get a group's read_level without going through RLS
+-- =============================================================================
+--
+-- Used by group_memberships SELECT policy to avoid infinite recursion
+-- (memberships → groups → memberships cycle via UPDATE/DELETE policies).
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION group_read_level(p_group_id TEXT) RETURNS INT AS $$
+  SELECT read_level FROM groups WHERE id = p_group_id;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+
+-- =============================================================================
 -- ENTITIES
 -- =============================================================================
 
@@ -369,15 +383,21 @@ USING (current_actor_is_admin());
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_memberships ENABLE ROW LEVEL SECURITY;
 
--- All groups readable
+-- SELECT: classification-gated (same pattern as entities/spaces)
 CREATE POLICY groups_select ON groups
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  read_level = 0
+  OR current_actor_read_level() >= read_level
+);
 
--- Create: system admin only
+-- Create: system admin only + classification ceiling
 CREATE POLICY groups_insert ON groups
 FOR INSERT TO arke_app
-WITH CHECK (current_actor_is_admin());
+WITH CHECK (
+  current_actor_is_admin()
+  AND current_actor_read_level() >= read_level
+);
 
 -- Update: system admin or group admin
 CREATE POLICY groups_update ON groups
@@ -406,10 +426,14 @@ USING (
   )
 );
 
--- Memberships: all readable
+-- Memberships: visible if the parent group is visible (classification-gated)
+-- Uses group_read_level() helper to avoid infinite recursion with groups policies
 CREATE POLICY memberships_select ON group_memberships
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  group_read_level(group_id) = 0
+  OR current_actor_read_level() >= group_read_level(group_id)
+);
 
 -- Insert membership: system admin or group admin
 CREATE POLICY memberships_insert ON group_memberships
