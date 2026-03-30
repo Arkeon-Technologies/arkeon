@@ -135,21 +135,61 @@ The `actors` table already supports `kind = 'agent'` and `owner_id`. The `proper
 }
 ```
 
-## API routes
+## Implementation order
 
+### Step 1: Runtime package (`packages/runtime`)
+
+Build the standalone runtime first — the sandbox, agent loop, and LLM integration — as its own package in the monorepo. This can be developed and tested independently before any API changes. The runtime package handles:
+
+- Spawning bwrap sandboxes with the right mount/network/cgroup config
+- The agent loop: LLM call → tool execution → feed results back → repeat
+- OpenAI-compatible LLM client (base_url + api_key + model)
+- Tool definitions (shell, file read/write)
+- Log capture from agent sessions
+- Resource limit enforcement
+
+Test it standalone: create a sandbox, give it a prompt, watch it execute. No API integration needed yet.
+
+### Step 2: API integration
+
+Once the runtime works, wire it into the API with new routes and schema changes. The existing `kind = 'agent'` actor type is reused — agents with runtime config are distinguished by having `properties.llm` set.
+
+**New migration** (`packages/schema/016-agent-permissions.sql`):
+
+```sql
+CREATE TABLE agent_permissions (
+  agent_id     TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
+  grantee_type TEXT NOT NULL,
+  grantee_id   TEXT NOT NULL,
+  role         TEXT NOT NULL,                              -- 'admin' | 'operator'
+  granted_by   TEXT NOT NULL REFERENCES actors(id),
+  granted_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (agent_id, grantee_type, grantee_id),
+  CONSTRAINT valid_ap_grantee_type CHECK (grantee_type IN ('actor', 'group')),
+  CONSTRAINT valid_agent_perm_role CHECK (role IN ('admin', 'operator'))
+);
 ```
-POST   /agents              -- spawn a new agent (creates actor + sandbox)
-GET    /agents              -- list agents owned by the caller
-GET    /agents/:id          -- get agent status and config
-PUT    /agents/:id          -- update config (prompt, schedule, LLM, etc.)
-DELETE /agents/:id          -- destroy agent (tears down sandbox)
-POST   /agents/:id/invoke   -- send a message / task to the agent
-GET    /agents/:id/logs     -- stream or retrieve agent execution logs
-POST   /agents/:id/start    -- start a stopped agent
-POST   /agents/:id/stop     -- stop a running agent
-```
+
+**New routes** (`packages/api/src/routes/agents.ts`):
+
+| Route | Permission | Description |
+|-------|-----------|-------------|
+| `POST /agents` | authenticated | Create agent with runtime config |
+| `GET /agents` | authenticated | List agents caller owns or has access to |
+| `GET /agents/:id` | operator+ | Get agent details (LLM key never exposed) |
+| `PUT /agents/:id` | admin+ | Update config (prompt, LLM, schedule) |
+| `DELETE /agents/:id` | owner/sysadmin | Deactivate agent |
+| `POST /agents/:id/invoke` | operator+ | Send prompt, run in sandbox |
+| `GET /agents/:id/invocations` | operator+ | Invocation history |
+| `POST /agents/:id/permissions` | admin+ | Grant role |
+| `DELETE /agents/:id/permissions/:granteeId` | admin+ | Revoke role |
+| `GET /agents/:id/permissions` | operator+ | List permissions |
+
+**Encryption utility** (`packages/api/src/lib/crypto.ts`): AES-256-GCM for BYOK LLM API keys, using `ENCRYPTION_KEY` env var.
 
 ## Permission model
+
+### Agent clearance ceiling
 
 An agent's permissions are bounded by its creator's permissions:
 
@@ -159,6 +199,18 @@ An agent's permissions are bounded by its creator's permissions:
 - `is_admin` = false (agents cannot be system admins)
 
 The creator can further restrict the agent via ACL grants on specific entities and spaces, just like granting permissions to any other actor.
+
+### Agent invocation permissions
+
+New `agent_permissions` table (same pattern as `entity_permissions` / `space_permissions`):
+
+| Role | Can invoke | Can view config | Can update config | Can manage perms | Can delete |
+|------|-----------|-----------------|-------------------|-----------------|------------|
+| **operator** | yes | yes (no key) | no | no | no |
+| **admin** | yes | yes (no key) | yes | yes | no |
+| **owner** (implicit) | yes | yes (no key) | yes | yes | yes |
+
+The LLM API key belongs to the agent, not the invoker. Anyone with `operator` permission can trigger the agent using its configured key. The key is never exposed in API responses — only a hint (`...abc1`). System admins bypass all checks.
 
 ## Scheduling
 
