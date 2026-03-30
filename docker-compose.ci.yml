@@ -15,7 +15,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://arke:arke@postgres:5432/arke
+      - DATABASE_URL=postgresql://arke_app:arke@postgres:5432/arke
       - ADMIN_BOOTSTRAP_KEY=ak_test_ci_key
     depends_on:
       postgres:
