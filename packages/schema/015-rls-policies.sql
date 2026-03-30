@@ -263,11 +263,14 @@ USING (
   )
 );
 
--- INSERT: must have edit access on the parent entity
+-- INSERT: must have edit access on the parent entity, OR be the actor
+-- performing the logged action (needed for ownership transfers where
+-- owner_id changes before the activity row is inserted)
 CREATE POLICY activity_insert ON entity_activity
 FOR INSERT TO arke_app
 WITH CHECK (
-  EXISTS (
+  actor_id = current_actor_id()
+  OR EXISTS (
     SELECT 1 FROM entities e
     WHERE e.id = entity_id
     AND (
