@@ -19,6 +19,7 @@ CREATE TABLE groups (
   name       TEXT NOT NULL,
   type       TEXT NOT NULL DEFAULT 'project',
   network_id TEXT NOT NULL REFERENCES arkes(id),            -- which Arke this group belongs to
+  read_level INT NOT NULL DEFAULT 1,                       -- min clearance to see this group
   created_by TEXT NOT NULL REFERENCES actors(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -26,6 +27,7 @@ CREATE TABLE groups (
 );
 
 CREATE INDEX idx_groups_network ON groups (network_id);
+CREATE INDEX idx_groups_read_level ON groups (read_level);
 
 CREATE TABLE group_memberships (
   actor_id      TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,

@@ -154,6 +154,7 @@ export const GroupSchema = z
     name: z.string(),
     type: z.enum(["org", "project", "editorial", "admin"]),
     network_id: UlidSchema,
+    read_level: ClassificationLevel,
     created_by: UlidSchema,
     created_at: DateTimeSchema,
   })

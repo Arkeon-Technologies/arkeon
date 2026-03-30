@@ -58,8 +58,9 @@ export async function fanOutNotifications(
     return;
   }
 
-  await sql.transaction(
-    values.map((recipientId) =>
+  await sql.transaction([
+    sql`SELECT set_config('app.actor_id', ${activity.actor_id}, true)`,
+    ...values.map((recipientId) =>
       sql`
         INSERT INTO notifications (recipient_id, entity_id, actor_id, action, detail, ts)
         VALUES (
@@ -72,5 +73,5 @@ export async function fanOutNotifications(
         )
       `,
     ),
-  );
+  ]);
 }
