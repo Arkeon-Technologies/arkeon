@@ -448,6 +448,19 @@ WITH CHECK (
   )
 );
 
+-- Update membership: system admin or group admin (needed for ON CONFLICT DO UPDATE)
+CREATE POLICY memberships_update ON group_memberships
+FOR UPDATE TO arke_app
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM group_memberships gm
+    WHERE gm.group_id = group_memberships.group_id
+    AND gm.actor_id = current_actor_id()
+    AND gm.role_in_group = 'admin'
+  )
+);
+
 -- Delete membership: system admin or group admin
 CREATE POLICY memberships_delete ON group_memberships
 FOR DELETE TO arke_app
