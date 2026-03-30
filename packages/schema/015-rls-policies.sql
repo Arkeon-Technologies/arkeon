@@ -108,12 +108,13 @@ WITH CHECK (
   AND current_actor_read_level() >= read_level
 );
 
--- DELETE: classification ceiling + admin ACL
+-- DELETE: classification ceiling (read + write) + admin ACL
 -- Must be owner, have admin grant, or be system admin
 CREATE POLICY entities_delete ON entities
 FOR DELETE TO arke_app
 USING (
   current_actor_write_level() >= write_level
+  AND current_actor_read_level() >= read_level
   AND (
     owner_id = current_actor_id()
     OR current_actor_is_admin()
