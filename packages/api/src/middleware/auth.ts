@@ -9,7 +9,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
   c.set("actor", null);
 
   const path = new URL(c.req.url).pathname;
-  if (path === "/llms.txt" || path.startsWith("/help")) {
+  if (path === "/llms.txt" || path.startsWith("/help") || path === "/health" || path === "/ready") {
     await next();
     return;
   }

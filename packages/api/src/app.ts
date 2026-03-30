@@ -6,8 +6,10 @@ import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { authMiddleware } from "./middleware/auth";
 import { ApiError, errorBody } from "./lib/errors";
+import { createSql } from "./lib/sql";
 import { activityRouter, entityActivityRouter } from "./routes/activity";
 import { actorsRouter } from "./routes/actors";
+import { adminRouter } from "./routes/admin";
 import { arkesRouter } from "./routes/arkes";
 import { authRouter } from "./routes/auth";
 import { commentsRouter } from "./routes/comments";
@@ -35,6 +37,18 @@ export function createApp() {
     }),
   );
 
+  app.get("/health", (c) => c.json({ status: "ok" }));
+
+  app.get("/ready", async (c) => {
+    try {
+      const sql = createSql();
+      await sql`SELECT 1`;
+      return c.json({ status: "ready" });
+    } catch {
+      return c.json({ status: "unavailable" }, 503);
+    }
+  });
+
   const openApiConfig = {
     openapi: "3.1.0" as const,
     info: {
@@ -56,6 +70,7 @@ export function createApp() {
 
   app.route("/activity", activityRouter);
   app.route("/actors", actorsRouter);
+  app.route("/admin", adminRouter);
   app.route("/arkes", arkesRouter);
   app.route("/auth", authRouter);
   app.route("/auth", inboxRouter);
