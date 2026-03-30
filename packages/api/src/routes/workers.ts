@@ -5,15 +5,22 @@ import { requireActor, parseJsonBody } from "../lib/http";
 import { createRouter } from "../lib/openapi";
 import { encrypt, keyHint } from "../lib/crypto";
 import { invokeWorker } from "../lib/worker-invoke";
+import { recordInvocation } from "../lib/invocation-recorder";
 import { syncWorkerSchedule } from "../lib/scheduler";
+import { encodeCursor } from "../lib/cursor";
+import { parseLimit, parseCursorParam } from "../lib/http";
 import {
   ActorSchema,
   ClassificationLevel,
+  DateTimeSchema,
+  UlidSchema,
   WorkerConfigSchema,
+  cursorResponseSchema,
   entityIdParams,
   errorResponses,
   jsonContent,
   JsonObjectSchema,
+  paginationQuerySchema,
 } from "../lib/schemas";
 import { setActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
@@ -109,6 +116,7 @@ const invokeWorkerRoute = createRoute({
       content: jsonContent(
         z.object({
           prompt: z.string().min(1).max(100000).describe("The task prompt for the worker"),
+          store_log: z.boolean().optional().describe("Store full agent log in invocation history (default: false)"),
         }),
       ),
     },
@@ -212,7 +220,7 @@ export const workersRouter = createRouter();
 workersRouter.openapi(invokeWorkerRoute, async (c) => {
   const actor = requireActor(c);
   const workerId = c.req.param("id");
-  const body = await parseJsonBody<{ prompt: string }>(c);
+  const body = await parseJsonBody<{ prompt: string; store_log?: boolean }>(c);
   const sql = createSql();
 
   if (!body.prompt || typeof body.prompt !== "string") {
@@ -220,17 +228,33 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
   }
 
   // Owner check
-  const worker = await requireWorker(sql, actor, workerId);
+  await requireWorker(sql, actor, workerId);
 
-  try {
-    const result = await invokeWorker(workerId, body.prompt);
-    return c.json(result, 200);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("timed out")) {
-      throw new ApiError(408, "timeout", "Worker execution timed out");
-    }
-    throw err;
-  }
+  const result = await invokeWorker(workerId, body.prompt);
+
+  // Record invocation (fire-and-forget)
+  recordInvocation({
+    workerId,
+    invokerId: actor.id,
+    source: "http",
+    prompt: body.prompt,
+    success: result.success,
+    summary: result.summary,
+    iterations: result.iterations,
+    errorMessage: result.errorMessage,
+    log: body.store_log ? result.log : null,
+    startedAt: result.startedAt,
+    completedAt: result.completedAt,
+  });
+
+  return c.json(
+    {
+      success: result.success,
+      summary: result.summary,
+      iterations: result.iterations,
+    },
+    200,
+  );
 });
 
 workersRouter.openapi(getWorkerRoute, async (c) => {
@@ -323,4 +347,123 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     },
     200,
   );
+});
+
+// --- Invocation history routes ---
+
+const InvocationSchema = z.object({
+  id: z.number().int(),
+  worker_id: z.string(),
+  invoker_id: z.string(),
+  source: z.enum(["http", "scheduler"]),
+  prompt: z.string(),
+  success: z.boolean(),
+  summary: z.string().nullable(),
+  iterations: z.number().int(),
+  error_message: z.string().nullable(),
+  log: z.any().nullable(),
+  started_at: DateTimeSchema,
+  completed_at: DateTimeSchema,
+  duration_ms: z.number().int(),
+  ts: DateTimeSchema,
+});
+
+const listInvocationsRoute = createRoute({
+  method: "get",
+  path: "/{id}/invocations",
+  operationId: "listWorkerInvocations",
+  tags: ["Workers"],
+  summary: "List invocation history for a worker",
+  "x-arke-auth": "required",
+  "x-arke-related": ["POST /workers/{id}/invoke", "GET /workers/{id}/invocations/latest"],
+  request: {
+    params: entityIdParams("Worker actor ULID"),
+    query: paginationQuerySchema(50, 200),
+  },
+  responses: {
+    200: {
+      description: "Invocation list",
+      content: jsonContent(cursorResponseSchema("invocations", InvocationSchema)),
+    },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
+const latestInvocationRoute = createRoute({
+  method: "get",
+  path: "/{id}/invocations/latest",
+  operationId: "getLatestWorkerInvocation",
+  tags: ["Workers"],
+  summary: "Get the most recent invocation for a worker",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /workers/{id}/invocations"],
+  request: {
+    params: entityIdParams("Worker actor ULID"),
+  },
+  responses: {
+    200: {
+      description: "Latest invocation (or null if none)",
+      content: jsonContent(z.object({ invocation: InvocationSchema.nullable() })),
+    },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
+workersRouter.openapi(listInvocationsRoute, async (c) => {
+  const actor = requireActor(c);
+  const workerId = c.req.param("id");
+  const sql = createSql();
+  const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
+  const cursor = parseCursorParam(c);
+
+  await requireWorker(sql, actor, workerId);
+
+  const [,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM worker_invocations
+       WHERE worker_id = $1
+         AND ($2::timestamptz IS NULL OR (ts, id) < ($2::timestamptz, $3::bigint))
+       ORDER BY ts DESC, id DESC
+       LIMIT $4`,
+      [workerId, cursor?.t ?? null, cursor?.i ?? null, limit + 1],
+    ),
+  ]);
+
+  const invocations = (rows as Array<Record<string, unknown>>).slice(0, limit);
+  const next = (rows as Array<Record<string, unknown>>).length > limit
+    ? invocations[invocations.length - 1]
+    : null;
+
+  return c.json(
+    {
+      invocations,
+      cursor: next
+        ? encodeCursor({ t: next.ts as string, i: next.id as number })
+        : null,
+    },
+    200,
+  );
+});
+
+workersRouter.openapi(latestInvocationRoute, async (c) => {
+  const actor = requireActor(c);
+  const workerId = c.req.param("id");
+  const sql = createSql();
+
+  await requireWorker(sql, actor, workerId);
+
+  const [,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM worker_invocations
+       WHERE worker_id = $1
+       ORDER BY ts DESC
+       LIMIT 1`,
+      [workerId],
+    ),
+  ]);
+
+  const invocation = (rows as Array<Record<string, unknown>>)[0] ?? null;
+  return c.json({ invocation }, 200);
 });

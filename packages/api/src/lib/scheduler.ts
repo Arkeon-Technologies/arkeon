@@ -8,6 +8,7 @@ import { Queue, Worker as BullWorker } from "bullmq";
 
 import { getRedis, closeRedis } from "./redis.js";
 import { invokeWorker } from "./worker-invoke.js";
+import { recordInvocation } from "./invocation-recorder.js";
 import { createSql } from "./sql.js";
 
 const QUEUE_NAME = "arke-worker-schedules";
@@ -50,17 +51,32 @@ export async function startScheduler(): Promise<void> {
         return { skipped: true };
       }
 
-      try {
-        const result = await invokeWorker(workerId, scheduledPrompt);
-        console.log(
-          `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
-        );
-        return result;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[scheduler] worker ${workerId} failed: ${msg}`);
-        throw err;
-      }
+      // Look up owner_id for the invoker field
+      const sql = createSql();
+      const [workerRow] = await sql`SELECT owner_id, properties FROM actors WHERE id = ${workerId} LIMIT 1`;
+      const ownerId = (workerRow as Record<string, unknown>)?.owner_id as string ?? workerId;
+      const storeLogs = ((workerRow as Record<string, unknown>)?.properties as Record<string, unknown>)?.store_logs === true;
+
+      const result = await invokeWorker(workerId, scheduledPrompt);
+      console.log(
+        `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
+      );
+
+      recordInvocation({
+        workerId,
+        invokerId: ownerId,
+        source: "scheduler",
+        prompt: scheduledPrompt,
+        success: result.success,
+        summary: result.summary,
+        iterations: result.iterations,
+        errorMessage: result.errorMessage,
+        log: storeLogs ? result.log : null,
+        startedAt: result.startedAt,
+        completedAt: result.completedAt,
+      });
+
+      return { success: result.success, summary: result.summary, iterations: result.iterations };
     },
     {
       connection: redis,

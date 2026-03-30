@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { Agent } from "../../../runtime/src/agent.js";
+import { Agent, type LogEntry } from "../../../runtime/src/agent.js";
 import { decrypt } from "./crypto.js";
 import { createSql } from "./sql.js";
 
@@ -33,6 +33,10 @@ export interface InvokeResult {
   success: boolean;
   summary: string | null;
   iterations: number;
+  log: LogEntry[];
+  startedAt: Date;
+  completedAt: Date;
+  errorMessage?: string;
 }
 
 /**
@@ -100,6 +104,7 @@ export async function invokeWorker(
   });
 
   const timeoutMs = props.resource_limits?.timeout_ms ?? 300_000;
+  const startedAt = new Date();
 
   try {
     const result = await Promise.race([
@@ -113,6 +118,20 @@ export async function invokeWorker(
       success: result.success,
       summary: result.summary,
       iterations: result.iterations,
+      log: result.log,
+      startedAt,
+      completedAt: new Date(),
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      summary: null,
+      iterations: 0,
+      log: [],
+      startedAt,
+      completedAt: new Date(),
+      errorMessage: msg,
     };
   } finally {
     try {
