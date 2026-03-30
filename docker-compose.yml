@@ -10,9 +10,14 @@ services:
         required: false
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://arke_app:arke@postgres:5432/arke}
+      - ADMIN_BOOTSTRAP_KEY=${ADMIN_BOOTSTRAP_KEY:-ak_test_admin_key_e2e}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
+      migrate:
+        condition: service_completed_successfully
         required: false
 
   postgres:

@@ -111,6 +111,50 @@ export async function createActor(
   };
 }
 
+// --- Worker helpers ---
+
+export type CreatedWorker = {
+  id: string;
+  ownerId: string;
+  properties: Record<string, unknown>;
+};
+
+/** Create a worker actor via POST /actors with kind=worker */
+export async function createWorker(
+  callerApiKey: string,
+  options: {
+    name?: string;
+    systemPrompt?: string;
+    llm?: { base_url: string; api_key: string; model: string };
+    maxReadLevel?: number;
+    maxWriteLevel?: number;
+  } = {},
+): Promise<CreatedWorker> {
+  const { response, body } = await jsonRequest("/actors", {
+    method: "POST",
+    apiKey: callerApiKey,
+    json: {
+      kind: "worker",
+      name: options.name ?? uniqueName("worker"),
+      system_prompt: options.systemPrompt ?? "You are a test worker.",
+      llm: options.llm ?? {
+        base_url: "https://api.example.com/v1",
+        api_key: "sk-test-key-1234567890",
+        model: "test-model",
+      },
+      max_read_level: options.maxReadLevel ?? 1,
+      max_write_level: options.maxWriteLevel ?? 1,
+    },
+  });
+  expect(response.status).toBe(201);
+  const data = body as { actor: Record<string, any> };
+  return {
+    id: data.actor.id,
+    ownerId: data.actor.owner_id,
+    properties: data.actor.properties,
+  };
+}
+
 // --- Entity helpers ---
 
 export async function createEntity(
