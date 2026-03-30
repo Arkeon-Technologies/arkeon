@@ -782,3 +782,60 @@ CREATE TRIGGER actor_update_guard
   BEFORE UPDATE ON actors
   FOR EACH ROW
   EXECUTE FUNCTION actor_update_guard();
+
+
+-- =============================================================================
+-- RELATIONSHIP CLASSIFICATION GUARD (BEFORE INSERT trigger)
+-- =============================================================================
+--
+-- The relationship entity's classification must be at least as high as the
+-- max of its source and target entities (the "inference attack" defense).
+-- The app layer already sets GREATEST(src, tgt), but this trigger is the
+-- database-level safety net against direct inserts or future route bugs.
+--
+-- On INSERT: reject if the relationship entity's read_level or write_level
+-- is lower than either endpoint.
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION relationship_classification_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  rel_read  INT;
+  rel_write INT;
+  max_read  INT;
+  max_write INT;
+BEGIN
+  -- Get the relationship entity's classification
+  SELECT read_level, write_level INTO rel_read, rel_write
+  FROM entities WHERE id = NEW.id;
+
+  -- Get the max classification of source and target
+  SELECT
+    GREATEST(src.read_level, tgt.read_level),
+    GREATEST(src.write_level, tgt.write_level)
+  INTO max_read, max_write
+  FROM entities src, entities tgt
+  WHERE src.id = NEW.source_id AND tgt.id = NEW.target_id;
+
+  IF rel_read < max_read THEN
+    RAISE EXCEPTION 'relationship read_level (%) must be >= max of source/target read_level (%)',
+      rel_read, max_read;
+  END IF;
+
+  IF rel_write < max_write THEN
+    RAISE EXCEPTION 'relationship write_level (%) must be >= max of source/target write_level (%)',
+      rel_write, max_write;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS relationship_classification_guard ON relationship_edges;
+CREATE TRIGGER relationship_classification_guard
+  BEFORE INSERT ON relationship_edges
+  FOR EACH ROW
+  EXECUTE FUNCTION relationship_classification_guard();
