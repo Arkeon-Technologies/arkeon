@@ -79,7 +79,6 @@ const createActorRoute = createRoute({
           properties: JsonObjectSchema.optional().describe("Actor properties"),
           max_read_level: ClassificationLevel.optional().describe("Max read level (0-4)"),
           max_write_level: ClassificationLevel.optional().describe("Max write level (0-4)"),
-          can_publish_public: z.boolean().optional().describe("Whether actor can publish public content"),
         }),
       ),
     },
@@ -166,7 +165,6 @@ const updateActorRoute = createRoute({
           properties: JsonObjectSchema.optional().describe("New properties"),
           max_read_level: ClassificationLevel.optional().describe("New max read level"),
           max_write_level: ClassificationLevel.optional().describe("New max write level"),
-          can_publish_public: z.boolean().optional().describe("Whether actor can publish public content"),
         }),
       ),
     },
@@ -239,7 +237,6 @@ actorsRouter.openapi(createActorRoute, async (c) => {
 
   const maxReadLevel = typeof body.max_read_level === "number" ? body.max_read_level : 0;
   const maxWriteLevel = typeof body.max_write_level === "number" ? body.max_write_level : 0;
-  const canPublishPublic = body.can_publish_public === true;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
 
   // RLS: caller cannot grant higher levels than their own
@@ -312,7 +309,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
         `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
          VALUES ($1, $2, $3, $4, false, $5, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
          RETURNING *`,
-        [id, "worker", maxReadLevel, maxWriteLevel, canPublishPublic, actor.id, JSON.stringify(workerProperties), now],
+        [id, "worker", maxReadLevel, maxWriteLevel, false, actor.id, JSON.stringify(workerProperties), now],
       ),
       sql.query(
         `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
@@ -339,9 +336,9 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql.query(
       `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, false, $5, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
+       VALUES ($1, $2, $3, $4, false, false, $5, $6::jsonb, 'active', $7::timestamptz, $7::timestamptz)
        RETURNING *`,
-      [id, body.kind, maxReadLevel, maxWriteLevel, canPublishPublic, actor.id, JSON.stringify(properties), now],
+      [id, body.kind, maxReadLevel, maxWriteLevel, actor.id, JSON.stringify(properties), now],
     ),
     sql.query(
       `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
@@ -438,11 +435,6 @@ actorsRouter.openapi(updateActorRoute, async (c) => {
     sets.push(`max_write_level = $${paramIdx++}`);
     params.push(body.max_write_level);
   }
-  if (typeof body.can_publish_public === "boolean") {
-    sets.push(`can_publish_public = $${paramIdx++}`);
-    params.push(body.can_publish_public);
-  }
-
   if (sets.length === 0) {
     throw new ApiError(400, "invalid_body", "No changes requested");
   }
