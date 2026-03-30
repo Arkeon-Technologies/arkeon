@@ -876,3 +876,75 @@ CREATE TRIGGER relationship_classification_guard
   BEFORE INSERT ON relationship_edges
   FOR EACH ROW
   EXECUTE FUNCTION relationship_classification_guard();
+
+
+-- =============================================================================
+-- LAST GROUP ADMIN GUARD (BEFORE DELETE trigger)
+-- =============================================================================
+--
+-- Prevents removing the last admin from a group. Without this, a group admin
+-- could self-remove, leaving the group unmanageable by anyone except system
+-- admins.
+--
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION last_group_admin_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Only guard admin removals
+  IF OLD.role_in_group <> 'admin' THEN
+    RETURN OLD;
+  END IF;
+
+  -- Count remaining admins (excluding the one being removed)
+  IF NOT EXISTS (
+    SELECT 1 FROM group_memberships
+    WHERE group_id = OLD.group_id
+    AND role_in_group = 'admin'
+    AND actor_id <> OLD.actor_id
+  ) THEN
+    RAISE EXCEPTION 'cannot remove the last admin from group %', OLD.group_id;
+  END IF;
+
+  RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS last_group_admin_guard_delete ON group_memberships;
+CREATE TRIGGER last_group_admin_guard_delete
+  BEFORE DELETE ON group_memberships
+  FOR EACH ROW
+  EXECUTE FUNCTION last_group_admin_guard();
+
+-- Also guard UPDATE (demoting last admin from 'admin' to 'member')
+CREATE OR REPLACE FUNCTION last_group_admin_demote_guard()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Only guard demotions from admin
+  IF OLD.role_in_group <> 'admin' OR NEW.role_in_group = 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Count remaining admins (excluding the one being demoted)
+  IF NOT EXISTS (
+    SELECT 1 FROM group_memberships
+    WHERE group_id = OLD.group_id
+    AND role_in_group = 'admin'
+    AND actor_id <> OLD.actor_id
+  ) THEN
+    RAISE EXCEPTION 'cannot demote the last admin of group %', OLD.group_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS last_group_admin_demote_guard ON group_memberships;
+CREATE TRIGGER last_group_admin_demote_guard
+  BEFORE UPDATE ON group_memberships
+  FOR EACH ROW
+  EXECUTE FUNCTION last_group_admin_demote_guard();
