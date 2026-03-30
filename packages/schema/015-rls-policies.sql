@@ -199,17 +199,24 @@ USING (
   )
 );
 
--- INSERT: must have edit access on the source entity
+-- INSERT: must have edit access on the source entity AND read access on the target
 CREATE POLICY edges_insert ON relationship_edges
 FOR INSERT TO arke_app
 WITH CHECK (
   current_actor_is_admin()
-  OR EXISTS (
-    SELECT 1 FROM entities e
-    WHERE e.id = source_id
-    AND (
-      e.owner_id = current_actor_id()
-      OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+  OR (
+    EXISTS (
+      SELECT 1 FROM entities e
+      WHERE e.id = source_id
+      AND (
+        e.owner_id = current_actor_id()
+        OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
+      )
+    )
+    AND EXISTS (
+      SELECT 1 FROM entities e
+      WHERE e.id = target_id
+      AND (e.read_level = 0 OR current_actor_read_level() >= e.read_level)
     )
   )
 );
