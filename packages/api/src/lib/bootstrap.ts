@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { sha256Hex } from "./auth";
 import { generateUlid } from "./ids";
 import { createSql } from "./sql";
@@ -12,6 +13,9 @@ export function ensureBootstrap(): Promise<void> {
   bootstrapPromise = (async () => {
     const sql = createSql();
     const now = new Date().toISOString();
+
+    // Ensure ENCRYPTION_KEY is available — auto-generate and persist if missing
+    await ensureEncryptionKey(sql);
 
     // Generate ARKE_ID if not provided
     if (!process.env.ARKE_ID) {
@@ -28,7 +32,7 @@ export function ensureBootstrap(): Promise<void> {
       }
     }
 
-    // Create the Arke (network) — needs admin actor to exist first for owner_id
+    // Resolve admin actor ID for arke ownership
     const adminKey = process.env.ADMIN_BOOTSTRAP_KEY;
     let adminId = "SYSTEM";
     if (adminKey) {
@@ -40,6 +44,25 @@ export function ensureBootstrap(): Promise<void> {
       if (found) {
         adminId = found.actor_id;
       }
+    }
+
+    // Ensure the owner actor exists (create SYSTEM actor if no bootstrap key)
+    if (adminId === "SYSTEM") {
+      await sql.transaction([
+        sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+        sql`SELECT set_config('app.actor_read_level', '4', true)`,
+        sql`SELECT set_config('app.actor_write_level', '4', true)`,
+        sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+        sql`
+          INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, properties, created_at, updated_at)
+          VALUES (
+            'SYSTEM', 'agent', 4, 4, true, false,
+            ${JSON.stringify({ label: "System" })}::jsonb,
+            ${now}::timestamptz, ${now}::timestamptz
+          )
+          ON CONFLICT (id) DO NOTHING
+        `,
+      ]);
     }
 
     // Create arke with admin as owner (or SYSTEM if no admin)
@@ -110,4 +133,37 @@ async function bootstrapAdmin(
 
   console.log(`[bootstrap] Admin actor created: ${adminId}`);
   console.log(`[bootstrap] Admin API key: ${adminKey}`);
+}
+
+async function ensureEncryptionKey(sql: ReturnType<typeof createSql>): Promise<void> {
+  if (process.env.ENCRYPTION_KEY) return;
+
+  // Check if we previously generated and stored one
+  try {
+    const [rows] = await sql.transaction([
+      sql`SELECT value FROM system_config WHERE key = 'encryption_key' LIMIT 1`,
+    ]);
+    const found = (rows as Array<{ value: string }>)[0];
+    if (found) {
+      process.env.ENCRYPTION_KEY = found.value;
+      console.log("[bootstrap] Loaded ENCRYPTION_KEY from database");
+      return;
+    }
+  } catch {
+    // Table may not exist yet (pre-018 migration) — fall through to generate
+  }
+
+  // Generate a new key and persist it
+  const key = randomBytes(32).toString("hex");
+  try {
+    await sql.transaction([
+      sql`INSERT INTO system_config (key, value) VALUES ('encryption_key', ${key}) ON CONFLICT (key) DO NOTHING`,
+    ]);
+    process.env.ENCRYPTION_KEY = key;
+    console.log("[bootstrap] Generated and stored new ENCRYPTION_KEY");
+  } catch {
+    // If system_config table doesn't exist, set it in-memory only
+    process.env.ENCRYPTION_KEY = key;
+    console.warn("[bootstrap] Generated ENCRYPTION_KEY (in-memory only — system_config table missing)");
+  }
 }
