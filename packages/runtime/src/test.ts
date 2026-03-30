@@ -59,7 +59,13 @@ const agent = new Agent({
     "Be concise and efficient.",
   ].join("\n"),
   llm: { baseUrl, apiKey, model },
-  sandbox: { workspaceDir: workspace },
+  sandbox: {
+    workspaceDir: workspace,
+    env: {
+      ...(process.env.ARKE_API_URL ? { ARKE_API_URL: process.env.ARKE_API_URL } : {}),
+      ...(process.env.ARKE_API_KEY ? { ARKE_API_KEY: process.env.ARKE_API_KEY } : {}),
+    },
+  },
   onLog: (entry) => {
     const prefix = `[${entry.type}]`.padEnd(16);
     console.log(`  ${prefix} ${entry.content}`);
