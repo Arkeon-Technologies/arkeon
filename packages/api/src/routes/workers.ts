@@ -1,14 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-
-import { Agent } from "../../../runtime/src/agent.js";
 
 import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
 import { createRouter } from "../lib/openapi";
-import { decrypt, encrypt, keyHint } from "../lib/crypto";
+import { encrypt, keyHint } from "../lib/crypto";
+import { invokeWorker } from "../lib/worker-invoke";
+import { syncWorkerSchedule } from "../lib/scheduler";
 import {
   ActorSchema,
   ClassificationLevel,
@@ -89,6 +86,8 @@ function redactProperties(props: Record<string, unknown>): Record<string, unknow
       : null,
     arke_key_hint: wp.arke_key_hint,
     max_iterations: wp.max_iterations,
+    schedule: (props as Record<string, unknown>).schedule ?? null,
+    scheduled_prompt: (props as Record<string, unknown>).scheduled_prompt ?? null,
     resource_limits: wp.resource_limits,
   };
 }
@@ -178,6 +177,8 @@ const updateWorkerRoute = createRoute({
             })
             .optional(),
           max_iterations: z.number().int().min(1).max(200).optional(),
+          schedule: z.string().nullable().optional().describe("Cron expression (null to remove)"),
+          scheduled_prompt: z.string().nullable().optional().describe("Prompt used for scheduled runs"),
           resource_limits: z
             .object({
               memory_mb: z.number().int().min(64).max(2048).optional(),
@@ -218,77 +219,17 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "prompt is required");
   }
 
+  // Owner check
   const worker = await requireWorker(sql, actor, workerId);
-  const props = worker.properties as unknown as WorkerProperties;
-
-  if (!props.llm?.api_key_encrypted || !props.arke_key_encrypted) {
-    throw new ApiError(400, "invalid_body", "Worker is missing encryption keys — recreate it");
-  }
-
-  const llmApiKey = await decrypt(props.llm.api_key_encrypted);
-  const arkeApiKey = await decrypt(props.arke_key_encrypted);
-  const apiBaseUrl = process.env.API_BASE_URL ?? `http://localhost:${process.env.PORT ?? 8000}`;
-
-  const workspace = mkdtempSync(join(tmpdir(), `arke-worker-${workerId}-`));
-
-  // Build system prompt with network access info
-  const fullSystemPrompt = [
-    props.system_prompt,
-    "",
-    "You have access to the Arke network.",
-    `Environment variables $ARKE_API_URL and $ARKE_API_KEY are set.`,
-    `For direct API access: curl -H "Authorization: ApiKey $ARKE_API_KEY" $ARKE_API_URL/llms.txt`,
-    "When done, call the done tool with a summary.",
-  ].join("\n");
-
-  const agent = new Agent({
-    name: props.name ?? workerId,
-    systemPrompt: fullSystemPrompt,
-    llm: {
-      baseUrl: props.llm.base_url,
-      apiKey: llmApiKey,
-      model: props.llm.model,
-    },
-    sandbox: {
-      workspaceDir: workspace,
-      memoryMb: props.resource_limits?.memory_mb ?? 256,
-      cpuPercent: props.resource_limits?.cpu_percent ?? 50,
-      maxPids: props.resource_limits?.max_pids ?? 128,
-      env: {
-        ARKE_API_URL: apiBaseUrl,
-        ARKE_API_KEY: arkeApiKey,
-      },
-    },
-    maxIterations: props.max_iterations ?? 50,
-  });
-
-  const timeoutMs = props.resource_limits?.timeout_ms ?? 300_000;
 
   try {
-    const result = await Promise.race([
-      agent.run(body.prompt),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new ApiError(408, "timeout", "Worker execution timed out")),
-          timeoutMs,
-        ),
-      ),
-    ]);
-
-    return c.json(
-      {
-        success: result.success,
-        summary: result.summary,
-        iterations: result.iterations,
-      },
-      200,
-    );
-  } finally {
-    try {
-      rmSync(workspace, { recursive: true, force: true });
-    } catch {
-      // Best effort cleanup
+    const result = await invokeWorker(workerId, body.prompt);
+    return c.json(result, 200);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("timed out")) {
+      throw new ApiError(408, "timeout", "Worker execution timed out");
     }
+    throw err;
   }
 });
 
@@ -326,6 +267,22 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     props.resource_limits = { ...(props.resource_limits as object ?? {}), ...body.resource_limits };
   }
 
+  // Schedule fields
+  if (body.schedule !== undefined) {
+    if (body.schedule === null) {
+      delete props.schedule;
+      delete props.scheduled_prompt;
+    } else if (typeof body.schedule === "string") {
+      if (!body.scheduled_prompt || typeof body.scheduled_prompt !== "string") {
+        throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
+      }
+      props.schedule = body.schedule;
+      props.scheduled_prompt = body.scheduled_prompt;
+    }
+  } else if (typeof body.scheduled_prompt === "string" && props.schedule) {
+    props.scheduled_prompt = body.scheduled_prompt;
+  }
+
   // LLM config: merge fields, re-encrypt if new key provided
   if (body.llm && typeof body.llm === "object") {
     const llmUpdate = body.llm as Record<string, unknown>;
@@ -353,6 +310,11 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
   if (!updated) {
     throw new ApiError(500, "internal_error", "Failed to update worker");
   }
+
+  // Sync schedule with BullMQ
+  const updatedSchedule = (updated.properties as Record<string, unknown>).schedule as string | undefined;
+  const updatedPrompt = (updated.properties as Record<string, unknown>).scheduled_prompt as string | undefined;
+  await syncWorkerSchedule(workerId, updatedSchedule ?? null, updatedPrompt ?? null);
 
   return c.json(
     {

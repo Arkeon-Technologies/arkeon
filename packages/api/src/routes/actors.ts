@@ -13,6 +13,7 @@ import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
 import { createApiKey, sha256Hex } from "../lib/auth";
 import { encrypt, keyHint } from "../lib/crypto";
+import { syncWorkerSchedule } from "../lib/scheduler";
 import {
   ActorSchema,
   ClassificationLevel,
@@ -277,7 +278,14 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     const llmKeyEncrypted = await encrypt(llm.api_key);
     const llmKeyHintVal = keyHint(llm.api_key);
 
-    const workerProperties = {
+    // Validate schedule fields
+    const schedule = typeof body.schedule === "string" ? body.schedule : undefined;
+    const scheduledPrompt = typeof body.scheduled_prompt === "string" ? body.scheduled_prompt : undefined;
+    if (schedule && !scheduledPrompt) {
+      throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
+    }
+
+    const workerProperties: Record<string, unknown> = {
       ...properties,
       name,
       system_prompt: systemPrompt,
@@ -292,6 +300,11 @@ actorsRouter.openapi(createActorRoute, async (c) => {
       max_iterations: typeof body.max_iterations === "number" ? body.max_iterations : 50,
       resource_limits: body.resource_limits ?? {},
     };
+
+    if (schedule) {
+      workerProperties.schedule = schedule;
+      workerProperties.scheduled_prompt = scheduledPrompt;
+    }
 
     const results = await sql.transaction([
       ...setActorContext(sql, actor),
@@ -311,6 +324,11 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     const created = (results[4] as ActorRecord[])[0];
     if (!created) {
       throw new ApiError(500, "internal_error", "Failed to create worker");
+    }
+
+    // Sync schedule if set
+    if (schedule) {
+      await syncWorkerSchedule(id, schedule, scheduledPrompt ?? null);
     }
 
     return c.json({ actor: created }, 201);
