@@ -128,10 +128,17 @@ USING (
 
 ALTER TABLE entity_permissions ENABLE ROW LEVEL SECURITY;
 
--- SELECT: readable by anyone (need to see who has access)
+-- SELECT: visible if the parent entity is visible (classification-gated)
 CREATE POLICY entity_perms_select ON entity_permissions
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM entities e
+    WHERE e.id = entity_id
+    AND (e.read_level = 0 OR current_actor_read_level() >= e.read_level)
+  )
+);
 
 -- INSERT: must be owner or admin of the entity
 CREATE POLICY entity_perms_insert ON entity_permissions
