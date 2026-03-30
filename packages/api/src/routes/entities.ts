@@ -12,6 +12,7 @@ import {
   parseLimit,
 } from "../lib/http";
 import { generateUlid } from "../lib/ids";
+import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
 import { createRouter } from "../lib/openapi";
 import {
   ClassificationLevel,
@@ -19,9 +20,11 @@ import {
   EntityIdParam,
   EntityResponse,
   EntitySchema,
+  ProjectionQuery,
   cursorResponseSchema,
   entityIdParams,
   errorResponses,
+  filterQuerySchema,
   jsonContent,
   paginationQuerySchema,
   pathParam,
@@ -58,6 +61,30 @@ const VersionSchema = z.object({
 });
 
 // --- Route definitions ---
+
+const ListEntitiesQuery = filterQuerySchema(["updated_at", "created_at"], "updated_at")
+  .merge(ProjectionQuery)
+  .merge(paginationQuerySchema(50, 200));
+
+const listEntitiesRoute = createRoute({
+  method: "get",
+  path: "/",
+  operationId: "listEntities",
+  tags: ["Entities"],
+  summary: "List entities with filtering, sorting, and cursor pagination",
+  "x-arke-auth": "optional",
+  "x-arke-related": ["GET /search", "GET /entities/{id}"],
+  request: {
+    query: ListEntitiesQuery,
+  },
+  responses: {
+    200: {
+      description: "Paginated entity list",
+      content: jsonContent(cursorResponseSchema("entities", EntitySchema)),
+    },
+    ...errorResponses([400, 403]),
+  },
+});
 
 const createEntityRoute = createRoute({
   method: "post",
@@ -336,6 +363,36 @@ const getVersionRoute = createRoute({
 // --- Handlers ---
 
 export const entitiesRouter = createRouter();
+
+entitiesRouter.openapi(listEntitiesRoute, async (c) => {
+  const sql = createSql();
+  const actorCtx = c.get("actor");
+  const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
+  const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
+  const cursor = parseCursorParam(c);
+  const order = parseOrder(c.req.query("order"));
+  const sort = parseSort(c.req.query("sort"), ["updated_at", "created_at"], "updated_at");
+
+  const userFilter = c.req.query("filter");
+  const hasKindFilter = userFilter?.split(",").some((expr) => expr.trim().startsWith("kind"));
+  const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
+  const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
+
+  const listing = buildEntityListingQuery({ filter, limit, cursor, sort, order });
+
+  const txResults = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
+    sql.query(listing.query, listing.params),
+  ]);
+  const rows = txResults[txResults.length - 1] as Array<Record<string, unknown>>;
+  const entities = rows.slice(0, limit);
+  const next = rows.length > limit ? entities[entities.length - 1] : null;
+
+  return c.json({
+    entities: entities.map((row) => projectEntity(row, projection)),
+    cursor: next ? encodeCursor({ t: (next[sort] ?? next.updated_at) as string | Date, i: String(next.id) }) : null,
+  }, 200);
+});
 
 entitiesRouter.openapi(createEntityRoute, async (c) => {
   const actor = requireActor(c);
