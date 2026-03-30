@@ -1,0 +1,45 @@
+# CI/CD test compose — uses locally built arke:ci image
+# Used by: .github/workflows/build-push.yml, scripts/test-local.sh
+#
+# Usage:
+#   docker build -t arke:ci .
+#   docker compose -f docker-compose.ci.yml up -d
+#   curl http://localhost:8000/health
+#   E2E_BASE_URL=http://localhost:8000 ADMIN_BOOTSTRAP_KEY=ak_test_ci_key npm run test:e2e -w packages/api
+#   docker compose -f docker-compose.ci.yml down -v
+
+services:
+  api:
+    image: arke:ci
+    command: ["npx", "tsx", "packages/api/src/index.ts"]
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://arke:arke@postgres:5432/arke
+      - ADMIN_BOOTSTRAP_KEY=ak_test_ci_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: arke
+      POSTGRES_PASSWORD: arke
+      POSTGRES_DB: arke
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arke"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: arke:ci
+    command: ["node", "packages/schema/migrate.js"]
+    environment:
+      - DATABASE_URL=postgresql://arke:arke@postgres:5432/arke
+    depends_on:
+      postgres:
+        condition: service_healthy

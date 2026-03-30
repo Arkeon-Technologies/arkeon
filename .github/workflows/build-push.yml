@@ -1,4 +1,4 @@
-name: Build and Push to ECR
+name: Test, Build, and Push to ECR
 
 on:
   push:
@@ -8,14 +8,51 @@ on:
       - 'packages/schema/**'
       - 'packages/runtime/**'
       - 'Dockerfile'
+      - 'docker-compose.ci.yml'
       - 'package.json'
       - 'package-lock.json'
 
 jobs:
-  build:
+  test-and-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install test dependencies
+        run: npm ci --workspace=packages/api
+
+      - name: Build Docker image
+        run: docker build -t arke:ci .
+
+      - name: Start test stack
+        run: docker compose -f docker-compose.ci.yml up -d
+
+      - name: Wait for API health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API failed to start within 60s"
+          docker compose -f docker-compose.ci.yml logs
+          exit 1
+
+      - name: Run e2e tests
+        env:
+          E2E_BASE_URL: http://localhost:8000
+          ADMIN_BOOTSTRAP_KEY: ak_test_ci_key
+        run: npm run test:e2e -w packages/api
+
+      - name: Teardown test stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down -v
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -27,10 +64,11 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push
+      - name: Tag and push to ECR
         env:
           ECR_REPO: 071493678184.dkr.ecr.us-east-1.amazonaws.com/arke
         run: |
-          docker build -t $ECR_REPO:latest -t $ECR_REPO:sha-${GITHUB_SHA::8} .
+          docker tag arke:ci $ECR_REPO:latest
+          docker tag arke:ci $ECR_REPO:sha-${GITHUB_SHA::8}
           docker push $ECR_REPO:latest
           docker push $ECR_REPO:sha-${GITHUB_SHA::8}

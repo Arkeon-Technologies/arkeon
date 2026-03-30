@@ -3,10 +3,12 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY packages/api/package.json packages/api/
+COPY packages/runtime/package.json packages/runtime/
 COPY packages/schema/package.json packages/schema/
 RUN npm ci --omit=dev
 
 COPY packages/api packages/api
+COPY packages/runtime packages/runtime
 COPY packages/schema packages/schema
 
 FROM base AS api
