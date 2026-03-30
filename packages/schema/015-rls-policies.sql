@@ -631,10 +631,10 @@ CREATE POLICY notifications_select ON notifications
 FOR SELECT TO arke_app
 USING (recipient_id = current_actor_id());
 
--- INSERT: system writes (notification fan-out)
+-- INSERT: actor can only insert notifications for actions they performed
 CREATE POLICY notifications_insert ON notifications
 FOR INSERT TO arke_app
-WITH CHECK (true);
+WITH CHECK (actor_id = current_actor_id());
 
 -- DELETE: only your own
 CREATE POLICY notifications_delete ON notifications
