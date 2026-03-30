@@ -494,10 +494,17 @@ USING (
 
 ALTER TABLE space_permissions ENABLE ROW LEVEL SECURITY;
 
--- Readable by anyone
+-- SELECT: visible if the parent space is visible (classification-gated)
 CREATE POLICY space_perms_select ON space_permissions
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM spaces s
+    WHERE s.id = space_id
+    AND (s.read_level = 0 OR current_actor_read_level() >= s.read_level)
+  )
+);
 
 -- Insert: must be owner or admin of the space
 CREATE POLICY space_perms_insert ON space_permissions
@@ -545,10 +552,17 @@ USING (
 
 ALTER TABLE space_entities ENABLE ROW LEVEL SECURITY;
 
--- Readable by anyone
+-- SELECT: visible if the parent space is visible (classification-gated)
 CREATE POLICY space_entities_select ON space_entities
 FOR SELECT TO arke_app
-USING (true);
+USING (
+  current_actor_is_admin()
+  OR EXISTS (
+    SELECT 1 FROM spaces s
+    WHERE s.id = space_id
+    AND (s.read_level = 0 OR current_actor_read_level() >= s.read_level)
+  )
+);
 
 -- Insert: must be contributor+ on the space (owner, contributor, editor, admin)
 CREATE POLICY space_entities_insert ON space_entities
