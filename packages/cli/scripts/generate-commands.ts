@@ -87,6 +87,7 @@ const outputPath = join(__dirname, "..", "src", "generated", "index.ts");
 const METHODS = ["get", "post", "put", "patch", "delete"] as const;
 
 const OVERRIDES: Record<string, Override> = {
+  // --- Skipped (handled by custom commands or not CLI-relevant) ---
   createAuthChallenge: { skip: true },
   registerAgent: { skip: true },
   recoverAgentAccess: { skip: true },
@@ -96,43 +97,92 @@ const OVERRIDES: Record<string, Override> = {
   completeContentUpload: { skip: true },
   deleteEntityContent: { skip: true },
   renameEntityContent: { skip: true },
+
+  // --- Auth ---
   getAuthenticatedActor: { group: "auth", action: "me" },
+  updateAuthenticatedActor: { group: "auth", action: "update-me" },
   createApiKey: { group: "auth", action: "create-key" },
   listApiKeys: { group: "auth", action: "list-keys" },
   revokeApiKey: { group: "auth", action: "revoke-key" },
   listInboxNotifications: { group: "auth", action: "inbox" },
   countInboxNotifications: { group: "auth", action: "inbox-count" },
-  listCommons: { group: "commons", action: "list" },
-  createCommons: { group: "commons", action: "create" },
-  getCommons: { group: "commons", action: "get" },
-  updateCommons: { group: "commons", action: "update" },
-  deleteCommons: { group: "commons", action: "delete" },
-  listCommonsEntities: { group: "commons", action: "list-entities" },
-  listChildCommons: { group: "commons", action: "list-children" },
-  listCommonsFeed: { group: "commons", action: "feed" },
+
+  // --- Actors ---
+  listActors: { group: "actors", action: "list" },
+  createActor: { group: "actors", action: "create" },
+  getActor: { group: "actors", action: "get" },
+  updateActor: { group: "actors", action: "update" },
+  deactivateActor: { group: "actors", action: "deactivate" },
+  listActorActivity: { group: "actors", action: "activity" },
+
+  // --- Arkes ---
+  listArkes: { group: "arkes", action: "list" },
+  createArke: { group: "arkes", action: "create" },
+  getArke: { group: "arkes", action: "get" },
+  updateArke: { group: "arkes", action: "update" },
+  deleteArke: { group: "arkes", action: "delete" },
+
+  // --- Entities ---
   createEntity: { group: "entities", action: "create" },
   getEntity: { group: "entities", action: "get" },
   updateEntity: { group: "entities", action: "update" },
-  getEntityAccess: { group: "entities", action: "access" },
-  updateEntityAccess: { group: "entities", action: "update-access" },
+  deleteEntity: { group: "entities", action: "delete" },
+  changeEntityLevel: { group: "entities", action: "change-level" },
   transferEntityOwner: { group: "entities", action: "transfer-owner" },
-  createEntityAccessGrant: { group: "entities", action: "grant" },
-  deleteEntityAccessGrants: { group: "entities", action: "revoke-grants" },
-  deleteEntityAccessGrant: { group: "entities", action: "revoke-grant" },
+  getEntityPermissions: { group: "entities", action: "permissions" },
+  grantEntityPermission: { group: "entities", action: "grant" },
+  revokeEntityPermission: { group: "entities", action: "revoke" },
   listEntityVersions: { group: "entities", action: "versions" },
   getEntityVersion: { group: "entities", action: "version" },
   listEntityActivity: { group: "entities", action: "activity" },
-  createComment: { group: "comments", action: "create" },
-  listComments: { group: "comments", action: "list" },
-  deleteComment: { group: "comments", action: "delete" },
+
+  // --- Relationships ---
   listRelationships: { group: "relationships", action: "list" },
   createRelationship: { group: "relationships", action: "create" },
   getRelationship: { group: "relationships", action: "get" },
   updateRelationship: { group: "relationships", action: "update" },
   deleteRelationship: { group: "relationships", action: "delete" },
+
+  // --- Comments ---
+  listComments: { group: "comments", action: "list" },
+  createComment: { group: "comments", action: "create" },
+  deleteComment: { group: "comments", action: "delete" },
+
+  // --- Groups ---
+  listGroups: { group: "groups", action: "list" },
+  createGroup: { group: "groups", action: "create" },
+  getGroup: { group: "groups", action: "get" },
+  updateGroup: { group: "groups", action: "update" },
+  deleteGroup: { group: "groups", action: "delete" },
+  addGroupMember: { group: "groups", action: "add-member" },
+  removeGroupMember: { group: "groups", action: "remove-member" },
+
+  // --- Spaces ---
+  listSpaces: { group: "spaces", action: "list" },
+  createSpace: { group: "spaces", action: "create" },
+  getSpace: { group: "spaces", action: "get" },
+  updateSpace: { group: "spaces", action: "update" },
+  deleteSpace: { group: "spaces", action: "delete" },
+  listSpaceEntities: { group: "spaces", action: "list-entities" },
+  addSpaceEntity: { group: "spaces", action: "add-entity" },
+  removeSpaceEntity: { group: "spaces", action: "remove-entity" },
+  listSpaceFeed: { group: "spaces", action: "feed" },
+  listSpacePermissions: { group: "spaces", action: "permissions" },
+  grantSpacePermission: { group: "spaces", action: "grant" },
+  revokeSpacePermission: { group: "spaces", action: "revoke" },
+
+  // --- Search ---
   searchEntities: { group: "search", action: "query" },
+
+  // --- Workers ---
+  getWorker: { group: "workers", action: "get" },
+  updateWorker: { group: "workers", action: "update" },
+  invokeWorker: { group: "workers", action: "invoke" },
+  listWorkerInvocations: { group: "workers", action: "invocations" },
+  getLatestWorkerInvocation: { group: "workers", action: "latest" },
+
+  // --- Activity ---
   listActivity: { group: "activity", action: "list" },
-  listActorActivity: { group: "actors", action: "activity" },
 };
 
 function toKebabCase(value: string): string {
