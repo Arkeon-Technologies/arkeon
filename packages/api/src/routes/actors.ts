@@ -309,7 +309,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
         `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
          VALUES ($1, $2, $3, $4, false, $5, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
          RETURNING *`,
-        [id, "worker", maxReadLevel, maxWriteLevel, canPublishPublic, actor.id, JSON.stringify(workerProperties), now],
+        [id, "worker", maxReadLevel, maxWriteLevel, false, actor.id, JSON.stringify(workerProperties), now],
       ),
       sql.query(
         `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
