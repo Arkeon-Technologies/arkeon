@@ -2,25 +2,44 @@
   "components": {
     "parameters": {},
     "schemas": {
-      "ContributeAccessPolicy": {
-        "enum": [
-          "public",
-          "contributors",
-          "owner"
-        ],
-        "type": "string"
-      },
-      "EditAccessPolicy": {
-        "enum": [
-          "public",
-          "collaborators",
-          "owner"
-        ],
-        "type": "string"
-      },
-      "Entity": {
+      "Actor": {
         "properties": {
-          "commons_id": {
+          "can_publish_public": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "is_admin": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "user",
+              "agent"
+            ],
+            "type": "string"
+          },
+          "max_read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_write_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "owner_id": {
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": [
@@ -28,16 +47,104 @@
               "null"
             ]
           },
-          "contribute_access": {
-            "$ref": "#/components/schemas/ContributeAccessPolicy"
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
           },
+          "status": {
+            "enum": [
+              "active",
+              "suspended",
+              "deactivated"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "max_read_level",
+          "max_write_level",
+          "is_admin",
+          "can_publish_public",
+          "owner_id",
+          "properties",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "Arke": {
+        "properties": {
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
             "type": "string"
           },
-          "edit_access": {
-            "$ref": "#/components/schemas/EditAccessPolicy"
+          "default_read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_write_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "updated_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner_id",
+          "default_read_level",
+          "default_write_level",
+          "properties",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "Entity": {
+        "properties": {
+          "created_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
           },
           "edited_by": {
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -50,6 +157,15 @@
             "type": "string"
           },
           "kind": {
+            "enum": [
+              "entity",
+              "relationship"
+            ],
+            "type": "string"
+          },
+          "network_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
           },
           "note": {
@@ -66,6 +182,12 @@
           "properties": {
             "$ref": "#/components/schemas/JsonObject"
           },
+          "read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
           "type": {
             "type": "string"
           },
@@ -77,21 +199,23 @@
           "ver": {
             "type": "integer"
           },
-          "view_access": {
-            "$ref": "#/components/schemas/ViewAccessPolicy"
+          "write_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "kind",
           "type",
+          "network_id",
           "ver",
           "properties",
           "owner_id",
-          "commons_id",
-          "view_access",
-          "edit_access",
-          "contribute_access",
+          "read_level",
+          "write_level",
           "edited_by",
           "note",
           "created_at",
@@ -142,16 +266,142 @@
         ],
         "type": "object"
       },
+      "Group": {
+        "properties": {
+          "created_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "org",
+              "project",
+              "editorial",
+              "admin"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "network_id",
+          "created_by",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "JsonObject": {
         "additionalProperties": {},
         "type": "object"
       },
-      "ViewAccessPolicy": {
-        "enum": [
-          "public",
-          "private"
+      "Space": {
+        "properties": {
+          "created_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entity_count": {
+            "type": "integer"
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "last_activity_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "network_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "owner_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "archived",
+              "deleted"
+            ],
+            "type": "string"
+          },
+          "updated_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "write_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "network_id",
+          "name",
+          "description",
+          "owner_id",
+          "read_level",
+          "write_level",
+          "status",
+          "entity_count",
+          "last_activity_at",
+          "properties",
+          "created_at",
+          "updated_at"
         ],
-        "type": "string"
+        "type": "object"
       }
     }
   },
@@ -327,14 +577,512 @@
         ]
       }
     },
-    "/actors/{actorId}/activity": {
+    "/actors": {
+      "get": {
+        "operationId": "listActors",
+        "parameters": [
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by status",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Filter by status",
+              "enum": [
+                "active",
+                "suspended",
+                "deactivated"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by kind",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "Filter by kind",
+              "enum": [
+                "user",
+                "agent"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actors": {
+                      "items": {
+                        "$ref": "#/components/schemas/Actor"
+                      },
+                      "type": "array"
+                    },
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "actors",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor listing"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          }
+        },
+        "summary": "List actors (paginated)",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /actors",
+          "GET /actors/{id}"
+        ]
+      },
+      "post": {
+        "operationId": "createActor",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "can_publish_public": {
+                    "description": "Whether actor can publish public content",
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "description": "Actor kind: user or agent",
+                    "enum": [
+                      "user",
+                      "agent"
+                    ],
+                    "type": "string"
+                  },
+                  "max_read_level": {
+                    "description": "Max read level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_write_level": {
+                    "description": "Max write level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "Actor properties"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    },
+                    "api_key": {
+                      "description": "Plaintext API key (only shown once)",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "actor",
+                    "api_key"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor created with initial API key"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Create a new actor and its initial API key",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /actors/{id}",
+          "GET /actors"
+        ]
+      }
+    },
+    "/actors/{id}": {
+      "delete": {
+        "operationId": "deactivateActor",
+        "parameters": [
+          {
+            "description": "Actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor deactivated"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Deactivate an actor (admin only)",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required"
+      },
+      "get": {
+        "operationId": "getActor",
+        "parameters": [
+          {
+            "description": "Actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Fetch a single actor by ID",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "PUT /actors/{id}",
+          "DELETE /actors/{id}"
+        ]
+      },
+      "put": {
+        "operationId": "updateActor",
+        "parameters": [
+          {
+            "description": "Actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "can_publish_public": {
+                    "description": "Whether actor can publish public content",
+                    "type": "boolean"
+                  },
+                  "max_read_level": {
+                    "description": "New max read level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_write_level": {
+                    "description": "New max write level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "New properties"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update an actor (admin or self)",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /actors/{id}"
+        ]
+      }
+    },
+    "/actors/{id}/activity": {
       "get": {
         "operationId": "listActorActivity",
         "parameters": [
           {
             "description": "Actor ULID",
             "in": "path",
-            "name": "actorId",
+            "name": "id",
             "required": true,
             "schema": {
               "description": "Actor ULID",
@@ -366,12 +1114,12 @@
             }
           },
           {
-            "description": "ISO 8601 — only events after this time",
+            "description": "ISO 8601 -- only events after this time",
             "in": "query",
             "name": "since",
             "required": false,
             "schema": {
-              "description": "ISO 8601 — only events after this time",
+              "description": "ISO 8601 -- only events after this time",
               "example": "2026-01-01T00:00:00.000Z",
               "format": "date-time",
               "type": "string"
@@ -523,56 +1271,73 @@
         ]
       }
     },
-    "/auth/challenge": {
-      "post": {
-        "operationId": "createAuthChallenge",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "public_key": {
-                    "description": "Ed25519 public key (hex)",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "public_key"
-                ],
-                "type": "object"
-              }
+    "/arkes": {
+      "get": {
+        "operationId": "listArkes",
+        "parameters": [
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
             }
           },
-          "required": true
-        },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Search by name",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Search by name",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "properties": {
-                    "difficulty": {
-                      "type": "integer"
+                    "arkes": {
+                      "items": {
+                        "$ref": "#/components/schemas/Arke"
+                      },
+                      "type": "array"
                     },
-                    "expires_at": {
-                      "example": "2026-01-01T00:00:00.000Z",
-                      "format": "date-time",
-                      "type": "string"
-                    },
-                    "nonce": {
-                      "type": "string"
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
-                    "nonce",
-                    "difficulty",
-                    "expires_at"
+                    "arkes",
+                    "cursor"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "Proof-of-work challenge"
+            "description": "Arke listing"
           },
           "400": {
             "content": {
@@ -585,13 +1350,371 @@
             "description": "Bad request"
           }
         },
-        "summary": "Request a proof-of-work challenge for registration",
+        "summary": "List all arkes (networks)",
         "tags": [
-          "Auth"
+          "Arkes"
         ],
-        "x-arke-auth": "none",
+        "x-arke-auth": "optional",
         "x-arke-related": [
-          "POST /auth/register"
+          "POST /arkes",
+          "GET /arkes/{id}"
+        ]
+      },
+      "post": {
+        "operationId": "createArke",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "default_read_level": {
+                    "description": "Default read level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "default_write_level": {
+                    "description": "Default write level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "Arke description",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "description": "Arke name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "Arbitrary properties"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "arke": {
+                      "$ref": "#/components/schemas/Arke"
+                    }
+                  },
+                  "required": [
+                    "arke"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Arke created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Create a new arke (network)",
+        "tags": [
+          "Arkes"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /arkes/{id}",
+          "GET /arkes"
+        ]
+      }
+    },
+    "/arkes/{id}": {
+      "delete": {
+        "operationId": "deleteArke",
+        "parameters": [
+          {
+            "description": "Arke ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Arke ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Arke deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Delete an arke (admin only via RLS)",
+        "tags": [
+          "Arkes"
+        ],
+        "x-arke-auth": "required"
+      },
+      "get": {
+        "operationId": "getArke",
+        "parameters": [
+          {
+            "description": "Arke ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Arke ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "arke": {
+                      "$ref": "#/components/schemas/Arke"
+                    }
+                  },
+                  "required": [
+                    "arke"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Arke details"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Fetch a single arke by ID",
+        "tags": [
+          "Arkes"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "PUT /arkes/{id}",
+          "DELETE /arkes/{id}"
+        ]
+      },
+      "put": {
+        "operationId": "updateArke",
+        "parameters": [
+          {
+            "description": "Arke ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Arke ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "default_read_level": {
+                    "description": "New default read level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "default_write_level": {
+                    "description": "New default write level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "description": {
+                    "description": "New description",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "description": "New name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "New properties"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "arke": {
+                      "$ref": "#/components/schemas/Arke"
+                    }
+                  },
+                  "required": [
+                    "arke"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Arke updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update an arke (admin only via RLS)",
+        "tags": [
+          "Arkes"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /arkes/{id}"
         ]
       }
     },
@@ -600,12 +1723,12 @@
         "operationId": "listApiKeys",
         "parameters": [
           {
-            "description": "boolean — Include revoked keys (default: false)",
+            "description": "Include revoked keys (default: false)",
             "in": "query",
             "name": "include_revoked",
             "required": false,
             "schema": {
-              "description": "boolean — Include revoked keys (default: false)",
+              "description": "Include revoked keys (default: false)",
               "enum": [
                 "true",
                 "false"
@@ -755,7 +1878,7 @@
                 }
               }
             },
-            "description": "API key created"
+            "description": "API key created (key value returned once)"
           },
           "400": {
             "content": {
@@ -860,12 +1983,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "entity": {
-                      "$ref": "#/components/schemas/Entity"
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
                     }
                   },
                   "required": [
-                    "entity"
+                    "actor"
                   ],
                   "type": "object"
                 }
@@ -894,14 +2017,79 @@
             "description": "Not found"
           }
         },
-        "summary": "Get the authenticated actor's entity",
+        "summary": "Get the authenticated actor's profile",
         "tags": [
           "Auth"
         ],
         "x-arke-auth": "required",
         "x-arke-related": [
+          "PUT /auth/me",
           "GET /auth/me/inbox"
         ]
+      },
+      "put": {
+        "operationId": "updateAuthenticatedActor",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "properties": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Updated actor"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          }
+        },
+        "summary": "Update the authenticated actor's properties",
+        "tags": [
+          "Auth"
+        ],
+        "x-arke-auth": "required"
       }
     },
     "/auth/me/inbox": {
@@ -1141,1337 +2329,6 @@
         ]
       }
     },
-    "/auth/recover": {
-      "post": {
-        "operationId": "recoverAgentAccess",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "public_key": {
-                    "description": "Ed25519 public key (hex)",
-                    "type": "string"
-                  },
-                  "signature": {
-                    "description": "Signature of JSON { action: 'recover', timestamp }",
-                    "type": "string"
-                  },
-                  "timestamp": {
-                    "description": "ISO 8601 (within 5 min skew)",
-                    "example": "2026-01-01T00:00:00.000Z",
-                    "format": "date-time",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "public_key",
-                  "signature",
-                  "timestamp"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "api_key": {
-                      "type": "string"
-                    },
-                    "entity_id": {
-                      "description": "ULID string",
-                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                      "type": "string"
-                    },
-                    "key_prefix": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "entity_id",
-                    "api_key",
-                    "key_prefix"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Fresh API key issued"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Recover agent access by signing with Ed25519 key",
-        "tags": [
-          "Auth"
-        ],
-        "x-arke-auth": "none"
-      }
-    },
-    "/auth/register": {
-      "post": {
-        "operationId": "registerAgent",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "metadata": {
-                    "additionalProperties": {},
-                    "description": "Additional properties",
-                    "type": "object"
-                  },
-                  "name": {
-                    "description": "Agent display name",
-                    "type": "string"
-                  },
-                  "nonce": {
-                    "description": "From /auth/challenge",
-                    "type": "string"
-                  },
-                  "public_key": {
-                    "description": "Ed25519 public key (hex)",
-                    "type": "string"
-                  },
-                  "signature": {
-                    "description": "Ed25519 signature of nonce",
-                    "type": "string"
-                  },
-                  "solution": {
-                    "description": "PoW solution",
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "public_key",
-                  "nonce",
-                  "signature",
-                  "solution"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "api_key": {
-                      "type": "string"
-                    },
-                    "entity": {
-                      "$ref": "#/components/schemas/Entity"
-                    },
-                    "key_prefix": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "entity",
-                    "api_key",
-                    "key_prefix"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Agent registered"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "410": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Gone"
-          }
-        },
-        "summary": "Register a new agent with Ed25519 key + PoW",
-        "tags": [
-          "Auth"
-        ],
-        "x-arke-auth": "none",
-        "x-arke-related": [
-          "POST /auth/challenge",
-          "POST /auth/recover"
-        ]
-      }
-    },
-    "/commons": {
-      "get": {
-        "operationId": "listCommons",
-        "parameters": [
-          {
-            "description": "Column/property filters. See GET /help for filter syntax.",
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "description": "Column/property filters. See GET /help for filter syntax.",
-              "type": "string"
-            }
-          },
-          {
-            "description": "updated_at | created_at | entity_count | last_activity_at (default: updated_at)",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "description": "updated_at | created_at | entity_count | last_activity_at (default: updated_at)",
-              "enum": [
-                "updated_at",
-                "created_at",
-                "entity_count",
-                "last_activity_at"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "asc | desc (default: desc)",
-            "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "description": "asc | desc (default: desc)",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Projection: full | summary",
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "description": "Projection: full | summary",
-              "enum": [
-                "full",
-                "summary"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated field list",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "description": "Comma-separated field list",
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Full-text search query",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "description": "Full-text search query",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "commons": {
-                      "items": {
-                        "$ref": "#/components/schemas/Entity"
-                      },
-                      "type": "array"
-                    },
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "commons",
-                    "cursor"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Commons listing"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "List all commons (collections)",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "POST /commons",
-          "GET /commons/{id}"
-        ]
-      },
-      "post": {
-        "operationId": "createCommons",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "commons_id": {
-                    "description": "Parent commons ULID",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
-                  "contribute_access": {
-                    "$ref": "#/components/schemas/ContributeAccessPolicy"
-                  },
-                  "edit_access": {
-                    "$ref": "#/components/schemas/EditAccessPolicy"
-                  },
-                  "properties": {
-                    "additionalProperties": {},
-                    "description": "Commons properties",
-                    "type": "object"
-                  },
-                  "type": {
-                    "description": "Commons type (default: commons)",
-                    "type": "string"
-                  },
-                  "view_access": {
-                    "$ref": "#/components/schemas/ViewAccessPolicy"
-                  }
-                },
-                "required": [
-                  "properties"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "commons": {
-                      "$ref": "#/components/schemas/Entity"
-                    }
-                  },
-                  "required": [
-                    "commons"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Commons created"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Create a new commons (collection)",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /commons/{id}",
-          "GET /commons/{id}/entities"
-        ]
-      }
-    },
-    "/commons/{id}": {
-      "delete": {
-        "operationId": "deleteCommons",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Commons deleted"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Delete a commons (owner only)",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "required"
-      },
-      "get": {
-        "operationId": "getCommons",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Projection: full | summary",
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "description": "Projection: full | summary",
-              "enum": [
-                "full",
-                "summary"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated field list",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "description": "Comma-separated field list",
-              "minLength": 1,
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "commons": {
-                      "$ref": "#/components/schemas/Entity"
-                    }
-                  },
-                  "required": [
-                    "commons"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Commons details"
-          },
-          "304": {
-            "description": "Not modified"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Fetch a single commons by ID",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "PUT /commons/{id}",
-          "GET /commons/{id}/entities"
-        ]
-      },
-      "put": {
-        "operationId": "updateCommons",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "commons_id": {
-                    "description": "Move to new parent commons",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
-                  "note": {
-                    "description": "Edit note",
-                    "type": "string"
-                  },
-                  "properties": {
-                    "additionalProperties": {},
-                    "description": "New properties",
-                    "type": "object"
-                  },
-                  "tombstone": {
-                    "description": "Soft-delete the commons",
-                    "type": "boolean"
-                  },
-                  "ver": {
-                    "description": "Expected current version (CAS token). Server increments ver on success.",
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "ver"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "commons": {
-                      "$ref": "#/components/schemas/Entity"
-                    }
-                  },
-                  "required": [
-                    "commons"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Commons updated"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          }
-        },
-        "summary": "Update commons properties or move to new parent",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /commons/{id}"
-        ]
-      }
-    },
-    "/commons/{id}/commons": {
-      "get": {
-        "operationId": "listChildCommons",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Column/property filters. See GET /help for filter syntax.",
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "description": "Column/property filters. See GET /help for filter syntax.",
-              "type": "string"
-            }
-          },
-          {
-            "description": "updated_at | created_at (default: updated_at)",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "description": "updated_at | created_at (default: updated_at)",
-              "enum": [
-                "updated_at",
-                "created_at"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "asc | desc (default: desc)",
-            "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "description": "asc | desc (default: desc)",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Projection: full | summary",
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "description": "Projection: full | summary",
-              "enum": [
-                "full",
-                "summary"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated field list",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "description": "Comma-separated field list",
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Full-text search",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "description": "Full-text search",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "commons": {
-                      "items": {
-                        "$ref": "#/components/schemas/Entity"
-                      },
-                      "type": "array"
-                    },
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "commons",
-                    "cursor"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Child commons"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "List child commons within a commons",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "optional"
-      }
-    },
-    "/commons/{id}/entities": {
-      "get": {
-        "operationId": "listCommonsEntities",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Column/property filters. See GET /help for filter syntax.",
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "description": "Column/property filters. See GET /help for filter syntax.",
-              "type": "string"
-            }
-          },
-          {
-            "description": "updated_at | created_at (default: updated_at)",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "description": "updated_at | created_at (default: updated_at)",
-              "enum": [
-                "updated_at",
-                "created_at"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "asc | desc (default: desc)",
-            "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "description": "asc | desc (default: desc)",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Projection: full | summary",
-            "in": "query",
-            "name": "view",
-            "required": false,
-            "schema": {
-              "description": "Projection: full | summary",
-              "enum": [
-                "full",
-                "summary"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated field list",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "description": "Comma-separated field list",
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Full-text search",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "description": "Full-text search",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "entities": {
-                      "items": {
-                        "$ref": "#/components/schemas/Entity"
-                      },
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "entities",
-                    "cursor"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Entities in the commons"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "List entities within a commons",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "POST /entities",
-          "GET /commons/{id}"
-        ]
-      }
-    },
-    "/commons/{id}/feed": {
-      "get": {
-        "operationId": "listCommonsFeed",
-        "parameters": [
-          {
-            "description": "Commons ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Commons ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Filter by action type",
-            "in": "query",
-            "name": "action",
-            "required": false,
-            "schema": {
-              "description": "Filter by action type",
-              "type": "string"
-            }
-          },
-          {
-            "description": "ISO 8601 — only events after this time",
-            "in": "query",
-            "name": "since",
-            "required": false,
-            "schema": {
-              "description": "ISO 8601 — only events after this time",
-              "example": "2026-01-01T00:00:00.000Z",
-              "format": "date-time",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "activity": {
-                      "items": {
-                        "properties": {
-                          "action": {
-                            "type": "string"
-                          },
-                          "actor_id": {
-                            "description": "ULID string",
-                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                            "type": "string"
-                          },
-                          "detail": {},
-                          "entity_id": {
-                            "description": "ULID string",
-                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                            "type": "string"
-                          },
-                          "id": {
-                            "type": "integer"
-                          },
-                          "ts": {
-                            "example": "2026-01-01T00:00:00.000Z",
-                            "format": "date-time",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "entity_id",
-                          "actor_id",
-                          "action",
-                          "ts"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "activity",
-                    "cursor"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Commons activity feed"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Activity feed scoped to a specific commons",
-        "tags": [
-          "Commons"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "GET /activity"
-        ]
-      }
-    },
     "/entities": {
       "post": {
         "operationId": "createEntity",
@@ -2480,33 +2337,36 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "commons_id": {
-                    "description": "Parent commons ULID",
+                  "network_id": {
+                    "description": "Arke (network) ULID",
                     "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
                     "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                     "type": "string"
-                  },
-                  "contribute_access": {
-                    "$ref": "#/components/schemas/ContributeAccessPolicy"
-                  },
-                  "edit_access": {
-                    "$ref": "#/components/schemas/EditAccessPolicy"
                   },
                   "properties": {
                     "additionalProperties": {},
                     "description": "Arbitrary properties",
                     "type": "object"
                   },
+                  "read_level": {
+                    "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "type": {
                     "description": "Entity type",
                     "type": "string"
                   },
-                  "view_access": {
-                    "$ref": "#/components/schemas/ViewAccessPolicy"
+                  "write_level": {
+                    "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "required": [
-                  "commons_id",
+                  "network_id",
                   "type",
                   "properties"
                 ],
@@ -2556,6 +2416,59 @@
               }
             },
             "description": "Forbidden"
+          }
+        },
+        "summary": "Create a new entity",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /entities/{id}",
+          "PUT /entities/{id}"
+        ]
+      }
+    },
+    "/entities/{id}": {
+      "delete": {
+        "operationId": "deleteEntity",
+        "parameters": [
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Entity deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -2568,18 +2481,12 @@
             "description": "Not found"
           }
         },
-        "summary": "Create a new entity within a commons",
+        "summary": "Delete an entity",
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /entities/{id}",
-          "PUT /entities/{id}"
-        ]
-      }
-    },
-    "/entities/{id}": {
+        "x-arke-auth": "required"
+      },
       "get": {
         "operationId": "getEntity",
         "parameters": [
@@ -2644,16 +2551,6 @@
             },
             "description": "Bad request"
           },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
           "404": {
             "content": {
               "application/json": {
@@ -2672,7 +2569,6 @@
         "x-arke-auth": "optional",
         "x-arke-related": [
           "PUT /entities/{id}",
-          "GET /entities/{id}/content",
           "GET /entities/{id}/versions"
         ]
       },
@@ -2697,27 +2593,15 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "commons_id": {
-                    "description": "Move to new parent commons",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
                   "note": {
-                    "description": "Edit note",
                     "type": "string"
                   },
                   "properties": {
                     "additionalProperties": {},
-                    "description": "New properties",
                     "type": "object"
                   },
-                  "tombstone": {
-                    "description": "Soft-delete the entity",
-                    "type": "boolean"
-                  },
                   "ver": {
-                    "description": "Expected current version (CAS token). Server increments ver on success.",
+                    "description": "Expected current version (CAS token)",
                     "type": "integer"
                   }
                 },
@@ -2792,7 +2676,7 @@
             "description": "Conflict"
           }
         },
-        "summary": "Update entity properties, move commons, or tombstone",
+        "summary": "Update entity properties",
         "tags": [
           "Entities"
         ],
@@ -2801,676 +2685,6 @@
           "GET /entities/{id}",
           "GET /entities/{id}/versions"
         ]
-      }
-    },
-    "/entities/{id}/access": {
-      "get": {
-        "operationId": "getEntityAccess",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "contribute_access": {
-                      "$ref": "#/components/schemas/ContributeAccessPolicy"
-                    },
-                    "edit_access": {
-                      "$ref": "#/components/schemas/EditAccessPolicy"
-                    },
-                    "grants": {
-                      "items": {
-                        "properties": {
-                          "access_type": {
-                            "enum": [
-                              "view",
-                              "edit",
-                              "contribute",
-                              "admin"
-                            ],
-                            "type": "string"
-                          },
-                          "actor_id": {
-                            "description": "ULID string",
-                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                            "type": "string"
-                          },
-                          "granted_at": {
-                            "example": "2026-01-01T00:00:00.000Z",
-                            "format": "date-time",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "actor_id",
-                          "access_type",
-                          "granted_at"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "owner_id": {
-                      "description": "ULID string",
-                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                      "type": "string"
-                    },
-                    "view_access": {
-                      "$ref": "#/components/schemas/ViewAccessPolicy"
-                    }
-                  },
-                  "required": [
-                    "owner_id",
-                    "view_access",
-                    "edit_access",
-                    "contribute_access",
-                    "grants"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Entity access state"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Get access policies and grants for an entity",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "PUT /entities/{id}/access",
-          "POST /entities/{id}/access/grants"
-        ]
-      },
-      "put": {
-        "operationId": "updateEntityAccess",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "contribute_access": {
-                    "$ref": "#/components/schemas/ContributeAccessPolicy"
-                  },
-                  "edit_access": {
-                    "$ref": "#/components/schemas/EditAccessPolicy"
-                  },
-                  "view_access": {
-                    "$ref": "#/components/schemas/ViewAccessPolicy"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "contribute_access": {
-                      "$ref": "#/components/schemas/ContributeAccessPolicy"
-                    },
-                    "edit_access": {
-                      "$ref": "#/components/schemas/EditAccessPolicy"
-                    },
-                    "owner_id": {
-                      "description": "ULID string",
-                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                      "type": "string"
-                    },
-                    "view_access": {
-                      "$ref": "#/components/schemas/ViewAccessPolicy"
-                    }
-                  },
-                  "required": [
-                    "owner_id",
-                    "view_access",
-                    "edit_access",
-                    "contribute_access"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Updated access policies"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Update access policies (owner or admin only)",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /entities/{id}/access"
-        ]
-      }
-    },
-    "/entities/{id}/access/grants": {
-      "post": {
-        "operationId": "createEntityAccessGrant",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "access_type": {
-                    "description": "view | edit | contribute | admin",
-                    "enum": [
-                      "view",
-                      "edit",
-                      "contribute",
-                      "admin"
-                    ],
-                    "type": "string"
-                  },
-                  "actor_id": {
-                    "description": "Target actor ULID",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "actor_id",
-                  "access_type"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "grant": {
-                      "properties": {
-                        "access_type": {
-                          "enum": [
-                            "view",
-                            "edit",
-                            "contribute",
-                            "admin"
-                          ],
-                          "type": "string"
-                        },
-                        "actor_id": {
-                          "description": "ULID string",
-                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                          "type": "string"
-                        },
-                        "entity_id": {
-                          "description": "ULID string",
-                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                          "type": "string"
-                        },
-                        "granted_at": {
-                          "example": "2026-01-01T00:00:00.000Z",
-                          "format": "date-time",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "actor_id",
-                        "access_type",
-                        "granted_at",
-                        "entity_id"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "grant"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Grant created"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Grant access to an actor (owner or admin only)",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "DELETE /entities/{id}/access/grants/{actorId}"
-        ]
-      }
-    },
-    "/entities/{id}/access/grants/{actorId}": {
-      "delete": {
-        "operationId": "deleteEntityAccessGrants",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Target actor ULID",
-            "in": "path",
-            "name": "actorId",
-            "required": true,
-            "schema": {
-              "description": "Target actor ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "All grants revoked"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Revoke all access for an actor",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "DELETE /entities/{id}/access/grants/{actorId}/{type}"
-        ]
-      }
-    },
-    "/entities/{id}/access/grants/{actorId}/{type}": {
-      "delete": {
-        "operationId": "deleteEntityAccessGrant",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Target actor ULID",
-            "in": "path",
-            "name": "actorId",
-            "required": true,
-            "schema": {
-              "description": "Target actor ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
-            "description": "view | edit | contribute | admin",
-            "in": "path",
-            "name": "type",
-            "required": true,
-            "schema": {
-              "description": "view | edit | contribute | admin",
-              "enum": [
-                "view",
-                "edit",
-                "contribute",
-                "admin"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Grant revoked"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Revoke a specific access type for an actor",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "required"
-      }
-    },
-    "/entities/{id}/access/owner": {
-      "put": {
-        "operationId": "transferEntityOwner",
-        "parameters": [
-          {
-            "description": "Entity ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Entity ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "new_owner_id": {
-                    "description": "New owner actor ULID",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "new_owner_id"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "owner_id": {
-                      "description": "ULID string",
-                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "owner_id"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Ownership transferred"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Transfer entity ownership (owner only)",
-        "tags": [
-          "Entities"
-        ],
-        "x-arke-auth": "required"
       }
     },
     "/entities/{id}/activity": {
@@ -4569,13 +3783,13 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /entities/{id}/content",
-          "POST /entities/{id}/content/upload-url"
+          "DELETE /entities/{id}/content"
         ]
       }
     },
-    "/entities/{id}/content/complete": {
-      "post": {
-        "operationId": "completeContentUpload",
+    "/entities/{id}/level": {
+      "put": {
+        "operationId": "changeEntityLevel",
         "parameters": [
           {
             "description": "Entity ULID",
@@ -4595,44 +3809,19 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "cid": {
-                    "description": "BLAKE3 hash",
-                    "type": "string"
-                  },
-                  "content_type": {
-                    "description": "MIME type",
-                    "maxLength": 255,
-                    "type": "string"
-                  },
-                  "filename": {
-                    "description": "Optional display filename",
-                    "maxLength": 255,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "key": {
-                    "description": "Content key",
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "size": {
-                    "description": "File size",
+                  "read_level": {
+                    "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                    "maximum": 4,
                     "minimum": 0,
                     "type": "integer"
                   },
-                  "ver": {
-                    "description": "Expected current version (CAS token). Server increments ver on success.",
+                  "write_level": {
+                    "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                    "maximum": 4,
+                    "minimum": 0,
                     "type": "integer"
                   }
                 },
-                "required": [
-                  "key",
-                  "cid",
-                  "size",
-                  "content_type",
-                  "ver"
-                ],
                 "type": "object"
               }
             }
@@ -4644,31 +3833,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "cid": {
-                      "type": "string"
-                    },
-                    "key": {
-                      "type": "string"
-                    },
-                    "size": {
-                      "type": "integer"
-                    },
-                    "ver": {
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "cid",
-                    "size",
-                    "key",
-                    "ver"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityResponse"
                 }
               }
             },
-            "description": "Upload finalized"
+            "description": "Classification updated"
           },
           "400": {
             "content": {
@@ -4709,41 +3878,18 @@
               }
             },
             "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not implemented"
           }
         },
-        "summary": "Finalize a presigned upload",
+        "summary": "Change entity classification levels",
         "tags": [
-          "Content"
+          "Entities"
         ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "POST /entities/{id}/content/upload-url"
-        ]
+        "x-arke-auth": "required"
       }
     },
-    "/entities/{id}/content/upload-url": {
-      "post": {
-        "operationId": "createContentUploadUrl",
+    "/entities/{id}/owner": {
+      "put": {
+        "operationId": "transferEntityOwner",
         "parameters": [
           {
             "description": "Entity ULID",
@@ -4763,25 +3909,15 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "cid": {
-                    "description": "BLAKE3 content hash (compute client-side)",
+                  "owner_id": {
+                    "description": "New owner actor ULID",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                     "type": "string"
-                  },
-                  "content_type": {
-                    "description": "MIME type",
-                    "maxLength": 255,
-                    "type": "string"
-                  },
-                  "size": {
-                    "description": "File size in bytes",
-                    "minimum": 0,
-                    "type": "integer"
                   }
                 },
                 "required": [
-                  "cid",
-                  "content_type",
-                  "size"
+                  "owner_id"
                 ],
                 "type": "object"
               }
@@ -4794,29 +3930,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "expires_at": {
-                      "example": "2026-01-01T00:00:00.000Z",
-                      "format": "date-time",
-                      "type": "string"
-                    },
-                    "r2_key": {
-                      "type": "string"
-                    },
-                    "upload_url": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "upload_url",
-                    "r2_key",
-                    "expires_at"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/EntityResponse"
                 }
               }
             },
-            "description": "Presigned upload URL"
+            "description": "Ownership transferred"
           },
           "400": {
             "content": {
@@ -4848,7 +3966,7 @@
             },
             "description": "Forbidden"
           },
-          "413": {
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -4856,27 +3974,361 @@
                 }
               }
             },
-            "description": "Payload too large"
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not implemented"
+            "description": "Not found"
           }
         },
-        "summary": "Get a presigned S3 URL for large file upload",
+        "summary": "Transfer entity ownership",
         "tags": [
-          "Content"
+          "Entities"
         ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "POST /entities/{id}/content/complete"
-        ]
+        "x-arke-auth": "required"
+      }
+    },
+    "/entities/{id}/permissions": {
+      "get": {
+        "operationId": "getEntityPermissions",
+        "parameters": [
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "owner_id": {
+                      "description": "ULID string",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "items": {
+                        "properties": {
+                          "entity_id": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "granted_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "granted_by": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "grantee_id": {
+                            "type": "string"
+                          },
+                          "grantee_type": {
+                            "enum": [
+                              "actor",
+                              "group"
+                            ],
+                            "type": "string"
+                          },
+                          "role": {
+                            "enum": [
+                              "admin",
+                              "editor"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "entity_id",
+                          "grantee_type",
+                          "grantee_id",
+                          "role",
+                          "granted_by",
+                          "granted_at"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "owner_id",
+                    "permissions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Entity permissions"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List permission grants on an entity",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required"
+      },
+      "post": {
+        "operationId": "grantEntityPermission",
+        "parameters": [
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "grantee_id": {
+                    "type": "string"
+                  },
+                  "grantee_type": {
+                    "enum": [
+                      "actor",
+                      "group"
+                    ],
+                    "type": "string"
+                  },
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "editor"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grantee_type",
+                  "grantee_id",
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "permission": {
+                      "properties": {
+                        "entity_id": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "granted_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "granted_by": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "grantee_id": {
+                          "type": "string"
+                        },
+                        "grantee_type": {
+                          "enum": [
+                            "actor",
+                            "group"
+                          ],
+                          "type": "string"
+                        },
+                        "role": {
+                          "enum": [
+                            "admin",
+                            "editor"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "entity_id",
+                        "grantee_type",
+                        "grantee_id",
+                        "role",
+                        "granted_by",
+                        "granted_at"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "permission"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Permission granted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Grant a role on an entity (owner/admin only, enforced by RLS)",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required"
+      }
+    },
+    "/entities/{id}/permissions/{granteeId}": {
+      "delete": {
+        "operationId": "revokeEntityPermission",
+        "parameters": [
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Grantee actor or group ID",
+            "in": "path",
+            "name": "granteeId",
+            "required": true,
+            "schema": {
+              "description": "Grantee actor or group ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Permission revoked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Revoke a role from a user or group",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required"
       }
     },
     "/entities/{id}/relationships": {
@@ -5317,7 +4769,7 @@
                 }
               }
             },
-            "description": "Entity version history"
+            "description": "Version history"
           },
           "400": {
             "content": {
@@ -5328,16 +4780,6 @@
               }
             },
             "description": "Bad request"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -5350,14 +4792,11 @@
             "description": "Not found"
           }
         },
-        "summary": "List version history for an entity",
+        "summary": "List version history",
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "GET /entities/{id}/versions/{ver}"
-        ]
+        "x-arke-auth": "optional"
       }
     },
     "/entities/{id}/versions/{ver}": {
@@ -5377,12 +4816,12 @@
             }
           },
           {
-            "description": "Version number (integer >= 1)",
+            "description": "Version number",
             "in": "path",
             "name": "ver",
             "required": true,
             "schema": {
-              "description": "Version number (integer >= 1)",
+              "description": "Version number",
               "minimum": 1,
               "type": "integer"
             }
@@ -5436,7 +4875,7 @@
                 }
               }
             },
-            "description": "Entity version snapshot"
+            "description": "Version snapshot"
           },
           "400": {
             "content": {
@@ -5447,6 +4886,262 @@
               }
             },
             "description": "Bad request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a specific version snapshot",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "optional"
+      }
+    },
+    "/groups": {
+      "get": {
+        "operationId": "listGroups",
+        "parameters": [
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by network",
+            "in": "query",
+            "name": "network_id",
+            "required": false,
+            "schema": {
+              "description": "Filter by network",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by type",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Filter by type",
+              "enum": [
+                "org",
+                "project",
+                "editorial",
+                "admin"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "groups": {
+                      "items": {
+                        "$ref": "#/components/schemas/Group"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "groups",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Group listing"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          }
+        },
+        "summary": "List groups",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "POST /groups",
+          "GET /groups/{id}"
+        ]
+      },
+      "post": {
+        "operationId": "createGroup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "description": "Group name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "network_id": {
+                    "description": "Network (arke) ULID",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "Group type (default: project)",
+                    "enum": [
+                      "org",
+                      "project",
+                      "editorial",
+                      "admin"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "network_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "group": {
+                      "$ref": "#/components/schemas/Group"
+                    }
+                  },
+                  "required": [
+                    "group"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Group created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Create a new group (admin only via RLS)",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /groups/{id}",
+          "GET /groups"
+        ]
+      }
+    },
+    "/groups/{id}": {
+      "delete": {
+        "operationId": "deleteGroup",
+        "parameters": [
+          {
+            "description": "Group ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Group deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
           },
           "403": {
             "content": {
@@ -5469,11 +5164,436 @@
             "description": "Not found"
           }
         },
-        "summary": "Get a specific version snapshot",
+        "summary": "Delete a group (admin or group admin)",
         "tags": [
-          "Entities"
+          "Groups"
         ],
-        "x-arke-auth": "optional"
+        "x-arke-auth": "required"
+      },
+      "get": {
+        "operationId": "getGroup",
+        "parameters": [
+          {
+            "description": "Group ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "group": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Group"
+                        },
+                        {
+                          "properties": {
+                            "members": {
+                              "items": {
+                                "properties": {
+                                  "actor_id": {
+                                    "description": "ULID string",
+                                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                                    "type": "string"
+                                  },
+                                  "group_id": {
+                                    "description": "ULID string",
+                                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                                    "type": "string"
+                                  },
+                                  "role_in_group": {
+                                    "enum": [
+                                      "member",
+                                      "admin"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "group_id",
+                                  "actor_id",
+                                  "role_in_group"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "members"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "group"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Group with members"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Fetch a group with its members",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "PUT /groups/{id}",
+          "POST /groups/{id}/members"
+        ]
+      },
+      "put": {
+        "operationId": "updateGroup",
+        "parameters": [
+          {
+            "description": "Group ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "description": "New group name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "New group type",
+                    "enum": [
+                      "org",
+                      "project",
+                      "editorial",
+                      "admin"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "group": {
+                      "$ref": "#/components/schemas/Group"
+                    }
+                  },
+                  "required": [
+                    "group"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Group updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update a group (admin or group admin)",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /groups/{id}"
+        ]
+      }
+    },
+    "/groups/{id}/members": {
+      "post": {
+        "operationId": "addGroupMember",
+        "parameters": [
+          {
+            "description": "Group ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "actor_id": {
+                    "description": "Actor ULID to add",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "Role (default: member)",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "actor_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "member": {
+                      "properties": {
+                        "actor_id": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "group_id": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "role_in_group": {
+                          "enum": [
+                            "member",
+                            "admin"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "group_id",
+                        "actor_id",
+                        "role_in_group"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "member"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Member added"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Add a member to a group (admin or group admin)",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "DELETE /groups/{id}/members/{actorId}"
+        ]
+      }
+    },
+    "/groups/{id}/members/{actorId}": {
+      "delete": {
+        "operationId": "removeGroupMember",
+        "parameters": [
+          {
+            "description": "Group ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Actor ULID to remove",
+            "in": "path",
+            "name": "actorId",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID to remove",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Member removed"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Remove a member from a group (admin or group admin)",
+        "tags": [
+          "Groups"
+        ],
+        "x-arke-auth": "required"
       }
     },
     "/relationships/{relId}": {
@@ -5871,12 +5991,12 @@
             }
           },
           {
-            "description": "Comma-separated commons ULIDs to scope search",
+            "description": "Network (Arke) ULID to scope search",
             "in": "query",
-            "name": "commons_id",
+            "name": "network_id",
             "required": false,
             "schema": {
-              "description": "Comma-separated commons ULIDs to scope search",
+              "description": "Network (Arke) ULID to scope search",
               "type": "string"
             }
           }
@@ -5958,6 +6078,1308 @@
           "Search"
         ],
         "x-arke-auth": "optional"
+      }
+    },
+    "/spaces": {
+      "get": {
+        "operationId": "listSpaces",
+        "parameters": [
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by network",
+            "in": "query",
+            "name": "network_id",
+            "required": false,
+            "schema": {
+              "description": "Filter by network",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Search by name",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Search by name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "spaces": {
+                      "items": {
+                        "$ref": "#/components/schemas/Space"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "spaces",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space listing"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          }
+        },
+        "summary": "List spaces (paginated, RLS filters by read_level)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "POST /spaces",
+          "GET /spaces/{id}"
+        ]
+      },
+      "post": {
+        "operationId": "createSpace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "Space description",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "description": "Space name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "network_id": {
+                    "description": "Network (arke) ULID",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "Arbitrary properties"
+                      }
+                    ]
+                  },
+                  "read_level": {
+                    "description": "Read classification level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "write_level": {
+                    "description": "Write classification level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "network_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "space": {
+                      "$ref": "#/components/schemas/Space"
+                    }
+                  },
+                  "required": [
+                    "space"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Create a new space",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /spaces/{id}",
+          "GET /spaces"
+        ]
+      }
+    },
+    "/spaces/{id}": {
+      "delete": {
+        "operationId": "deleteSpace",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "space": {
+                      "$ref": "#/components/schemas/Space"
+                    }
+                  },
+                  "required": [
+                    "space"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space soft-deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Soft-delete a space (set status=deleted, RLS: owner/admin)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required"
+      },
+      "get": {
+        "operationId": "getSpace",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "space": {
+                      "$ref": "#/components/schemas/Space"
+                    }
+                  },
+                  "required": [
+                    "space"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space details"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Fetch a single space by ID",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "PUT /spaces/{id}",
+          "GET /spaces/{id}/entities"
+        ]
+      },
+      "put": {
+        "operationId": "updateSpace",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "New description",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "description": "New name",
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "New properties"
+                      }
+                    ]
+                  },
+                  "read_level": {
+                    "description": "New read level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "write_level": {
+                    "description": "New write level",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "space": {
+                      "$ref": "#/components/schemas/Space"
+                    }
+                  },
+                  "required": [
+                    "space"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update a space (RLS: owner/editor/admin)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /spaces/{id}"
+        ]
+      }
+    },
+    "/spaces/{id}/entities": {
+      "get": {
+        "operationId": "listSpaceEntities",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "entities": {
+                      "items": {
+                        "$ref": "#/components/schemas/Entity"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "entities",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Entities in the space"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List entities in a space",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "POST /spaces/{id}/entities",
+          "GET /spaces/{id}"
+        ]
+      },
+      "post": {
+        "operationId": "addSpaceEntity",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "entity_id": {
+                    "description": "Entity ULID to add",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "entity_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "added_at": {
+                      "example": "2026-01-01T00:00:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "added_by": {
+                      "description": "ULID string",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "entity_id": {
+                      "description": "ULID string",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "space_id": {
+                      "description": "ULID string",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "space_id",
+                    "entity_id",
+                    "added_by",
+                    "added_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Entity added to space"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Add an entity to a space (RLS: contributor+)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "DELETE /spaces/{id}/entities/{entityId}"
+        ]
+      }
+    },
+    "/spaces/{id}/entities/{entityId}": {
+      "delete": {
+        "operationId": "removeSpaceEntity",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "entityId",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Entity removed from space"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Remove an entity from a space (RLS: editor+ or added_by)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required"
+      }
+    },
+    "/spaces/{id}/feed": {
+      "get": {
+        "operationId": "listSpaceFeed",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by action type",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "description": "Filter by action type",
+              "type": "string"
+            }
+          },
+          {
+            "description": "ISO 8601 -- only events after this time",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "description": "ISO 8601 -- only events after this time",
+              "example": "2026-01-01T00:00:00.000Z",
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "activity": {
+                      "items": {
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "actor_id": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "detail": {},
+                          "entity_id": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "ts": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "entity_id",
+                          "actor_id",
+                          "action",
+                          "ts"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "activity",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space activity feed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Activity feed scoped to a specific space",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /activity"
+        ]
+      }
+    },
+    "/spaces/{id}/permissions": {
+      "get": {
+        "operationId": "listSpacePermissions",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "permissions": {
+                      "items": {
+                        "properties": {
+                          "granted_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "grantee_id": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "role": {
+                            "enum": [
+                              "viewer",
+                              "contributor",
+                              "editor",
+                              "admin"
+                            ],
+                            "type": "string"
+                          },
+                          "space_id": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "space_id",
+                          "grantee_id",
+                          "role",
+                          "granted_at"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "permissions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Space permissions"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List permissions on a space",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "POST /spaces/{id}/permissions"
+        ]
+      },
+      "post": {
+        "operationId": "grantSpacePermission",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "grantee_id": {
+                    "description": "Actor or group ID",
+                    "type": "string"
+                  },
+                  "grantee_type": {
+                    "description": "Grantee type",
+                    "enum": [
+                      "actor",
+                      "group"
+                    ],
+                    "type": "string"
+                  },
+                  "role": {
+                    "description": "Role to grant",
+                    "enum": [
+                      "contributor",
+                      "editor",
+                      "admin"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grantee_type",
+                  "grantee_id",
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "permission": {
+                      "properties": {
+                        "granted_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "grantee_id": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "role": {
+                          "enum": [
+                            "viewer",
+                            "contributor",
+                            "editor",
+                            "admin"
+                          ],
+                          "type": "string"
+                        },
+                        "space_id": {
+                          "description": "ULID string",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "space_id",
+                        "grantee_id",
+                        "role",
+                        "granted_at"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "permission"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Permission granted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Grant a role on a space (RLS: owner/admin)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "DELETE /spaces/{id}/permissions/{granteeId}",
+          "GET /spaces/{id}/permissions"
+        ]
+      }
+    },
+    "/spaces/{id}/permissions/{granteeId}": {
+      "delete": {
+        "operationId": "revokeSpacePermission",
+        "parameters": [
+          {
+            "description": "Space ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Space ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Grantee actor/group ULID",
+            "in": "path",
+            "name": "granteeId",
+            "required": true,
+            "schema": {
+              "description": "Grantee actor/group ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Permission revoked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Revoke a role on a space (RLS: owner/admin)",
+        "tags": [
+          "Spaces"
+        ],
+        "x-arke-auth": "required"
       }
     }
   },
