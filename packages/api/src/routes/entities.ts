@@ -760,7 +760,7 @@ entitiesRouter.openapi(listVersionsRoute, async (c) => {
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
-      SELECT ver, edited_by, note, created_at
+      SELECT ver, properties, edited_by, note, created_at
       FROM entity_versions
       WHERE entity_id = ${entityId}
         AND (${cursor?.i ?? null}::int IS NULL OR ver < ${cursor?.i ?? null}::int)
