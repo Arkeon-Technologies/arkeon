@@ -197,6 +197,40 @@ const deactivateActorRoute = createRoute({
   },
 });
 
+const createActorKeyRoute = createRoute({
+  method: "post",
+  path: "/{id}/keys",
+  operationId: "createActorKey",
+  tags: ["Actors"],
+  summary: "Create an API key for a specific actor (admin only)",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /auth/keys", "POST /auth/keys"],
+  request: {
+    params: entityIdParams("Actor ULID"),
+    body: {
+      content: jsonContent(
+        z.object({
+          label: z.string().optional().describe("Optional key label"),
+        }),
+      ),
+    },
+  },
+  responses: {
+    201: {
+      description: "API key created (key value returned once)",
+      content: jsonContent(
+        z.object({
+          id: EntityIdParam,
+          key_prefix: z.string(),
+          api_key: z.string(),
+          label: z.string().nullable(),
+        }),
+      ),
+    },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
 const actorActivityRoute = createRoute({
   method: "get",
   path: "/{id}/activity",
@@ -495,6 +529,53 @@ actorsRouter.openapi(deactivateActorRoute, async (c) => {
   }
 
   return c.json({ actor: deactivated }, 200);
+});
+
+actorsRouter.openapi(createActorKeyRoute, async (c) => {
+  const actor = requireActor(c);
+  if (!actor.isAdmin) {
+    throw new ApiError(403, "forbidden", "Admin access required");
+  }
+
+  const actorId = c.req.param("id");
+  const sql = createSql();
+
+  // Verify target actor exists and is active
+  const [target] = await sql`SELECT id, status FROM actors WHERE id = ${actorId} LIMIT 1`;
+  if (!target) {
+    throw new ApiError(404, "not_found", "Actor not found");
+  }
+  if ((target as ActorRecord).status !== "active") {
+    throw new ApiError(400, "invalid_state", "Actor is not active");
+  }
+
+  let body: Record<string, unknown> = {};
+  if (c.req.header("content-length") !== "0") {
+    body = await parseJsonBody<Record<string, unknown>>(c).catch(() => ({}));
+  }
+  const label =
+    body.label === undefined ? null : typeof body.label === "string" ? body.label : null;
+
+  const apiKey = createApiKey();
+  const apiKeyHash = await sha256Hex(apiKey.value);
+  const keyId = generateUlid();
+
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      INSERT INTO api_keys (id, key_prefix, key_hash, actor_id, label)
+      VALUES (${keyId}, ${apiKey.keyPrefix}, ${apiKeyHash}, ${actorId}, ${label})
+      RETURNING id, key_prefix, label
+    `,
+  ]);
+
+  return c.json(
+    {
+      ...(results[results.length - 1] as Array<Record<string, unknown>>)[0],
+      api_key: apiKey.value,
+    },
+    201,
+  );
 });
 
 actorsRouter.openapi(actorActivityRoute, async (c) => {
