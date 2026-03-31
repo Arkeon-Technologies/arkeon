@@ -1,9 +1,8 @@
 {
-  "name": "arke",
+  "name": "arkeon",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "packages/*"
   ],
   "scripts": {
     "migrate": "npm run migrate -w packages/schema"

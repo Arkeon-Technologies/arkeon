@@ -1,10 +1,11 @@
-# arke
+# arkeon
 
-Monorepo for the Arke platform. npm workspaces with three packages:
+Monorepo for the Arkeon platform. npm workspaces with four packages:
 
 - `packages/api` — Node.js API server (Hono + Postgres + local/S3 file storage)
 - `packages/cli` — CLI auto-generated from the API's OpenAPI spec
 - `packages/schema` — Database migration SQL files
+- `packages/runtime` — Sandboxed worker/agent runtime
 
 ## Quick Start
 
