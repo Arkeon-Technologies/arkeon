@@ -56,7 +56,6 @@ export function createApp() {
       title: "Arke API",
       version: "2.0.0",
     },
-    servers: [{ url: "https://api.arke.institute" }],
   };
   const getSpec = () => app.getOpenAPI31Document(openApiConfig);
 
