@@ -1,13 +1,12 @@
 {
-  "name": "@arke-institute/cli",
+  "name": "@arkeon-technologies/cli",
   "version": "0.1.0",
-  "description": "Command-line interface for the Arke API",
+  "description": "Command-line interface for the Arkeon API",
   "type": "module",
   "bin": {
-    "arke": "./dist/index.js"
+    "arkeon": "./dist/index.js"
   },
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
@@ -33,6 +32,6 @@
   "engines": {
     "node": ">=18.17.0"
   },
-  "author": "Arke Institute",
+  "author": "Arkeon Technologies",
   "license": "MIT"
 }

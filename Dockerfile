@@ -32,8 +32,8 @@ COPY packages/runtime packages/runtime
 COPY packages/schema packages/schema
 
 # Install pre-built CLI globally for worker sandboxes
-COPY --from=cli-build /cli-standalone /usr/local/lib/arke-cli
-RUN ln -s /usr/local/lib/arke-cli/dist/index.js /usr/local/bin/arke
+COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
+RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
 FROM app AS api
 EXPOSE 8000

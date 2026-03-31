@@ -37,7 +37,7 @@ if (!prompt) {
 }
 
 // Create a temp workspace
-const workspace = mkdtempSync(join(tmpdir(), "arke-agent-"));
+const workspace = mkdtempSync(join(tmpdir(), "arkeon-agent-"));
 console.log(`Workspace: ${workspace}\n`);
 
 // Test sandbox first
@@ -56,10 +56,10 @@ const agent = new Agent({
     "",
     "## Environment",
     "You are running in an isolated sandbox with a writable workspace directory.",
-    "Pre-installed tools: curl, jq, python3, arke (Arke CLI).",
+    "Pre-installed tools: curl, jq, python3, arkeon (Arkeon CLI).",
     ...(process.env.ARKE_API_URL
       ? [
-          "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arke CLI.",
+          "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arkeon CLI.",
           'For API reference: curl -H "Authorization: ApiKey $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
         ]
       : []),

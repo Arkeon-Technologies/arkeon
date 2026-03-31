@@ -8,8 +8,8 @@ import { registerApiCommands } from "./generated/index.js";
 const program = new Command();
 
 program
-  .name("arke")
-  .description("CLI for the Arke API")
+  .name("arkeon")
+  .description("CLI for the Arkeon API")
   .version("0.1.0")
   .option("--api-url <url>", "Override API base URL for this process")
   .option("--network-id <id>", "Override default network ID for this process");

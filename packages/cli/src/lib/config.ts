@@ -9,7 +9,7 @@ const DEFAULT_API_URL = "https://arke-api.nick-chimicles-professional.workers.de
 const LEGACY_API_URL = "https://api.arke.institute";
 
 const store = new Conf<ConfigSchema>({
-  projectName: "arke-cli",
+  projectName: "arkeon-cli",
   configName: "config",
   defaults: {
     apiUrl: DEFAULT_API_URL,

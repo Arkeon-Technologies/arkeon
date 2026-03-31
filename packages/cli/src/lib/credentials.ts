@@ -9,7 +9,7 @@ export type StoredCredentials = {
 };
 
 const store = new Conf<{ credentials?: StoredCredentials }>({
-  projectName: "arke-cli",
+  projectName: "arkeon-cli",
   configName: "credentials",
 });
 
@@ -57,7 +57,7 @@ export const credentials = {
   requireApiKey(): string {
     const key = this.getApiKey();
     if (!key) {
-      throw new AuthError("Not authenticated. Run `arke auth register` or `arke auth set-api-key <key>`.");
+      throw new AuthError("Not authenticated. Run `arkeon auth register` or `arkeon auth set-api-key <key>`.");
     }
     return key;
   },
