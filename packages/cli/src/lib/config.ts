@@ -2,6 +2,7 @@ import Conf from "conf";
 
 type ConfigSchema = {
   apiUrl: string;
+  networkId?: string;
 };
 
 const DEFAULT_API_URL = "https://arke-api.nick-chimicles-professional.workers.dev";
@@ -20,6 +21,9 @@ export const config = {
     if (key === "apiUrl" && process.env.ARKE_API_URL) {
       return process.env.ARKE_API_URL as ConfigSchema[K];
     }
+    if (key === "networkId" && process.env.ARKE_NETWORK_ID) {
+      return process.env.ARKE_NETWORK_ID as ConfigSchema[K];
+    }
     const value = store.get(key);
     if (key === "apiUrl" && value === LEGACY_API_URL) {
       return DEFAULT_API_URL as ConfigSchema[K];
@@ -29,6 +33,10 @@ export const config = {
 
   set<K extends keyof ConfigSchema>(key: K, value: ConfigSchema[K]): void {
     store.set(key, value);
+  },
+
+  delete<K extends keyof ConfigSchema>(key: K): void {
+    store.delete(key);
   },
 
   path(): string {

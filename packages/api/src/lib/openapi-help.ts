@@ -1,9 +1,12 @@
 const FILTER_SYNTAX_BLOCK = [
   "# Arke API — Route Index",
-  "# Base: https://api.arke.institute",
   "# Auth: Authorization: ApiKey <key> — prefixes uk_ (user) or kk_ (klados)",
   "# Detail: GET /help/<METHOD>/<path> for full docs on any route",
   "# Example: GET /help/GET/entities/{id}",
+  "#",
+  "# Tip: Many routes require a network_id. If using the Arke CLI, run",
+  "# `arke config set-network <ULID>` to set a default so you don't need",
+  "# --network-id on every command. Env var ARKE_NETWORK_ID also works.",
   "",
   "## Filter Syntax",
   "# Use the `filter` query param on any listing endpoint.",

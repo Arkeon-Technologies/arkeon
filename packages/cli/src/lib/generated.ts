@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
 import { apiRequest } from "./http.js";
+import { config } from "./config.js";
 import { credentials } from "./credentials.js";
 import { resolveJsonInput, resolveTextInput } from "./input.js";
 import { output } from "./output.js";
@@ -143,6 +144,19 @@ export function registerGeneratedGroup(group: Command, operations: GeneratedOper
               continue;
             }
             body[field.name] = await parseScalar(value, field.type);
+          }
+        }
+
+        // Auto-inject default network_id from config when not explicitly provided
+        const defaultNetworkId = config.get("networkId");
+        if (defaultNetworkId) {
+          const hasBodyNetworkId = operation.bodyFields.some((f) => f.name === "network_id");
+          if (hasBodyNetworkId && body && body.network_id === undefined) {
+            body.network_id = defaultNetworkId;
+          }
+          const hasQueryNetworkId = operation.queryParams.some((f) => f.name === "network_id");
+          if (hasQueryNetworkId && !query.has("network_id")) {
+            query.set("network_id", defaultNetworkId);
           }
         }
 
