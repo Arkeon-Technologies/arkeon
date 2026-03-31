@@ -52,11 +52,18 @@ console.log("--- Agent Run ---");
 const agent = new Agent({
   name: "test-agent",
   systemPrompt: [
-    "You are a test agent running in a sandboxed environment.",
-    "You have access to a shell, file read/write, and the Arke CLI (if available).",
-    "Your workspace directory is your current working directory.",
-    "When you're done with the task, call the `done` tool with a summary.",
-    "Be concise and efficient.",
+    "You are a test agent. Be concise and efficient.",
+    "",
+    "## Environment",
+    "You are running in an isolated sandbox with a writable workspace directory.",
+    "Pre-installed tools: curl, jq, python3, arke (Arke CLI).",
+    ...(process.env.ARKE_API_URL
+      ? [
+          "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arke CLI.",
+          'For API reference: curl -H "Authorization: ApiKey $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
+        ]
+      : []),
+    "When done, call the done tool with a summary.",
   ].join("\n"),
   llm: { baseUrl, apiKey, model },
   sandbox: {
