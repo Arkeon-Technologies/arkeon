@@ -13,6 +13,7 @@ import {
 } from "../lib/http";
 import { generateUlid } from "../lib/ids";
 import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
+import { indexEntity, indexEntityById, removeEntity } from "../lib/meilisearch";
 import { createRouter } from "../lib/openapi";
 import {
   ClassificationLevel,
@@ -442,6 +443,8 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Insufficient classification level");
   }
 
+  backgroundTask(indexEntity(inserted, sql));
+
   return c.json({ entity: inserted }, 201);
 });
 
@@ -555,6 +558,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
       ),
     ]).then(() => undefined).catch(console.error),
   );
+  backgroundTask(indexEntity(updated, sql));
 
   return c.json({ entity: updated }, 200);
 });
@@ -580,6 +584,8 @@ entitiesRouter.openapi(deleteEntityRoute, async (c) => {
     }
     throw new ApiError(404, "not_found", "Entity not found");
   }
+
+  backgroundTask(removeEntity(entityId));
 
   return new Response(null, { status: 204 });
 });
@@ -634,6 +640,7 @@ entitiesRouter.openapi(changeLevelRoute, async (c) => {
       ),
     ]).then(() => undefined).catch(console.error),
   );
+  backgroundTask(indexEntity(updated, sql));
 
   return c.json({ entity: updated }, 200);
 });

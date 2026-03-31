@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
+import { backgroundTask } from "../lib/background";
 import { ApiError } from "../lib/errors";
 import {
   requireActor,
@@ -8,6 +9,7 @@ import {
   parseCursorParam,
   parseOptionalTimestamp,
 } from "../lib/http";
+import { indexEntityById } from "../lib/meilisearch";
 import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
 import { encodeCursor } from "../lib/cursor";
@@ -673,6 +675,8 @@ spacesRouter.openapi(addSpaceEntityRoute, async (c) => {
     return c.json({ space_id: spaceId, entity_id: body.entity_id }, 201);
   }
 
+  backgroundTask(indexEntityById(sql, String(body.entity_id)));
+
   return c.json(added, 201);
 });
 
@@ -706,6 +710,8 @@ spacesRouter.openapi(removeSpaceEntityRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql`DELETE FROM space_entities WHERE space_id = ${spaceId} AND entity_id = ${entityId}`,
   ]);
+
+  backgroundTask(indexEntityById(sql, entityId));
 
   return new Response(null, { status: 204 });
 });

@@ -21,6 +21,7 @@ import {
   queryParam,
 } from "../lib/schemas";
 import { backgroundTask } from "../lib/background";
+import { indexEntity, removeEntity } from "../lib/meilisearch";
 import { createSql } from "../lib/sql";
 
 type RelationshipRow = {
@@ -314,9 +315,12 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
     }),
   );
 
+  const relEntity = (entityRows as Array<Record<string, unknown>>)[0];
+  backgroundTask(indexEntity(relEntity, sql));
+
   return c.json(
     {
-      relationship_entity: (entityRows as Array<Record<string, unknown>>)[0],
+      relationship_entity: relEntity,
       edge: (edgeRows as Array<Record<string, unknown>>)[0],
     },
     201,
@@ -415,6 +419,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
       [relId, actor.id, JSON.stringify({ relationship_id: relId, ver: row.ver }), now],
     ),
   ]);
+  backgroundTask(indexEntity(row as Record<string, unknown>, sql));
   return c.json({ relationship: row }, 200);
 });
 
@@ -456,6 +461,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
     `,
   ]);
 
+  backgroundTask(removeEntity(relId));
   backgroundTask(
     fanOutNotifications({
       entity_id: rel.source_id,

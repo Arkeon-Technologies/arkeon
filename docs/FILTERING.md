@@ -168,42 +168,15 @@ Allowed sort fields are endpoint-specific:
 - `GET /commons`: `updated_at`, `created_at`, `entity_count`, `last_activity_at`
 - `GET /commons/:id/entities`: `updated_at`, `created_at`
 - `GET /commons/:id/commons`: `updated_at`, `created_at`
-- `GET /search`: `updated_at`, `created_at`
-
-## Text search
-
-`q` searches `properties::text` using simple SQL patterns:
-
-- unquoted text: split on whitespace, ANDed with `ILIKE`
-- quoted phrase: single `ILIKE '%phrase%'`
-- `/regex/`: Postgres `~` against `properties::text`
-
-Examples:
-
-```http
-GET /commons?q=neuroscience
-GET /commons/:id/entities?q=\"neural network\"
-GET /search?q=/neuro(science|logy)/
-GET /search?q=paper&filter=type:document,created_at>2026-01-01T00:00:00Z
-```
-
-Search is combined with filters using `AND`.
-
-Notes:
-
-- regex mode uses Postgres `~` and is case-sensitive
-- search currently scans `properties::text`, so both keys and values can match
-- invalid filter expressions return `400 invalid_filter`
-- invalid sort/order/cursor inputs return `400 invalid_query` or
-  `400 invalid_cursor`
+Text search is handled by the separate `GET /search` endpoint via Meilisearch.
+See the OpenAPI docs (`/help/get/search`) for search-specific parameters.
+Search and listing are distinct concerns — listing endpoints use `filter` for
+structured queries, while search uses `q` for keyword relevance ranking.
 
 ## Performance notes
 
-The query system is intentionally simple:
-
-- filters are parameterized
-- route-level scope filters narrow the candidate set early
-- search uses `pg_trgm` over `properties::text`
+- Filters are parameterized
+- Route-level scope filters narrow the candidate set early
 
 If query latency starts to climb, add targeted indexes based on observed access
 patterns rather than pre-indexing every property path.

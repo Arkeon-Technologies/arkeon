@@ -21,7 +21,7 @@ END $$;
 GRANT USAGE ON SCHEMA public TO arke_app;
 
 -- Extensions
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- pg_trgm removed: search is now handled by Meilisearch sidecar
 
 -- =============================================================================
 -- Session Context Helper Functions

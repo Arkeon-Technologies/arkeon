@@ -5,6 +5,7 @@ import { computeCidFromBytes, isValidCid, MAX_FILE_SIZE } from "../lib/cid";
 import type { EntityRecord } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
+import { indexEntity } from "../lib/meilisearch";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
 import { setActorContext } from "../lib/actor-context";
@@ -108,6 +109,8 @@ async function updateContentMetadata(options: {
       ],
     ),
   ]);
+
+  backgroundTask(indexEntity(updated, sql));
 
   return { updated, nextVer, ts: now };
 }

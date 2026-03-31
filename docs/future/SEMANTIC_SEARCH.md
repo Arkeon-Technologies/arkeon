@@ -1,76 +1,57 @@
 # Semantic Search (Future Enhancement)
 
-Vector-based semantic search for entities, replacing simple text matching with meaning-aware retrieval.
+Vector-based semantic search for entities, adding meaning-aware retrieval on top of keyword search.
 
-## Current state: pg_trgm text search
+## Current state: Meilisearch keyword search
 
-The MVP uses `pg_trgm` for substring/keyword/regex search on entity properties. This covers the "grep" use case — finding documents by known terms. See `docs/FILTERING.md` § Text Search.
+The API uses Meilisearch as the primary search backend, indexing `label`, `description`, and `note` fields from entities. This provides:
 
-Known issues with pg_trgm:
-- **Matches JSON keys, not just values** — searching "label" matches every entity that has a label property, because the trigram index operates on `properties::text` which includes both keys and values. A generated `search_text` column extracting only searchable fields (label, description, etc.) would fix this, or the tsvector approach in Tier 1 below.
-- **Relevance ranking** — results are match/no-match, not scored
-- **Stemming** — "running" won't match "run"
-- **Meaning-aware search** — "AI" won't match "artificial intelligence"
+- Typo tolerance (edit distance 1-2)
+- Prefix search ("clim" matches "climate")
+- Relevance ranking (exact > proximity > typo count > position)
+- Language stemming ("running" matches "run")
+- Faceted filtering on `type`, `kind`, `network_id`, `owner_id`
+- ~50ms query latency, often <10ms
 
-## Future enhancement tiers
+When `MEILI_URL` is not set, the API falls back to ILIKE patterns on `properties::text`.
 
-### Tier 1: Postgres full-text search (tsvector)
+Regex search (`/pattern/` syntax) always uses Postgres `~` directly.
 
-Adds word-level search with stemming, ranking, and boolean operators. No external dependencies. Layer this on when relevance-ranked results become important.
+### Architecture
 
-```sql
-ALTER TABLE entities ADD COLUMN search_tsv tsvector
-  GENERATED ALWAYS AS (
-    to_tsvector('english',
-      coalesce(properties->>'label', '') || ' ' ||
-      coalesce(properties->>'description', '')
-    )
-  ) STORED;
-
-CREATE INDEX idx_entities_search ON entities USING gin(search_tsv);
+```
+Client -> GET /search?q=...
+  -> Meilisearch (keyword search, returns ordered IDs)
+  -> Postgres (fetch full rows by ID, RLS applied)
+  -> Response (relevance-ordered results)
 ```
 
-Query:
-```sql
-SELECT id, type, properties->>'label',
-       ts_rank(search_tsv, query) as rank
-FROM entities, plainto_tsquery('english', $q) query
-WHERE search_tsv @@ query
-ORDER BY rank DESC
-LIMIT 20;
+Sync is fire-and-forget: entity CUD operations push updates to Meilisearch via `backgroundTask()`. The search index is eventually consistent.
+
+Admin reindex: `POST /admin/reindex` or `npx tsx packages/api/src/lib/reindex.ts`.
+
+## Future enhancement: vector search
+
+### Tier 1: Qdrant sidecar (semantic similarity)
+
+Add Qdrant as a second sidecar for meaning-aware search. Meilisearch handles keyword/typo-tolerant search, Qdrant handles "find similar" and exploratory queries.
+
+```yaml
+# docker-compose.yml
+qdrant:
+  image: qdrant/qdrant
+  profiles: ["vectors"]
+  ports:
+    - "6333:6333"
+  volumes:
+    - qdrantdata:/qdrant/storage
 ```
 
-### Tier 2: pgvector (semantic similarity)
+### Tier 2: Cross-corpus discovery
 
-Use the `pgvector` extension for meaning-aware search. Requires an embedding pipeline.
+Combine vector similarity with citation graph weights (PageRank-style) for cross-network discovery. Only worth it at scale where cross-commons discovery and citation-weighted relevance matter.
 
-```sql
-CREATE EXTENSION vector;
-
-ALTER TABLE entities ADD COLUMN embedding vector(1536);
-
-CREATE INDEX idx_entities_embedding ON entities
-  USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-```
-
-Query:
-```sql
-SELECT id, type, properties->>'label' as label,
-       1 - (embedding <=> $query_embedding) as similarity
-FROM entities
-WHERE kind = 'entity'
-ORDER BY embedding <=> $query_embedding
-LIMIT 20;
-```
-
-Pros: No external service, transactional consistency, simpler architecture.
-Cons: May not scale as well as dedicated vector DB for very large datasets. Requires embedding pipeline.
-
-### Tier 3: External vector service (Pinecone, etc.)
-
-Keep vectors in a dedicated service. Better for large-scale cross-corpus search, especially combined with a PageRank-style algorithm using citation graph weights. Only worth it at scale where cross-commons discovery and citation-weighted relevance matter.
-
-## Embedding pipeline (Tier 2+)
+## Embedding pipeline (Tier 1+)
 
 When an entity is created or updated, compute embeddings from:
 - `properties.label`
@@ -81,4 +62,4 @@ Use an embedding model (e.g., OpenAI text-embedding-3-small) to generate vectors
 
 ## Search endpoint
 
-The `/search` endpoint and `q` parameter on listing endpoints already exist (pg_trgm). Future tiers would extend the same API surface — add a `mode` parameter or automatically use the best available backend.
+The `/search` endpoint and `q` parameter on listing endpoints already use Meilisearch. Vector search would add a `mode=semantic` parameter or a separate `/search/similar` endpoint.

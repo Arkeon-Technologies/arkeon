@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 
 import { ApiError } from "../lib/errors";
 import { requireAdmin, parseJsonBody } from "../lib/http";
+import { bulkIndexEntities, ensureMeiliIndex, isMeilisearchConfigured } from "../lib/meilisearch";
 import { createRouter } from "../lib/openapi";
 import {
   ActorSchema,
@@ -100,6 +101,26 @@ const instanceRoute = createRoute({
       ),
     },
     ...errorResponses([401, 403]),
+  },
+});
+
+const reindexRoute = createRoute({
+  method: "post",
+  path: "/reindex",
+  operationId: "adminReindex",
+  tags: ["Admin"],
+  summary: "Rebuild the Meilisearch index from Postgres",
+  "x-arke-auth": "required",
+  responses: {
+    200: {
+      description: "Reindex result",
+      content: jsonContent(
+        z.object({
+          indexed: z.number().int(),
+        }),
+      ),
+    },
+    ...errorResponses([401, 403, 409]),
   },
 });
 
@@ -204,4 +225,47 @@ adminRouter.openapi(instanceRoute, async (c) => {
     },
     200,
   );
+});
+
+adminRouter.openapi(reindexRoute, async (c) => {
+  requireAdmin(c);
+
+  if (!isMeilisearchConfigured()) {
+    throw new ApiError(409, "not_available", "Meilisearch is not configured (MEILI_URL not set)");
+  }
+
+  await ensureMeiliIndex();
+
+  const sql = createSql();
+  const BATCH_SIZE = 1000;
+
+  // Pre-fetch all space memberships
+  const spaceRows = await sql`SELECT entity_id, space_id FROM space_entities`;
+  const spaceIdMap = new Map<string, string[]>();
+  for (const row of spaceRows as Array<{ entity_id: string; space_id: string }>) {
+    const existing = spaceIdMap.get(row.entity_id);
+    if (existing) {
+      existing.push(row.space_id);
+    } else {
+      spaceIdMap.set(row.entity_id, [row.space_id]);
+    }
+  }
+
+  let cursor: string | null = null;
+  let total = 0;
+
+  while (true) {
+    const rows = cursor
+      ? await sql`SELECT * FROM entities WHERE id > ${cursor} ORDER BY id LIMIT ${BATCH_SIZE}`
+      : await sql`SELECT * FROM entities ORDER BY id LIMIT ${BATCH_SIZE}`;
+
+    const entities = rows as Record<string, unknown>[];
+    if (entities.length === 0) break;
+
+    await bulkIndexEntities(entities, spaceIdMap);
+    total += entities.length;
+    cursor = String(entities[entities.length - 1].id);
+  }
+
+  return c.json({ indexed: total }, 200);
 });

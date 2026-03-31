@@ -1,11 +1,16 @@
 -- =============================================================================
--- Text Search (pg_trgm)
+-- Text Search
 -- =============================================================================
 --
--- Trigram index on entity properties for ILIKE and regex pattern matching.
--- pg_trgm extension is created in 001-roles.sql.
+-- Search is handled by Meilisearch (external sidecar), not by a Postgres index.
+-- The pg_trgm GIN index on properties::text was removed because:
+--   - 110-170 GB at enterprise scale (2-3x properties column size)
+--   - Write amplification on every INSERT/UPDATE
+--   - Indexed JSON structural noise (keys, braces, colons)
+--   - No relevance ranking, stemming, or typo tolerance
+--
+-- Meilisearch indexes only searchable text (label, description, note) and
+-- enforces permission filtering via read_level before returning results.
+-- Postgres RLS remains the final backstop on all fetches.
 --
 -- =============================================================================
-
-CREATE INDEX idx_entities_props_trgm ON entities
-USING GIN ((properties::text) gin_trgm_ops);
