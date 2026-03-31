@@ -175,18 +175,22 @@ adminRouter.openapi(updateAdminActorRoute, async (c) => {
 });
 
 adminRouter.openapi(statsRoute, async (c) => {
-  requireAdmin(c);
+  const actor = requireAdmin(c);
   const sql = createSql();
 
-  const [row] = await sql`
-    SELECT
-      (SELECT count(*)::int FROM entities) AS entity_count,
-      (SELECT count(*)::int FROM actors) AS actor_count,
-      (SELECT count(*)::int FROM relationship_edges) AS relationship_count,
-      (SELECT count(*)::int FROM arkes) AS arke_count,
-      (SELECT pg_database_size(current_database())) AS db_size_bytes
-  `;
+  const [, , , , rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT
+        (SELECT count(*)::int FROM entities) AS entity_count,
+        (SELECT count(*)::int FROM actors) AS actor_count,
+        (SELECT count(*)::int FROM relationship_edges) AS relationship_count,
+        (SELECT count(*)::int FROM arkes) AS arke_count,
+        (SELECT pg_database_size(current_database())) AS db_size_bytes`,
+    ),
+  ]);
 
+  const row = (rows as Array<Record<string, unknown>>)[0];
   return c.json({ stats: row }, 200);
 });
 
