@@ -276,6 +276,7 @@ const ERROR_STATUS_DESCRIPTIONS: Record<number, string> = {
   422: "Validation error",
   500: "Internal server error",
   501: "Not implemented",
+  503: "Service unavailable",
 };
 
 export function errorResponses(statuses: number[]) {

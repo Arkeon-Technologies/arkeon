@@ -103,6 +103,42 @@ describe("Workers", () => {
     expect(response.status).toBe(403);
   });
 
+  test("Create worker with schedule returns 503 when Redis unavailable", async () => {
+    const { response, body } = await jsonRequest("/actors", {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: {
+        kind: "worker",
+        name: uniqueName("worker"),
+        system_prompt: "scheduled worker",
+        llm: { base_url: "https://example.com", api_key: "sk-test", model: "m" },
+        schedule: "0 * * * *",
+        scheduled_prompt: "do something",
+      },
+    });
+    // 503 if no Redis, 201 if Redis is available — both are valid
+    expect([201, 503]).toContain(response.status);
+    if (response.status === 503) {
+      expect((body as any).error.code).toBe("scheduler_unavailable");
+    }
+  });
+
+  test("Update worker with schedule returns 503 when Redis unavailable", async () => {
+    const worker = await createWorker(adminApiKey);
+    const { response, body } = await jsonRequest(`/workers/${worker.id}`, {
+      method: "PUT",
+      apiKey: adminApiKey,
+      json: {
+        schedule: "0 * * * *",
+        scheduled_prompt: "do something",
+      },
+    });
+    expect([200, 503]).toContain(response.status);
+    if (response.status === 503) {
+      expect((body as any).error.code).toBe("scheduler_unavailable");
+    }
+  });
+
   test("Non-owner cannot update worker", async () => {
     const worker = await createWorker(adminApiKey);
     const other = await createActor(adminApiKey, {

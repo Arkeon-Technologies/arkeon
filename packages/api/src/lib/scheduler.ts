@@ -94,6 +94,13 @@ export async function startScheduler(): Promise<void> {
 }
 
 /**
+ * Returns true if the scheduler is available (Redis connected, queue initialized).
+ */
+export function isSchedulerAvailable(): boolean {
+  return queue !== null;
+}
+
+/**
  * Sync a single worker's schedule. Called when a worker is created/updated.
  * Pass schedule=null to remove the schedule.
  */

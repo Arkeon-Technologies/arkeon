@@ -13,7 +13,7 @@ import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
 import { createApiKey, sha256Hex } from "../lib/auth";
 import { encrypt, keyHint } from "../lib/crypto";
-import { syncWorkerSchedule } from "../lib/scheduler";
+import { syncWorkerSchedule, isSchedulerAvailable } from "../lib/scheduler";
 import {
   ActorSchema,
   ClassificationLevel,
@@ -314,6 +314,9 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     const scheduledPrompt = typeof body.scheduled_prompt === "string" ? body.scheduled_prompt : undefined;
     if (schedule && !scheduledPrompt) {
       throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
+    }
+    if (schedule && !isSchedulerAvailable()) {
+      throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — Redis is not configured on this instance");
     }
 
     const workerProperties: Record<string, unknown> = {

@@ -6,7 +6,7 @@ import { createRouter } from "../lib/openapi";
 import { encrypt, keyHint } from "../lib/crypto";
 import { invokeWorker } from "../lib/worker-invoke";
 import { recordInvocation } from "../lib/invocation-recorder";
-import { syncWorkerSchedule } from "../lib/scheduler";
+import { syncWorkerSchedule, isSchedulerAvailable } from "../lib/scheduler";
 import { encodeCursor } from "../lib/cursor";
 import { parseLimit, parseCursorParam } from "../lib/http";
 import {
@@ -299,6 +299,9 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     } else if (typeof body.schedule === "string") {
       if (!body.scheduled_prompt || typeof body.scheduled_prompt !== "string") {
         throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
+      }
+      if (!isSchedulerAvailable()) {
+        throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — Redis is not configured on this instance");
       }
       props.schedule = body.schedule;
       props.scheduled_prompt = body.scheduled_prompt;
