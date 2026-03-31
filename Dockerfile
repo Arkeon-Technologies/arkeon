@@ -1,6 +1,11 @@
 FROM node:22-slim AS base
 WORKDIR /app
 
+# Pre-install tools for worker sandboxes (bwrap sandbox bind-mounts host root read-only)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bubblewrap curl jq python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 COPY packages/api/package.json packages/api/
 COPY packages/runtime/package.json packages/runtime/
