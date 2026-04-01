@@ -1,0 +1,27 @@
+{
+  "name": "@arkeon-technologies/sdk",
+  "version": "0.1.0",
+  "description": "Lightweight TypeScript SDK for the Arkeon API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "author": "Arkeon Technologies",
+  "license": "MIT"
+}

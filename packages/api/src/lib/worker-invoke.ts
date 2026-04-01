@@ -78,8 +78,9 @@ export async function invokeWorker(
     "",
     "## Environment",
     "You are running in an isolated sandbox with a writable workspace directory.",
-    "Pre-installed tools: curl, jq, python3, arke (Arke CLI).",
-    "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arke CLI.",
+    "Pre-installed tools: curl, jq, python3, arkeon (Arkeon CLI).",
+    "Pre-installed SDKs: arkeon-sdk (TypeScript: import * as arkeon from 'arkeon-sdk'), arkeon_sdk (Python: import arkeon_sdk as arkeon).",
+    "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the CLI and SDKs.",
     'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
     "When done, call the done tool with a summary.",
   ].join("\n");

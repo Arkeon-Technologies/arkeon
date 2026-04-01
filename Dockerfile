@@ -3,21 +3,28 @@ WORKDIR /app
 
 # Pre-install tools for worker sandboxes (bwrap sandbox bind-mounts host root read-only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bubblewrap curl jq python3 ca-certificates \
+    bubblewrap curl jq python3 python3-pip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Build CLI in a separate stage (needs dev deps for tsup)
+# Build CLI + TS SDK in a separate stage (needs dev deps for tsup)
 FROM base AS cli-build
 COPY package.json package-lock.json ./
 COPY packages/cli/package.json packages/cli/
-RUN npm ci -w packages/cli
+COPY packages/sdk-ts/package.json packages/sdk-ts/
+RUN npm ci -w packages/cli -w packages/sdk-ts
 COPY packages/cli packages/cli
+COPY packages/sdk-ts packages/sdk-ts
 RUN cd packages/cli && npx tsup --no-dts
+RUN cd packages/sdk-ts && npx tsup
 # Re-install production-only deps in an isolated directory for the final image
 RUN mkdir /cli-standalone \
     && cp packages/cli/package.json /cli-standalone/ \
     && cp -r packages/cli/dist /cli-standalone/dist \
     && cd /cli-standalone && npm install --omit=dev
+# SDK has zero runtime deps — just copy the built output
+RUN mkdir -p /sdk-standalone \
+    && cp packages/sdk-ts/package.json /sdk-standalone/ \
+    && cp -r packages/sdk-ts/dist /sdk-standalone/dist
 
 # Main app stage with production deps + pre-built CLI
 FROM base AS app
@@ -34,6 +41,14 @@ COPY packages/schema packages/schema
 # Install pre-built CLI globally for worker sandboxes
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
 RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
+
+# Install TS SDK globally for worker sandboxes (import * as arke from 'arkeon-sdk')
+COPY --from=cli-build /sdk-standalone /usr/local/lib/node_modules/arkeon-sdk
+
+# Install Python SDK for worker sandboxes (import arkeon_sdk as arkeon)
+COPY packages/sdk-python /tmp/sdk-python
+RUN pip install --break-system-packages --no-cache-dir /tmp/sdk-python \
+    && rm -rf /tmp/sdk-python
 
 FROM app AS api
 EXPOSE 8000

@@ -1,10 +1,13 @@
-# Arke SDK: Lightweight API Wrappers (Future Enhancement)
+# Arkeon SDK: Lightweight API Wrappers
 
-Minimal Python and TypeScript packages for programmatic access to any Arke network. Zero abstraction — four functions (`get`, `post`, `put`, `delete`), auth from env vars, raw JSON responses.
+Minimal Python and TypeScript packages for programmatic access to any Arkeon network. Zero abstraction — four functions (`get`, `post`, `put`, `delete`), auth from env vars, raw JSON responses.
 
-Lives in the monorepo as `packages/sdk-python` and `packages/sdk-ts`. Published to PyPI and npm as `arke-sdk`.
+**Status:** Implemented. Both SDKs are pre-installed in worker sandboxes alongside the Arkeon CLI.
 
-See also: [Agent Runtime](./AGENT_RUNTIME.md) — the SDK is pre-installed in agent sandboxes.
+- TypeScript: `packages/sdk-ts` — published as `@arkeon-technologies/sdk` on npm, globally available as `arkeon-sdk` in sandboxes
+- Python: `packages/sdk-python` — published as `arkeon-sdk` on PyPI, pip-installed in sandboxes
+
+See also: [Agent Runtime](../AGENT_RUNTIME.md) — both the Arkeon CLI and SDKs are pre-installed in agent sandboxes.
 
 ## Motivation
 
@@ -23,10 +26,10 @@ export ARKE_API_KEY="uk_..."                  # user key, klados key, or agent k
 
 No config files, no init calls, no client objects to manage.
 
-## Python (`arke-sdk` on PyPI)
+## Python (`arkeon-sdk` on PyPI)
 
 ```python
-# arke_sdk/__init__.py — the entire package
+# arkeon_sdk/__init__.py — the entire package
 import os, httpx
 
 _url = os.environ.get("ARKE_API_URL", "http://localhost:8000")
@@ -37,39 +40,47 @@ _client = httpx.Client(
 )
 
 def get(path, params=None):
-    return _client.get(path, params=params).json()
+    r = _client.get(path, params=params)
+    r.raise_for_status()
+    return r.json()
 
 def post(path, json=None):
-    return _client.post(path, json=json).json()
+    r = _client.post(path, json=json)
+    r.raise_for_status()
+    return r.json()
 
 def put(path, json=None):
-    return _client.put(path, json=json).json()
+    r = _client.put(path, json=json)
+    r.raise_for_status()
+    return r.json()
 
 def delete(path):
-    return _client.delete(path).json()
+    r = _client.delete(path)
+    r.raise_for_status()
+    return r.json()
 ```
 
 Usage:
 
 ```python
-import arke_sdk as arke
+import arkeon_sdk as arkeon
 
 # List entities
-entities = arke.get("/entities", params={"limit": 10})
+entities = arkeon.get("/entities", params={"limit": 10})
 
 # Create an entity
-new = arke.post("/entities", {"kind": "entity", "properties": {"label": "Notes"}})
+new = arkeon.post("/entities", {"kind": "entity", "properties": {"label": "Notes"}})
 
 # Update
-arke.put(f"/entities/{eid}", {"properties_merge": {"label": "Updated"}})
+arkeon.put(f"/entities/{eid}", {"properties_merge": {"label": "Updated"}})
 
 # Delete
-arke.delete(f"/entities/{eid}")
+arkeon.delete(f"/entities/{eid}")
 ```
 
 One dependency: `httpx`. ~30 lines of code.
 
-## TypeScript (`arke-sdk` on npm)
+## TypeScript (`arkeon-sdk` on npm)
 
 ```typescript
 // src/index.ts — the entire package
@@ -77,10 +88,23 @@ const baseUrl = process.env.ARKE_API_URL ?? 'http://localhost:8000';
 const apiKey = process.env.ARKE_API_KEY ?? '';
 const headers = { 'Authorization': `ApiKey ${apiKey}`, 'Content-Type': 'application/json' };
 
+export class ArkeError extends Error {
+    status: number; requestId?: string; code?: string;
+    constructor(status: number, message: string, requestId?: string, code?: string) {
+        super(message); this.name = 'ArkeError'; this.status = status;
+        this.requestId = requestId; this.code = code;
+    }
+}
+
 async function request(method: string, path: string, opts?: { json?: any; params?: Record<string, string> }) {
     const url = new URL(path, baseUrl);
     if (opts?.params) Object.entries(opts.params).forEach(([k, v]) => url.searchParams.set(k, v));
     const res = await fetch(url, { method, headers, body: opts?.json ? JSON.stringify(opts.json) : undefined });
+    if (!res.ok) {
+        const body = await res.json().catch(() => null) as any;
+        throw new ArkeError(res.status, body?.error?.message ?? res.statusText, body?.error?.request_id, body?.error?.code);
+    }
+    if (res.status === 204) return undefined;
     return res.json();
 }
 
@@ -93,10 +117,10 @@ export const del = (path: string) => request('DELETE', path);
 Usage:
 
 ```typescript
-import * as arke from 'arke-sdk';
+import * as arkeon from 'arkeon-sdk';
 
-const entities = await arke.get('/entities', { params: { limit: '10' } });
-await arke.post('/entities', { kind: 'entity', properties: { label: 'Notes' } });
+const entities = await arkeon.get('/entities', { params: { limit: '10' } });
+await arkeon.post('/entities', { kind: 'entity', properties: { label: 'Notes' } });
 ```
 
 Zero dependencies — uses native `fetch` (Node 18+). ~15 lines of code.
@@ -104,7 +128,7 @@ Zero dependencies — uses native `fetch` (Node 18+). ~15 lines of code.
 ## What the SDK is NOT
 
 - No entity/space/relationship models or types
-- No pagination helpers, retry logic, or error classes
+- No pagination helpers or retry logic
 - No validation or schema enforcement
 - No auth token management beyond reading env vars
 - No CLI (already exists as `packages/cli`)
@@ -116,13 +140,13 @@ It returns the raw API response as JSON. If you need something fancier, write it
 The API is self-documenting. To see what's available:
 
 ```python
-import arke_sdk as arke
+import arkeon_sdk as arkeon
 
 # Get the full API reference (designed for LLMs and humans)
-docs = arke.get("/llms.txt")
+docs = arkeon.get("/llms.txt")
 
 # Get detailed help for a specific route
-help = arke.get("/help/GET/entities")
+help = arkeon.get("/help/GET/entities")
 ```
 
 ## Use cases
