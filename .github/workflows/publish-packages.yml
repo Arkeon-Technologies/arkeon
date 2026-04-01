@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -37,12 +38,12 @@ jobs:
         run: npm run build -w packages/sdk-ts
 
       - name: Publish CLI
-        run: npm publish -w packages/cli --access public
+        run: npm publish -w packages/cli --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish TypeScript SDK
-        run: npm publish -w packages/sdk-ts --access public
+        run: npm publish -w packages/sdk-ts --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -50,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
+    environment: pypi
     steps:
       - uses: actions/checkout@v4
 
@@ -73,10 +76,6 @@ jobs:
           python -m build
 
       - name: Publish to PyPI
-        run: |
-          pip install twine
-          cd packages/sdk-python
-          twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/sdk-python/dist/
