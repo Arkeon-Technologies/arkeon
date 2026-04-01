@@ -39,13 +39,9 @@ jobs:
 
       - name: Publish CLI
         run: npm publish -w packages/cli --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish TypeScript SDK
         run: npm publish -w packages/sdk-ts --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-pypi:
     runs-on: ubuntu-latest
