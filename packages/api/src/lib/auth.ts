@@ -24,6 +24,18 @@ export function parseApiKeyHeader(headerValue: string | null | undefined): strin
   return token;
 }
 
+export function extractApiKey(
+  authorizationHeader: string | null | undefined,
+  xApiKeyHeader: string | null | undefined,
+): string | null {
+  // Prefer X-API-Key (raw key value)
+  if (xApiKeyHeader) {
+    return xApiKeyHeader;
+  }
+  // Fall back to Authorization: ApiKey <key>
+  return parseApiKeyHeader(authorizationHeader);
+}
+
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

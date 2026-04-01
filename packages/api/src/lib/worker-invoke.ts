@@ -80,7 +80,7 @@ export async function invokeWorker(
     "You are running in an isolated sandbox with a writable workspace directory.",
     "Pre-installed tools: curl, jq, python3, arke (Arke CLI).",
     "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arke CLI.",
-    'For API reference: curl -H "Authorization: ApiKey $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
+    'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
     "When done, call the done tool with a summary.",
   ].join("\n");
 

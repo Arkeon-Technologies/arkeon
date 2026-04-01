@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 
-import { parseApiKeyHeader, sha256Hex } from "../lib/auth";
+import { extractApiKey, sha256Hex } from "../lib/auth";
 import { backgroundTask } from "../lib/background";
 import { createSql } from "../lib/sql";
 import type { Actor, AppBindings } from "../types";
@@ -14,7 +14,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     return;
   }
 
-  const apiKey = parseApiKeyHeader(c.req.header("authorization"));
+  const apiKey = extractApiKey(c.req.header("authorization"), c.req.header("x-api-key"));
   if (!apiKey) {
     await next();
     return;

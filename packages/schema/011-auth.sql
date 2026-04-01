@@ -7,7 +7,7 @@
 --
 -- Flow:
 --   1. Admin creates actor and API key
---   2. Day-to-day: Authorization: ApiKey ak_xxx or uk_xxx
+--   2. Day-to-day: X-API-Key: ak_xxx or uk_xxx (also supports Authorization: ApiKey <key>)
 --   3. Lost keys: admin issues new key
 --
 -- =============================================================================

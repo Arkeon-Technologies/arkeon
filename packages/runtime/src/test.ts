@@ -60,7 +60,7 @@ const agent = new Agent({
     ...(process.env.ARKE_API_URL
       ? [
           "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arkeon CLI.",
-          'For API reference: curl -H "Authorization: ApiKey $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
+          'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
         ]
       : []),
     "When done, call the done tool with a summary.",
