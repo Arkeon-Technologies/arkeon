@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { AppBindings } from "./types";
-import { renderIndexFromSpec } from "./lib/openapi-help";
+import { renderIndexFromSpec, renderPreamble } from "./lib/openapi-help";
 import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { authMiddleware } from "./middleware/auth";
@@ -38,6 +38,7 @@ export function createApp() {
       status: "ok",
       docs: {
         help: "/help",
+        guide: "/help/guide",
         llms_txt: "/llms.txt",
         openapi: "/openapi.json",
       },
@@ -68,9 +69,11 @@ export function createApp() {
   app.doc31("/openapi.json", openApiConfig);
   app.route("/help", createHelpRouter(getSpec));
   app.get("/llms.txt", (c) => {
-    return c.text(renderIndexFromSpec(getSpec()), 200, {
+    const actor = c.get("actor");
+    const preamble = renderPreamble(actor);
+    return c.text(preamble + renderIndexFromSpec(getSpec()), 200, {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "no-store",
     });
   });
 

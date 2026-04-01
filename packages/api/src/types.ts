@@ -2,6 +2,7 @@ export interface Actor {
   id: string;
   apiKeyId: string;
   keyPrefix: string;
+  label: string | null;
   maxReadLevel: number;
   maxWriteLevel: number;
   isAdmin: boolean;

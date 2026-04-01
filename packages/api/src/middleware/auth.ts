@@ -9,7 +9,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
   c.set("actor", null);
 
   const path = new URL(c.req.url).pathname;
-  if (path === "/llms.txt" || path.startsWith("/help") || path === "/health" || path === "/ready") {
+  if (path === "/health" || path === "/ready") {
     await next();
     return;
   }
@@ -28,7 +28,8 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`
       SELECT k.id AS key_id, k.actor_id, k.key_prefix,
-             a.max_read_level, a.max_write_level, a.is_admin, a.can_publish_public, a.status
+             a.max_read_level, a.max_write_level, a.is_admin, a.can_publish_public, a.status,
+             a.properties->>'label' AS label
       FROM api_keys k
       JOIN actors a ON a.id = k.actor_id
       WHERE k.key_hash = ${keyHash}
@@ -47,6 +48,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     is_admin: boolean;
     can_publish_public: boolean;
     status: string;
+    label: string | null;
   }>)[0];
 
   if (!row) {
@@ -58,6 +60,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     id: row.actor_id,
     apiKeyId: row.key_id,
     keyPrefix: row.key_prefix,
+    label: row.label,
     maxReadLevel: row.max_read_level,
     maxWriteLevel: row.max_write_level,
     isAdmin: row.is_admin,

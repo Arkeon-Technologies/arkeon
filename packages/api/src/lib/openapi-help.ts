@@ -1,3 +1,33 @@
+import type { Actor } from "../types";
+
+export function renderPreamble(actor: Actor | null): string {
+  const lines: string[] = [];
+
+  if (!actor) {
+    lines.push("# Arkeon API");
+    lines.push("#");
+    lines.push("# Authenticate with X-API-Key: <key> to see personalized guidance.");
+    lines.push("# See GET /help/guide for a getting-started walkthrough.");
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  const name = actor.label ?? actor.keyPrefix;
+  lines.push(`# Arkeon API`);
+  lines.push(`#`);
+  lines.push(`# You are authenticated as: ${name}`);
+  lines.push(`# Clearance: read=${actor.maxReadLevel} write=${actor.maxWriteLevel}`);
+  lines.push(`#`);
+  lines.push(`# New here? See GET /help/guide for a getting-started walkthrough.`);
+
+  if (actor.isAdmin) {
+    lines.push(`# Admin? See GET /help/guide/admin for network setup, actors, workers, and classification.`);
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
 const FILTER_SYNTAX_BLOCK = [
   "# Arkeon API — Route Index",
   "# Auth: X-API-Key: <key> (preferred) or Authorization: ApiKey <key> — prefixes uk_ (user) or kk_ (klados)",
