@@ -48,6 +48,29 @@ See `.env.example` for all options. Key settings:
 - `STORAGE_BACKEND` — `local` (default) or `s3` (R2, S3, MinIO)
 - `PORT` — server port (default 8000)
 
+## Documentation Principles
+
+Docs in `docs/` are for information that is **not derivable from reading the code**:
+- **Why**: Design rationale, trade-offs, architectural decisions
+- **How things interact**: Cross-cutting behavior spanning multiple packages/services
+- **Conventions**: Client-side patterns not enforced by code (e.g., entity refs, `arke:` URIs)
+- **Operational knowledge**: Failure modes, gotchas, recommended usage patterns
+
+Docs should **never** contain: endpoint lists, schema definitions, config defaults, or command references that live in code, `package.json`, or `.env.example`. Use `/openapi.json`, `/help`, or read the source.
+
+### Updating docs after feature work
+
+After changes that rename concepts, remove/replace features, add features previously marked "future", or change how packages interact:
+
+1. Run `/review-docs all` or `/review-docs <filename>` to compare docs against codebase
+2. Delete docs about removed features
+3. Move "future" docs to `docs/` when the feature ships
+4. Trim any section that just restates what the code already says
+5. Update terminology, file paths, and column names to match current code
+6. Grep remaining docs for stale references (`git grep` old table names, endpoints, etc.)
+
+Pay special attention to changes that span multiple services (e.g., renaming "commons" to "spaces" touched schema, routes, and 8 docs). These are the hardest to discover later.
+
 ## API: LLM Help System
 
 The API has a layered, self-documenting help system served at `/llms.txt` and `/help`. It is the primary way LLMs discover and understand the API.
