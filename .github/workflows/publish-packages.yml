@@ -25,8 +25,8 @@ jobs:
 
       - name: Set package versions
         run: |
-          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version -w packages/cli
-          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version -w packages/sdk-ts
+          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version -w packages/cli
+          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version -w packages/sdk-ts
 
       - name: Install dependencies
         run: npm ci
@@ -48,7 +48,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: pypi
     steps:
       - uses: actions/checkout@v4
 

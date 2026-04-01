@@ -1,13 +1,18 @@
 {
   "name": "@arkeon-technologies/sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Lightweight TypeScript SDK for the Arkeon API",
   "repository": {
     "type": "git",
     "url": "https://github.com/Arkeon-Technologies/arkeon",
     "directory": "packages/sdk-ts"
   },
-  "keywords": ["arkeon", "sdk", "api", "knowledge-graph"],
+  "keywords": [
+    "arkeon",
+    "sdk",
+    "api",
+    "knowledge-graph"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

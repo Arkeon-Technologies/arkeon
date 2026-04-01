@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arkeon-sdk"
-version = "0.1.1"
+version = "0.1.2"
 description = "Lightweight Python SDK for the Arkeon API"
 requires-python = ">=3.9"
 license = "MIT"
