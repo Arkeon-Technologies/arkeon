@@ -33,8 +33,13 @@ export function createApp() {
 
   app.get("/", (c) =>
     c.json({
-      name: "arke-api",
+      name: "arkeon-api",
       status: "ok",
+      docs: {
+        help: "/help",
+        llms_txt: "/llms.txt",
+        openapi: "/openapi.json",
+      },
     }),
   );
 
@@ -53,7 +58,7 @@ export function createApp() {
   const openApiConfig = {
     openapi: "3.1.0" as const,
     info: {
-      title: "Arke API",
+      title: "Arkeon API",
       version: "2.0.0",
     },
   };

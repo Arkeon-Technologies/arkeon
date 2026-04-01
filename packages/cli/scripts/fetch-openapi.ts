@@ -50,7 +50,7 @@ async function fetchFromLocalSource(): Promise<OpenAPISpec> {
   return app.getOpenAPI31Document({
     openapi: "3.1.0",
     info: {
-      title: "Arke API",
+      title: "Arkeon API",
       version: "0.1.0",
     },
     servers: [{ url: "https://api.arke.institute" }],

@@ -2,10 +2,10 @@ import { describe, expect, test } from "vitest";
 import { adminApiKey, apiRequest, getArkeId, getJson } from "./helpers";
 
 describe("Bootstrap", () => {
-  test("Health check returns 200 with arke-api", async () => {
+  test("Health check returns 200 with arkeon-api", async () => {
     const { response, body } = await apiRequest("/");
     expect(response.status).toBe(200);
-    expect(body).toHaveProperty("name", "arke-api");
+    expect(body).toHaveProperty("name", "arkeon-api");
   });
 
   test("GET /arkes returns at least one arke", async () => {

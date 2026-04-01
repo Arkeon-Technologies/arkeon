@@ -45,7 +45,7 @@ Manage the local dev stack: Dockerized Postgres + local API with hot reload.
    ```
    curl -s http://localhost:8000/
    ```
-   Should return `{"name":"arke-api","status":"ok"}`.
+   Should return `{"name":"arkeon-api","status":"ok"}`.
 
 5. Confirm to the user that the stack is up:
    - Postgres on port 5432
