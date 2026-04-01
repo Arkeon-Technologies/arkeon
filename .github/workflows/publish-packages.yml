@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -37,14 +38,10 @@ jobs:
         run: npm run build -w packages/sdk-ts
 
       - name: Publish CLI
-        run: npm publish -w packages/cli --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w packages/cli --access public --provenance
 
       - name: Publish TypeScript SDK
-        run: npm publish -w packages/sdk-ts --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w packages/sdk-ts --access public --provenance
 
   publish-pypi:
     runs-on: ubuntu-latest
