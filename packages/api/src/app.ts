@@ -34,6 +34,7 @@ export function createApp() {
   app.get("/", (c) =>
     c.json({
       name: "arkeon-api",
+      message: "Welcome to the Arkeon API. See /help for documentation.",
       status: "ok",
       docs: {
         help: "/help",
