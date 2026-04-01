@@ -1,67 +1,34 @@
 # Testing
 
-The Worker is tested at three levels:
+Three levels: schema tests in Postgres, end-to-end API tests with Vitest, and opt-in stress scripts.
 
-- schema tests in Postgres
-- end-to-end API tests with `vitest`
-- opt-in stress/load scripts
+## E2E Test Layout
 
-## Commands
+`packages/api/test/e2e/` — functional suite split by domain:
 
-```bash
-npm run typecheck
-npm run test:e2e
-npm run test:e2e:presigned
-npm run stress:auth
-npm run stress:mutations
-```
+| File | Coverage |
+|------|----------|
+| `bootstrap.test.ts` | Health checks, basic auth, arke discovery |
+| `actors.test.ts` | Actor creation, API key management |
+| `classification.test.ts` | Classification-based access control |
+| `entities-crud.test.ts` | Entity CRUD operations |
+| `entity-permissions.test.ts` | Entity-level permissions |
+| `groups.test.ts` | Group operations |
+| `spaces.test.ts` | Space management |
+| `workers.test.ts` | Worker/agent functionality |
 
-## End-to-end layout
+## Stress Scripts
 
-`test/e2e/` contains the functional suite, split by domain instead of one large
-file:
+`packages/api/test/stress/` — manual operational checks, not part of Vitest:
 
-- `health.test.ts`
-- `auth.test.ts`
-- `auth-negative.test.ts`
-- `commons.test.ts`
-- `entities-access.test.ts`
-- `relationships-comments.test.ts`
-- `content.test.ts`
-- `search-inbox-activity.test.ts`
-- `permissions-cas.test.ts`
-- `concurrency.test.ts`
-- `pagination.test.ts`
+- `auth.mjs` — auth flows under concurrency with retry/backoff
+- `mutations.mjs` — repeated authenticated entity creation
+- `search-scale.mjs` — search indexing and query load testing
 
-The default `npm run test:e2e` suite covers the implemented route surface
-without requiring presigned-upload credentials.
+## Schema Tests
 
-`npm run test:e2e:presigned` enables the extra presigned content flow checks by
-setting `E2E_PRESIGNED=1`.
-
-## Stress scripts
-
-`test/stress/` contains ad hoc load scripts:
-
-- `auth.mjs` exercises challenge/register under concurrency with retry/backoff
-- `mutations.mjs` exercises repeated authenticated entity creation
-
-These are not part of the normal `vitest` run. They are meant for manual
-operational checks and lightweight regression probing.
-
-## Local vs deployed runs
-
-By default the end-to-end suite targets the deployed Worker. To run against a
-local instance, start `wrangler dev` and set `E2E_BASE_URL`, for example:
+Direct schema/RLS validation against Postgres:
 
 ```bash
-E2E_BASE_URL=http://127.0.0.1:8787 npm run test:e2e
-```
-
-## Database schema tests
-
-For direct schema/RLS validation against Postgres:
-
-```bash
-psql "$DATABASE_URL" -f schema/tests/run_tests.sql
+psql "$DATABASE_URL" -f packages/schema/tests/run_tests.sql
 ```

@@ -29,3 +29,4 @@ data/
 
 # Misc
 *.log
+packages/sdk-python/arkeon_sdk/__pycache__/

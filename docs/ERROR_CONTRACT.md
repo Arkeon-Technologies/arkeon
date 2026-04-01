@@ -1,6 +1,6 @@
 # Error Contract
 
-Consistent JSON error shape for all `arke-api` endpoints.
+Consistent JSON error shape for all API endpoints.
 
 ## Shape
 
@@ -9,124 +9,43 @@ Consistent JSON error shape for all `arke-api` endpoints.
   "error": {
     "code": "cas_conflict",
     "message": "Version mismatch",
-    "details": {
-      "entity_id": "01ABC...",
-      "expected_ver": 3
-    },
+    "details": { "entity_id": "01ABC...", "expected_ver": 3 },
     "request_id": "..."
   }
 }
 ```
 
-## Fields
-
 - `code`: stable machine-readable identifier
 - `message`: short human-readable summary
-- `details`: optional structured context safe to expose to clients
-- `request_id`: optional trace identifier for logs and debugging
+- `details`: optional structured context (never leaks secrets)
+- `request_id`: trace identifier from `X-Request-ID` header or auto-generated
 
 ## Rules
 
-- Every non-2xx response returns this shape.
-- `code` values are stable across implementations.
-- `message` should be concise and safe for UI display.
-- `details` should explain validation failures or conflicts without leaking secrets.
-- Unexpected exceptions should map to `internal_error`.
+- Every non-2xx response returns this shape
+- `code` values are stable across versions
+- Unexpected exceptions map to `internal_error`
+- Invalid/revoked API keys currently proceed as unauthenticated (no specific 401 for bad keys)
 
-## Suggested codes
+## Error Codes by Category
 
-### Request validation
+**Request validation:** `invalid_json`, `invalid_body`, `invalid_query`, `invalid_request`, `invalid_filter`, `invalid_cursor`, `invalid_header`, `invalid_path_param`, `missing_required_field`, `missing_required_header`
 
-- `invalid_json`
-- `invalid_body`
-- `invalid_query`
-- `invalid_path_param`
-- `missing_required_field`
-- `invalid_filter`
-- `invalid_cursor`
-- `invalid_regex`
-- `unsupported_media_type`
+**Auth:** `authentication_required`, `forbidden`, `invalid_state`
 
-### Auth
+**Data/concurrency:** `not_found`, `already_exists`, `cas_conflict`, `file_not_found`, `file_too_large`
 
-- `authentication_required`
-- `invalid_api_key`
-- `api_key_revoked`
-- `forbidden`
-- `pow_invalid`
-- `pow_expired`
-- `signature_invalid`
+**Platform:** `internal_error`, `service_unavailable`, `scheduler_unavailable`, `not_available`
 
-### Data and concurrency
-
-- `not_found`
-- `already_exists`
-- `cas_conflict`
-- `constraint_violation`
-- `file_not_found`
-- `payload_too_large`
-- `not_implemented`
-
-### Platform
-
-- `rate_limited`
-- `upstream_error`
-- `internal_error`
-
-## Status mapping
+## Status Mapping
 
 | Status | Typical codes |
 |--------|---------------|
-| `400` | `invalid_json`, `invalid_body`, `invalid_query`, `invalid_filter`, `invalid_regex` |
-| `401` | `authentication_required`, `invalid_api_key`, `api_key_revoked`, `signature_invalid` |
+| `400` | `invalid_json`, `invalid_body`, `invalid_query`, `invalid_request`, `invalid_filter`, `invalid_header`, `invalid_path_param`, `invalid_state`, `missing_required_field`, `missing_required_header` |
+| `401` | `authentication_required` |
 | `403` | `forbidden` |
 | `404` | `not_found`, `file_not_found` |
-| `409` | `cas_conflict`, `already_exists`, `constraint_violation` |
-| `410` | `pow_expired` |
-| `413` | `payload_too_large` |
-| `415` | `unsupported_media_type` |
-| `429` | `rate_limited` |
-| `500` | `internal_error`, `upstream_error` |
-| `501` | `not_implemented` |
-
-## Examples
-
-Validation error:
-
-```json
-{
-  "error": {
-    "code": "invalid_filter",
-    "message": "Invalid filter expression",
-    "details": {
-      "filter": "year>>2020"
-    }
-  }
-}
-```
-
-CAS conflict:
-
-```json
-{
-  "error": {
-    "code": "cas_conflict",
-    "message": "Version mismatch",
-    "details": {
-      "entity_id": "01ABC...",
-      "expected_ver": 4
-    }
-  }
-}
-```
-
-Not implemented:
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "Direct binary uploads are not implemented in MVP"
-  }
-}
-```
+| `409` | `cas_conflict`, `already_exists`, `not_available` |
+| `413` | `file_too_large` |
+| `500` | `internal_error` |
+| `503` | `service_unavailable`, `scheduler_unavailable` |

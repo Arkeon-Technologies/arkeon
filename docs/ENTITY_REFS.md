@@ -69,39 +69,22 @@ arke:([0-9A-HJKMNP-TV-Z]{26})
 
 ## Querying references
 
-Both types are queryable with existing infrastructure — no new indexes or tables needed.
-
 ### "What does this entity reference?"
 
 Extract refs client-side from the entity's properties. Walk the JSONB tree for structured refs, regex-scan text fields for inline refs.
 
 ### "What references this entity?"
 
-Use the pg_trgm index (already exists via `schema/008-search.sql`):
+Use a LIKE pattern on the properties text representation:
 
 ```sql
--- Find all entities that reference a target (structured or inline)
 SELECT * FROM entities
 WHERE properties::text LIKE '%01JTARGET123%';
 ```
 
-This catches both structured refs (the `id` value appears in the JSON text) and inline refs (the `arke:` URI contains the ID). The pg_trgm GIN index accelerates this.
+This catches both structured refs (the `id` value appears in the JSON text) and inline refs (the `arke:` URI contains the ID). Sufficient for most workloads.
 
-### Precise structured ref lookup (jsonpath)
-
-For exact structured ref matching without false positives:
-
-```sql
--- Find entities with a structured ref to a specific ID at any depth
-SELECT * FROM entities
-WHERE properties @? '$.** ? (@.id == "01JTARGET123")';
-```
-
-The `@?` jsonpath operator recursively searches the JSONB tree. Requires a GIN index on `properties` (add if needed for this query pattern):
-
-```sql
-CREATE INDEX idx_entities_props_gin ON entities USING GIN (properties);
-```
+For full-text search at scale, use Meilisearch via the `GET /search` endpoint.
 
 ## Refs vs. relationships
 

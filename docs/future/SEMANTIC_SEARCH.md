@@ -30,36 +30,42 @@ Sync is fire-and-forget: entity CUD operations push updates to Meilisearch via `
 
 Admin reindex: `POST /admin/reindex` or `npx tsx packages/api/src/lib/reindex.ts`.
 
-## Future enhancement: vector search
+## Future enhancement: Meilisearch vector search
 
-### Tier 1: Qdrant sidecar (semantic similarity)
+### Tier 1: Native vector search in Meilisearch
 
-Add Qdrant as a second sidecar for meaning-aware search. Meilisearch handles keyword/typo-tolerant search, Qdrant handles "find similar" and exploratory queries.
+Meilisearch supports built-in vector search. Rather than adding a separate vector database (Qdrant, Pinecone, etc.), extend the existing Meilisearch instance with vector embeddings. This keeps the stack simple — one search service handles both keyword and semantic queries.
 
-```yaml
-# docker-compose.yml
-qdrant:
-  image: qdrant/qdrant
-  profiles: ["vectors"]
-  ports:
-    - "6333:6333"
-  volumes:
-    - qdrantdata:/qdrant/storage
-```
+Configuration changes needed:
+- Enable vector store feature in Meilisearch settings
+- Configure embedding dimensions and distance metric
+- Add vector field to the Meilisearch index schema
 
 ### Tier 2: Cross-corpus discovery
 
-Combine vector similarity with citation graph weights (PageRank-style) for cross-network discovery. Only worth it at scale where cross-commons discovery and citation-weighted relevance matter.
+Combine vector similarity with citation graph weights (PageRank-style) for cross-network discovery. Only worth it at scale where cross-space discovery and citation-weighted relevance matter.
 
-## Embedding pipeline (Tier 1+)
+## Embedding pipeline
 
 When an entity is created or updated, compute embeddings from:
 - `properties.label`
 - `properties.description`
 - Other text fields based on entity type
 
-Use an embedding model (e.g., OpenAI text-embedding-3-small) to generate vectors.
+Use an embedding model (e.g., OpenAI text-embedding-3-small) to generate vectors. Push vectors to Meilisearch alongside the existing keyword index data.
+
+```
+Entity CUD -> backgroundTask()
+  -> index text fields (existing, keyword search)
+  -> compute embedding vector (new)
+  -> push both to Meilisearch
+```
 
 ## Search endpoint
 
-The `/search` endpoint and `q` parameter on listing endpoints already use Meilisearch. Vector search would add a `mode=semantic` parameter or a separate `/search/similar` endpoint.
+The `/search` endpoint already uses Meilisearch. Vector search would add a `mode=semantic` parameter or a separate `/search/similar` endpoint that leverages Meilisearch's vector search API.
+
+```
+GET /search?q=climate+change+effects&mode=semantic
+GET /search/similar?entity_id=01ABC...
+```

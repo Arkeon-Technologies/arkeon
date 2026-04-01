@@ -17,7 +17,7 @@ No queue, no background workers. Volume is low enough to handle synchronously.
 
 ```
 POST /entities/:id/archive
-POST /commons/:id/archive
+POST /spaces/:id/archive
 ```
 
 Auth: owner or admin of the entity (or anyone authenticated for public entities).
@@ -39,7 +39,7 @@ The snapshot captures everything needed to reconstruct the entity's state:
 1. **Entity core** — all columns from entities table
 2. **Outbound relationships** — relationships where this entity is the source
 3. **Inbound relationships** — relationships where this entity is the target
-4. **Access grants** — all entity_access rows
+4. **Permission grants** — all entity_permissions rows
 
 ## Snapshot document
 
@@ -51,7 +51,7 @@ Canonical JSON structure that gets CID'd and uploaded:
   "entity": { "id": "...", "kind": "entity", "type": "book", "ver": 7, "..." : "..." },
   "relationships_out": [{ "relationship_id": "...", "target_id": "...", "predicate": "cites", "properties": {} }],
   "relationships_in": [{ "relationship_id": "...", "source_id": "...", "predicate": "references", "properties": {} }],
-  "access": [{ "actor_id": "...", "access_type": "edit", "granted_at": "..." }],
+  "permissions": [{ "grantee_type": "actor", "grantee_id": "...", "role": "editor", "granted_at": "..." }],
   "snapshot_at": "2026-03-21T15:30:00Z",
   "snapshot_by": "01ACTOR..."
 }
@@ -78,5 +78,5 @@ Anyone can verify an archived entity:
 ## Future considerations
 
 - Encrypted archiving for private entities
-- Batch archiving for commons (all entities in a commons)
+- Batch archiving for spaces (all entities in a space)
 - `entity_archived` activity action for tracking archive history
