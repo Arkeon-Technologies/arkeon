@@ -452,7 +452,7 @@ actorsRouter.openapi(updateActorRoute, async (c) => {
 
   // RLS: admin or self
   if (actorId !== actor.id && !actor.isAdmin) {
-    throw new ApiError(403, "forbidden", "Forbidden");
+    throw new ApiError(403, "forbidden", "Only the actor's owner or an admin can update this actor");
   }
 
   const sets: string[] = [];

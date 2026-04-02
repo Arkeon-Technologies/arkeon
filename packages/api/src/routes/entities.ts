@@ -528,7 +528,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
           expected_ver: expectedVer,
         });
       }
-      throw new ApiError(403, "forbidden", "Forbidden");
+      throw new ApiError(403, "forbidden", "You do not have write access on this entity");
     }
     // Entity not visible — could be 403 or 404
     const exists = await sql.transaction([
@@ -536,7 +536,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
       sql`SELECT entity_exists(${entityId}) AS e`,
     ]);
     if ((exists[1] as Array<{ e: boolean }>)[0]?.e) {
-      throw new ApiError(403, "forbidden", "Forbidden");
+      throw new ApiError(403, "forbidden", "You do not have access to this entity");
     }
     throw new ApiError(404, "not_found", "Entity not found");
   }
@@ -579,7 +579,7 @@ entitiesRouter.openapi(deleteEntityRoute, async (c) => {
       sql`SELECT entity_exists(${entityId}) AS e`,
     ]);
     if ((exists[1] as Array<{ e: boolean }>)[0]?.e) {
-      throw new ApiError(403, "forbidden", "Forbidden");
+      throw new ApiError(403, "forbidden", "You do not have access to this entity");
     }
     throw new ApiError(404, "not_found", "Entity not found");
   }
@@ -691,7 +691,7 @@ entitiesRouter.openapi(grantPermissionRoute, async (c) => {
 
   const perm = (results[results.length - 1] as Array<Record<string, unknown>>)[0];
   if (!perm) {
-    throw new ApiError(403, "forbidden", "Forbidden");
+    throw new ApiError(403, "forbidden", "Only the entity owner or an admin can grant permissions");
   }
 
   return c.json({ permission: perm }, 201);
