@@ -3,7 +3,7 @@ name: local-dev
 description: Start the local development environment (Postgres + API with hot reload) and run e2e tests.
 disable-model-invocation: true
 argument-hint: [start|test|reset|stop|status]
-allowed-tools: Bash(docker *, npm *, curl *, pkill *, sleep *, kill *, lsof *, ls *), Read, TaskOutput
+allowed-tools: Bash(docker *, npm *, curl *, pkill *, sleep *, kill *, lsof *, ls *, cat *), Read, TaskOutput
 ---
 
 # Local Development Environment
@@ -44,18 +44,36 @@ Before running any command, detect whether you're in a worktree:
 
 The `.devports` file is gitignored and ensures `start`, `test`, `stop`, and `reset` all use the same ports for a given worktree.
 
+## .env File
+
+After determining ports, **always write a `.env` file** in the project root (or worktree root) so that `npm run dev` and `npm run test:e2e` pick up config automatically via `dotenv/config`. This eliminates the need to pass env vars inline.
+
+```bash
+cat > .env <<EOF
+PORT=$API_PORT
+DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke
+MIGRATION_DATABASE_URL=postgresql://arke:arke@localhost:$PG_PORT/arke
+ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e
+E2E_BASE_URL=http://localhost:$API_PORT
+EOF
+```
+
+This file is gitignored. Write it on every `start` and `reset` to keep it in sync with the assigned ports.
+
 ## Commands
 
 `$ARGUMENTS` determines the action:
 
 ### `start` (default if no argument)
 
-1. Check if Postgres is already running:
+1. Write the `.env` file (see above).
+
+2. Check if Postgres is already running:
    ```
    docker compose -p $PROJECT --profile local-db ps postgres
    ```
 
-2. If not running, start Postgres and run migrations:
+3. If not running, start Postgres and run migrations:
    ```
    PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
    ```
@@ -64,16 +82,13 @@ The `.devports` file is gitignored and ensures `start`, `test`, `stop`, and `res
    docker compose -p $PROJECT --profile migrate logs -f migrate
    ```
 
-3. Check if the API is already running on the target port:
+4. Check if the API is already running on the target port:
    ```
    curl -s http://localhost:$API_PORT/ 2>/dev/null
    ```
 
-4. If not running, start the API locally with hot reload:
+5. If not running, start the API locally with hot reload:
    ```
-   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-   DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke \
-   PORT=$API_PORT \
    npm run dev -w packages/api
    ```
    Run this in the background. Wait a few seconds, then verify with:
@@ -82,7 +97,7 @@ The `.devports` file is gitignored and ensures `start`, `test`, `stop`, and `res
    ```
    Should return `{"name":"arkeon-api","status":"ok"}`.
 
-5. Confirm to the user that the stack is up:
+6. Confirm to the user that the stack is up:
    - Postgres on port `$PG_PORT`
    - API on port `$API_PORT` with hot reload (code changes auto-restart)
    - Admin key: `ak_test_admin_key_e2e`
@@ -90,13 +105,12 @@ The `.devports` file is gitignored and ensures `start`, `test`, `stop`, and `res
 
 ### `test`
 
-1. Verify the API is running (start it if not).
+1. Verify the API is running (start it if not — which also writes `.env`).
 2. Run e2e tests:
    ```
-   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-   E2E_BASE_URL=http://localhost:$API_PORT \
    npm run test:e2e -w packages/api
    ```
+   The `.env` file provides `ADMIN_BOOTSTRAP_KEY` and `E2E_BASE_URL` automatically.
 3. Report results.
 
 ### `reset`
@@ -113,22 +127,21 @@ Use after schema changes (packages/schema). Wipes the DB and starts fresh.
    PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down -v
    ```
 
-3. Start fresh Postgres + migrations:
+3. Write the `.env` file (see above).
+
+4. Start fresh Postgres + migrations:
    ```
    PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
    ```
    Wait for migrate to complete successfully.
 
-4. Restart the API:
+5. Restart the API:
    ```
-   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-   DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke \
-   PORT=$API_PORT \
    npm run dev -w packages/api
    ```
    Run in background, verify with curl.
 
-5. Confirm the fresh stack is up.
+6. Confirm the fresh stack is up.
 
 ### `stop`
 

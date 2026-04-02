@@ -38,22 +38,18 @@ Work exclusively inside `.claude/worktrees/issue-$ARGUMENTS/` for all file edits
 
 ### 5. Migrate and test
 
-From the worktree directory, use the `/local-dev start` skill to bring up an isolated stack.
-It will auto-detect the worktree, pick free ports, and save them to `.devports`.
+From the worktree directory, use `/local-dev start` to bring up an isolated stack.
+It will auto-detect the worktree, pick free ports, write `.devports` and `.env`, and start Postgres + API.
 
 Then run tests and tear down:
 
 ```bash
-# Source the ports assigned by local-dev
-source .claude/worktrees/issue-$ARGUMENTS/.devports
-
-# Run e2e tests against the isolated server
-ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-E2E_BASE_URL=http://localhost:$API_PORT \
+# Run e2e tests — .env provides E2E_BASE_URL and ADMIN_BOOTSTRAP_KEY automatically
 npm run test:e2e -w packages/api
 
 # Stop the isolated stack when done
 # (use /local-dev stop from the worktree, or manually:)
+source .claude/worktrees/issue-$ARGUMENTS/.devports
 lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
 PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
 ```

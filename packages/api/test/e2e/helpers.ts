@@ -1,5 +1,11 @@
 import { createHash, randomUUID, webcrypto } from "node:crypto";
+import { resolve } from "node:path";
+import { config } from "dotenv";
 import { expect } from "vitest";
+
+// Load .env from repo root (covers PORT, DATABASE_URL, ADMIN_BOOTSTRAP_KEY, E2E_BASE_URL).
+// Won't override env vars that are already set.
+config({ path: resolve(import.meta.dirname, "../../../../.env") });
 
 export const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:8000";
 
