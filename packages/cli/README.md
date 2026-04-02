@@ -18,9 +18,9 @@ npm install -g @arkeon-technologies/cli
 - `arkeon auth logout` — clear stored credentials
 
 ### Config
-- `arkeon config set-network <id>` — set default network ID
-- `arkeon config get-network` — show current network
-- `arkeon config clear-network` — remove default network
+- `arkeon config set-arke <id>` — set default arke ID
+- `arkeon config get-arke` — show current arke ID
+- `arkeon config clear-arke` — remove stored arke ID
 - `arkeon config show` — show all config
 
 ### Entity Content
