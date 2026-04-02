@@ -18,6 +18,9 @@ npm install -g @arkeon-technologies/cli
 - `arkeon auth logout` — clear stored credentials
 
 ### Config
+
+Actor API keys are automatically scoped to their arke by the server. These commands are for admin keys that operate across multiple arkes:
+
 - `arkeon config set-arke <id>` — set default arke ID
 - `arkeon config get-arke` — show current arke ID
 - `arkeon config clear-arke` — remove stored arke ID
