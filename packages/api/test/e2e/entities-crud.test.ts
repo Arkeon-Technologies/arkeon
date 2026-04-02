@@ -203,6 +203,87 @@ describe("Entities CRUD", () => {
     expect(getRes.status).toBe(404);
   });
 
+  test("Relationships: 403 when actor lacks edit access on source entity", async () => {
+    // Actor A creates source and target
+    const source = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("rel-perm-source"),
+    });
+    const target = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("rel-perm-target"),
+    });
+
+    // Actor B has no edit access on source
+    const actorB = await createActor(adminApiKey, {
+      maxReadLevel: 2,
+      maxWriteLevel: 2,
+    });
+
+    const { response, body } = await jsonRequest(
+      `/entities/${source.id}/relationships`,
+      {
+        method: "POST",
+        apiKey: actorB.apiKey,
+        json: { predicate: "references", target_id: target.id },
+      },
+    );
+    expect(response.status).toBe(403);
+    expect((body as any).error.code).toBe("forbidden");
+    expect((body as any).error.message).toContain("edit access");
+  });
+
+  test("Relationships: 201 when actor has editor grant on source entity", async () => {
+    const source = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("rel-grant-source"),
+    });
+    const target = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("rel-grant-target"),
+    });
+
+    const actorB = await createActor(adminApiKey, {
+      maxReadLevel: 2,
+      maxWriteLevel: 2,
+    });
+
+    // Grant editor role to actor B on the source entity
+    const { response: grantRes } = await jsonRequest(
+      `/entities/${source.id}/permissions`,
+      {
+        method: "POST",
+        apiKey: actor.apiKey,
+        json: { grantee_type: "actor", grantee_id: actorB.id, role: "editor" },
+      },
+    );
+    expect(grantRes.status).toBe(201);
+
+    // Actor B should now be able to create a relationship from source
+    const { response: relRes } = await jsonRequest(
+      `/entities/${source.id}/relationships`,
+      {
+        method: "POST",
+        apiKey: actorB.apiKey,
+        json: { predicate: "references", target_id: target.id },
+      },
+    );
+    expect(relRes.status).toBe(201);
+  });
+
+  test("Relationships: 404 for nonexistent source entity", async () => {
+    const target = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("rel-404-target"),
+    });
+
+    const { response, body } = await jsonRequest(
+      `/entities/01AAAAAAAAAAAAAAAAAAAAAAAA/relationships`,
+      {
+        method: "POST",
+        apiKey: actor.apiKey,
+        json: { predicate: "references", target_id: target.id },
+      },
+    );
+    expect(response.status).toBe(404);
+    expect((body as any).error.code).toBe("not_found");
+  });
+
   test("Comments: create, list with threading, delete", async () => {
     const entity = await createEntity(actor.apiKey, arkeId, "note", {
       label: uniqueName("comment-target"),

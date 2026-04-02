@@ -275,31 +275,52 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  // If caller specified classification levels, validate against the endpoint floor
-  // (needs actor context for RLS visibility)
-  if (requestedReadLevel !== null || requestedWriteLevel !== null) {
-    const [,,,, floorRows] = await sql.transaction([
-      ...setActorContext(sql, actor),
-      sql`
-        SELECT
-          GREATEST(src.read_level, tgt.read_level) AS min_read,
-          GREATEST(src.write_level, tgt.write_level) AS min_write
-        FROM entities src, entities tgt
-        WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
-      `,
+  // Pre-validate: actor must see both entities, have edit access on source,
+  // and any requested classification levels must be at or above the endpoint floor
+  const [,,,, preCheckRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      SELECT
+        src.owner_id AS source_owner,
+        (
+          current_actor_is_admin()
+          OR src.owner_id = current_actor_id()
+          OR actor_has_entity_role(src.id, ARRAY['editor', 'admin'])
+        ) AS can_edit_source,
+        GREATEST(src.read_level, tgt.read_level) AS min_read,
+        GREATEST(src.write_level, tgt.write_level) AS min_write
+      FROM entities src, entities tgt
+      WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
+    `,
+  ]);
+
+  const preCheck = (preCheckRows as Array<{
+    source_owner: string; can_edit_source: boolean;
+    min_read: number; min_write: number;
+  }>)[0];
+  if (!preCheck) {
+    // At least one entity not visible to actor — diagnose which
+    const [, srcExists, tgtExists] = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT entity_exists(${sourceId}) AS e`,
+      sql`SELECT entity_exists(${body.target_id}) AS e`,
     ]);
-    const floor = (floorRows as Array<{ min_read: number; min_write: number }>)[0];
-    if (!floor) {
-      throw new ApiError(404, "not_found", "Source or target entity not found");
-    }
-    if (requestedReadLevel !== null && requestedReadLevel < floor.min_read) {
-      throw new ApiError(400, "invalid_read_level",
-        `read_level ${requestedReadLevel} must be >= max(source, target) read_level (${floor.min_read})`);
-    }
-    if (requestedWriteLevel !== null && requestedWriteLevel < floor.min_write) {
-      throw new ApiError(400, "invalid_write_level",
-        `write_level ${requestedWriteLevel} must be >= max(source, target) write_level (${floor.min_write})`);
-    }
+    const srcE = (srcExists as Array<{ e: boolean }>)[0]?.e;
+    const tgtE = (tgtExists as Array<{ e: boolean }>)[0]?.e;
+    if (!srcE) throw new ApiError(404, "not_found", "Source entity not found");
+    if (!tgtE) throw new ApiError(404, "not_found", "Target entity not found");
+    throw new ApiError(403, "forbidden", "Insufficient classification level to access source or target entity");
+  }
+  if (!preCheck.can_edit_source) {
+    throw new ApiError(403, "forbidden", "You need edit access on the source entity to create relationships from it");
+  }
+  if (requestedReadLevel !== null && requestedReadLevel < preCheck.min_read) {
+    throw new ApiError(400, "invalid_read_level",
+      `read_level ${requestedReadLevel} must be >= max(source, target) read_level (${preCheck.min_read})`);
+  }
+  if (requestedWriteLevel !== null && requestedWriteLevel < preCheck.min_write) {
+    throw new ApiError(400, "invalid_write_level",
+      `write_level ${requestedWriteLevel} must be >= max(source, target) write_level (${preCheck.min_write})`);
   }
 
   const [,,,, entityRows, edgeRows] = await sql.transaction([
@@ -348,6 +369,9 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   );
 
   const relEntity = (entityRows as Array<Record<string, unknown>>)[0];
+  if (!relEntity) {
+    throw new ApiError(500, "internal_error", "Failed to create relationship entity");
+  }
   backgroundTask(indexEntity(relEntity, sql));
 
   return c.json(
