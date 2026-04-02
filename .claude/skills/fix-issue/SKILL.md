@@ -3,7 +3,7 @@ name: fix-issue
 description: Fix a GitHub issue in an isolated worktree, test, commit, and open a PR.
 disable-model-invocation: true
 argument-hint: [issue-number]
-allowed-tools: Read, Grep, Glob, Bash(git *, gh *, npm *, psql *, curl *, docker *, pkill *, sleep *, ls *), Edit, Write, Agent, EnterPlanMode, ExitPlanMode
+allowed-tools: Read, Grep, Glob, Bash(git *, gh *, npm *, psql *, curl *, docker *, pkill *, sleep *, ls *), Edit, Write, Agent, EnterPlanMode, ExitPlanMode, ExitWorktree
 ---
 
 # Fix GitHub Issue in Worktree
@@ -12,9 +12,12 @@ Fix issue #$ARGUMENTS in an isolated git worktree so `main` stays clean.
 
 ## Workflow
 
-### 1. Fetch the issue
+### 1. Fetch the issue and claim it
 
-!`gh issue view $ARGUMENTS --json title,body,labels,state`
+```
+gh issue view $ARGUMENTS --json title,body,labels,state
+gh issue edit $ARGUMENTS --add-label "in-progress"
+```
 
 ### 2. Plan
 
@@ -86,9 +89,14 @@ Fixes #$ARGUMENTS
 Generated with [Claude Code](https://claude.com/claude-code)"
 ```
 
-### 8. Cleanup reminder
+### 8. Exit the worktree
 
-Tell the user they can clean up after merge:
+After opening the PR, **always exit the worktree** using the `ExitWorktree` tool so you're not stranded:
+
+- Use `ExitWorktree` with **keep = true** (do NOT delete the worktree)
+- This returns you to the repo root and keeps the worktree on disk for the merge agent or PR review follow-ups
+
+Tell the user the PR is open and they can clean up after merge:
 ```
 git worktree remove .claude/worktrees/issue-$ARGUMENTS
 git branch -d fix/issue-$ARGUMENTS
@@ -101,4 +109,5 @@ git branch -d fix/issue-$ARGUMENTS
 - Run migrations if any SQL files changed
 - Run e2e tests before opening the PR
 - If tests fail, fix and re-test — don't open a broken PR
+- If you abandon the issue (user says stop, or it's blocked), remove the `in-progress` label: `gh issue edit $ARGUMENTS --remove-label "in-progress"`
 - CRITICAL: Only ever clean up YOUR OWN worktree (`.claude/worktrees/issue-$ARGUMENTS`). NEVER run `rm -rf .claude/worktrees/`, `git worktree prune`, or remove any other worktree. Other worktrees may contain active work from other sessions. If cleanup is needed, only target the exact worktree path for this issue.
