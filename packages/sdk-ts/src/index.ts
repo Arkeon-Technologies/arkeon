@@ -1,6 +1,6 @@
 const baseUrl = process.env.ARKE_API_URL ?? "http://localhost:8000";
 const apiKey = process.env.ARKE_API_KEY ?? "";
-let defaultNetworkId = process.env.ARKE_NETWORK_ID ?? "";
+let defaultArkeId = process.env.ARKE_ID ?? "";
 
 const defaultHeaders: Record<string, string> = {
   Authorization: `ApiKey ${apiKey}`,
@@ -11,14 +11,14 @@ const defaultHeaders: Record<string, string> = {
 // Configuration
 // ---------------------------------------------------------------------------
 
-/** Set the default network ID injected into requests. */
-export function setNetworkId(id: string) {
-  defaultNetworkId = id;
+/** Set the default arke ID injected into requests. */
+export function setArkeId(id: string) {
+  defaultArkeId = id;
 }
 
-/** Get the current default network ID. */
-export function getNetworkId(): string {
-  return defaultNetworkId;
+/** Get the current default arke ID. */
+export function getArkeId(): string {
+  return defaultArkeId;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,21 +59,21 @@ type RequestOpts = {
 async function request(method: string, path: string, opts?: RequestOpts) {
   const url = new URL(path, baseUrl);
 
-  // Auto-inject network_id into query params for GET requests
-  if (defaultNetworkId && method === "GET" && !url.searchParams.has("network_id")) {
-    url.searchParams.set("network_id", defaultNetworkId);
+  // Auto-inject arke_id into query params for GET requests
+  if (defaultArkeId && method === "GET" && !url.searchParams.has("arke_id")) {
+    url.searchParams.set("arke_id", defaultArkeId);
   }
 
   if (opts?.params)
     for (const [k, v] of Object.entries(opts.params))
       url.searchParams.set(k, v);
 
-  // Auto-inject network_id into body for mutating requests
+  // Auto-inject arke_id into body for mutating requests
   let body: string | undefined;
   if (opts?.json) {
     const payload =
-      defaultNetworkId && !opts.json.network_id
-        ? { network_id: defaultNetworkId, ...opts.json }
+      defaultArkeId && !opts.json.arke_id
+        ? { arke_id: defaultArkeId, ...opts.json }
         : opts.json;
     body = JSON.stringify(payload);
   }

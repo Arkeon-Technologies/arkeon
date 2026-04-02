@@ -15,7 +15,7 @@ Set environment variables (all optional):
 ```bash
 export ARKE_API_URL="https://my-network.arkeon.tech"  # default: http://localhost:8000
 export ARKE_API_KEY="uk_..."                           # API key
-export ARKE_NETWORK_ID="01ABC..."                      # auto-injected into requests
+export ARKE_ID="01ABC..."                               # auto-injected into requests
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ import * as arkeon from '@arkeon-technologies/sdk';
 // List entities
 const result = await arkeon.get('/entities', { params: { limit: '10' } });
 
-// Create an entity (network_id auto-injected from env)
+// Create an entity (arke_id auto-injected from env)
 const created = await arkeon.post('/entities', {
   type: 'note',
   properties: { label: 'Hello' },
@@ -52,13 +52,13 @@ for await (const entity of arkeon.paginate('/entities', { limit: '50' })) {
 }
 ```
 
-## Network ID
+## Arke ID
 
 Set once, injected automatically into all requests:
 
 ```typescript
-arkeon.setNetworkId('01ABC...');
-// or use ARKE_NETWORK_ID env var
+arkeon.setArkeId('01ABC...');
+// or use ARKE_ID env var
 ```
 
 ## Error Handling
@@ -88,8 +88,8 @@ try {
 | `patch(path, json?)` | PATCH with JSON body. |
 | `del(path)` | DELETE request. |
 | `paginate(path, params?)` | Async generator over paginated list endpoints. |
-| `setNetworkId(id)` | Set default network ID for all requests. |
-| `getNetworkId()` | Get current default network ID. |
+| `setArkeId(id)` | Set default arke ID for all requests. |
+| `getArkeId()` | Get current default arke ID. |
 | `ArkeError` | Error class with `status`, `code`, `requestId`, `details`. |
 
 ## API Discovery

@@ -7,38 +7,38 @@ export function registerConfigCommands(program: Command): void {
   const configCmd = program.command("config").description("CLI configuration");
 
   configCmd
-    .command("set-network")
-    .description("Set the default network ID used when --network-id is not provided")
-    .argument("<id>", "Network (arke) ULID")
+    .command("set-arke")
+    .description("Set the default arke ID used when --arke-id is not provided")
+    .argument("<id>", "Arke ULID")
     .action((id: string) => {
-      config.set("networkId", id);
+      config.set("arkeId", id);
       output.result({
-        operation: "config.set-network",
-        network_id: id,
+        operation: "config.set-arke",
+        arke_id: id,
         config_path: config.path(),
       });
     });
 
   configCmd
-    .command("get-network")
-    .description("Show the current default network ID")
+    .command("get-arke")
+    .description("Show the current default arke ID")
     .action(() => {
-      const networkId = config.get("networkId");
+      const arkeId = config.get("arkeId");
       output.result({
-        operation: "config.get-network",
-        network_id: networkId ?? null,
-        source: process.env.ARKE_NETWORK_ID ? "ARKE_NETWORK_ID" : networkId ? "config" : null,
+        operation: "config.get-arke",
+        arke_id: arkeId ?? null,
+        source: process.env.ARKE_ID ? "ARKE_ID" : arkeId ? "config" : null,
         config_path: config.path(),
       });
     });
 
   configCmd
-    .command("clear-network")
-    .description("Remove the stored default network ID")
+    .command("clear-arke")
+    .description("Remove the stored default arke ID")
     .action(() => {
-      config.delete("networkId");
+      config.delete("arkeId");
       output.result({
-        operation: "config.clear-network",
+        operation: "config.clear-arke",
         cleared: true,
         config_path: config.path(),
       });
@@ -51,7 +51,7 @@ export function registerConfigCommands(program: Command): void {
       output.result({
         operation: "config.show",
         api_url: config.get("apiUrl"),
-        network_id: config.get("networkId") ?? null,
+        arke_id: config.get("arkeId") ?? null,
         config_path: config.path(),
       });
     });
