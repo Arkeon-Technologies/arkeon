@@ -284,6 +284,101 @@ describe("Entities CRUD", () => {
     expect((body as any).error.code).toBe("not_found");
   });
 
+  test("Filter entities by boolean property", async () => {
+    const tag = uniqueName("bool-filter");
+    // Create entity with boolean true
+    const eTrue = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      extracted: true,
+    });
+    // Create entity with boolean false
+    const eFalse = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      extracted: false,
+    });
+
+    // Filter for extracted:true
+    const { response, body } = await getJson(
+      `/entities?filter=label:${tag},extracted:true`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(eTrue.id);
+    expect(ids).not.toContain(eFalse.id);
+
+    // Filter for extracted:false
+    const { body: bodyF } = await getJson(
+      `/entities?filter=label:${tag},extracted:false`,
+      actor.apiKey,
+    );
+    const idsF = (bodyF as any).entities.map((e: any) => e.id);
+    expect(idsF).toContain(eFalse.id);
+    expect(idsF).not.toContain(eTrue.id);
+  });
+
+  test("Filter entities by numeric property", async () => {
+    const tag = uniqueName("num-filter");
+    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      count: 42,
+    });
+    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      count: 99,
+    });
+
+    // Exact match
+    const { body } = await getJson(
+      `/entities?filter=label:${tag},count:42`,
+      actor.apiKey,
+    );
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(e1.id);
+    expect(ids).not.toContain(e2.id);
+  });
+
+  test("Filter entities by string property (unchanged behavior)", async () => {
+    const tag = uniqueName("str-filter");
+    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      status: "active",
+    });
+    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      status: "archived",
+    });
+
+    const { body } = await getJson(
+      `/entities?filter=label:${tag},status:active`,
+      actor.apiKey,
+    );
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(e1.id);
+    expect(ids).not.toContain(e2.id);
+  });
+
+  test("Filter entities by property negation (!:)", async () => {
+    const tag = uniqueName("neg-filter");
+    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      extracted: true,
+    });
+    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      extracted: false,
+    });
+
+    // Negate boolean
+    const { body } = await getJson(
+      `/entities?filter=label:${tag},extracted!:true`,
+      actor.apiKey,
+    );
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(e2.id);
+    expect(ids).not.toContain(e1.id);
+  });
+
   test("Comments: create, list with threading, delete", async () => {
     const entity = await createEntity(actor.apiKey, arkeId, "note", {
       label: uniqueName("comment-target"),
