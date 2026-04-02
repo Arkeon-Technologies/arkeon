@@ -217,7 +217,7 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
     : "(re.source_id = $1 OR re.target_id = $1)";
 
   const actorCtx = c.get("actor");
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
