@@ -30,6 +30,9 @@ data/
 # Worktree dev ports
 .devports
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # Misc
 *.log
 packages/sdk-python/arkeon_sdk/__pycache__/
