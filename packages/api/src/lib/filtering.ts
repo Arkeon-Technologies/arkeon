@@ -14,7 +14,7 @@ export interface FilterClause {
 const COLUMN_WHITELIST: Record<string, "text" | "numeric" | "timestamp"> = {
   kind: "text",
   type: "text",
-  network_id: "text",
+  arke_id: "text",
   ver: "numeric",
   owner_id: "text",
   read_level: "numeric",

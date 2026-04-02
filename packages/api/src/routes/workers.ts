@@ -325,7 +325,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     props.llm = existingLlm;
   }
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `UPDATE actors SET properties = $1::jsonb, updated_at = $2::timestamptz WHERE id = $3 RETURNING *`,
@@ -421,7 +421,7 @@ workersRouter.openapi(listInvocationsRoute, async (c) => {
 
   await requireWorker(sql, actor, workerId);
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations
@@ -456,7 +456,7 @@ workersRouter.openapi(latestInvocationRoute, async (c) => {
 
   await requireWorker(sql, actor, workerId);
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations

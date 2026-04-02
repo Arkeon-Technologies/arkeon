@@ -28,7 +28,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     sql`SELECT set_config('app.actor_id', '', true)`,
     sql`
       SELECT k.id AS key_id, k.actor_id, k.key_prefix,
-             a.max_read_level, a.max_write_level, a.is_admin, a.can_publish_public, a.status,
+             a.arke_id, a.max_read_level, a.max_write_level, a.is_admin, a.can_publish_public, a.status,
              a.properties->>'label' AS label
       FROM api_keys k
       JOIN actors a ON a.id = k.actor_id
@@ -43,6 +43,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     key_id: string;
     actor_id: string;
     key_prefix: string;
+    arke_id: string | null;
     max_read_level: number;
     max_write_level: number;
     is_admin: boolean;
@@ -61,6 +62,7 @@ export const authMiddleware: MiddlewareHandler<AppBindings> = async (c, next) =>
     apiKeyId: row.key_id,
     keyPrefix: row.key_prefix,
     label: row.label,
+    arkeId: row.arke_id,
     maxReadLevel: row.max_read_level,
     maxWriteLevel: row.max_write_level,
     isAdmin: row.is_admin,

@@ -28,9 +28,9 @@ searchable.
 
 ## Core Concepts
 
-Network (Arke)
-  An isolated workspace. Most routes require a network_id — think of it as a
-  tenant or project. List yours with GET /arkes.
+Arke (Network)
+  An isolated workspace. Actors belong to an arke — their data is automatically
+  scoped to it. Admins can operate across arkes. List arkes with GET /arkes.
 
 Entity
   The fundamental data unit. Every entity has:
@@ -67,30 +67,23 @@ each route's auth requirement.
 
 ## Your First Workflow
 
-1. Get your network ID
-   GET /arkes
-   → grab the id from the first result
-
-2. Create an entity
+1. Create an entity
    POST /entities
    {
-     "network_id": "<id>",
-     "kind": "entity",
      "type": "note",
      "properties": { "title": "Hello", "body": "My first entity." }
    }
+   Your arke_id is automatically set from your actor's membership.
+   Admin actors must pass arke_id explicitly.
 
-3. List entities
+2. List entities
    GET /entities
-   Pass network_id as a query param or X-Network-Id header.
+   Results are automatically scoped to your arke.
 
-4. Create a relationship
-   POST /entities
+3. Create a relationship
+   POST /relationships/{sourceId}
    {
-     "network_id": "<id>",
-     "kind": "relationship",
-     "type": "references",
-     "source_id": "<entity A>",
+     "predicate": "references",
      "target_id": "<entity B>",
      "properties": { "label": "references" }
    }
@@ -199,7 +192,7 @@ View invocation history:
 
 Create a space:
   POST /spaces
-  { "network_id": "<id>", "name": "Design Review" }
+  { "name": "Design Review" }
 
 Spaces have their own read_level/write_level defaults. Assign roles to
 actors within spaces to scope access.

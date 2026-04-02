@@ -211,7 +211,7 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
   const counterpartKey = direction === "in" ? "source" : "target";
 
   const actorCtx = c.get("actor");
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -270,16 +270,16 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,, entityRows, edgeRows] = await sql.transaction([
+  const [,,,,, entityRows, edgeRows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO entities (
-        id, kind, type, network_id, ver, properties, owner_id,
+        id, kind, type, arke_id, ver, properties, owner_id,
         read_level, write_level,
         edited_by, note, created_at, updated_at
       )
       SELECT
-        ${relId}, 'relationship', 'relationship', src.network_id, 1, ${JSON.stringify(properties)}::jsonb,
+        ${relId}, 'relationship', 'relationship', src.arke_id, 1, ${JSON.stringify(properties)}::jsonb,
         ${actor.id},
         GREATEST(src.read_level, tgt.read_level),
         GREATEST(src.write_level, tgt.write_level),
@@ -333,7 +333,7 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
   const relId = c.req.param("relId");
 
   const actorCtx = c.get("actor");
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -375,7 +375,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -429,7 +429,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,, relRows] = await sql.transaction([
+  const [,,,,, relRows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
