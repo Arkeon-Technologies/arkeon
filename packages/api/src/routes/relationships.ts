@@ -9,6 +9,7 @@ import { generateUlid } from "../lib/ids";
 import { fanOutNotifications } from "../lib/notifications";
 import { createRouter } from "../lib/openapi";
 import {
+  ClassificationLevel,
   DateTimeSchema,
   EntityIdParam,
   EntitySchema,
@@ -87,6 +88,8 @@ const createRelationshipRoute = createRoute({
           predicate: z.string().describe("Relationship type (e.g. 'references', 'contains')"),
           target_id: EntityIdParam.describe("Target entity ULID"),
           properties: z.record(z.string(), z.any()).optional().describe("Relationship properties"),
+          read_level: ClassificationLevel.optional().describe("Classification level for reading. Must be >= max(source, target) read_level. Defaults to that maximum."),
+          write_level: ClassificationLevel.optional().describe("Classification level for writing. Must be >= max(source, target) write_level. Defaults to that maximum."),
         }),
       ),
     },
@@ -266,9 +269,38 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid relationship payload");
   }
   const properties = body.properties === undefined ? {} : assertBodyObject(body.properties, "properties");
+  const requestedReadLevel = typeof body.read_level === "number" ? body.read_level : null;
+  const requestedWriteLevel = typeof body.write_level === "number" ? body.write_level : null;
   const relId = generateUlid();
   const now = new Date().toISOString();
   const sql = createSql();
+
+  // If caller specified classification levels, validate against the endpoint floor
+  // (needs actor context for RLS visibility)
+  if (requestedReadLevel !== null || requestedWriteLevel !== null) {
+    const [,,,, floorRows] = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql`
+        SELECT
+          GREATEST(src.read_level, tgt.read_level) AS min_read,
+          GREATEST(src.write_level, tgt.write_level) AS min_write
+        FROM entities src, entities tgt
+        WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
+      `,
+    ]);
+    const floor = (floorRows as Array<{ min_read: number; min_write: number }>)[0];
+    if (!floor) {
+      throw new ApiError(404, "not_found", "Source or target entity not found");
+    }
+    if (requestedReadLevel !== null && requestedReadLevel < floor.min_read) {
+      throw new ApiError(400, "invalid_read_level",
+        `read_level ${requestedReadLevel} must be >= max(source, target) read_level (${floor.min_read})`);
+    }
+    if (requestedWriteLevel !== null && requestedWriteLevel < floor.min_write) {
+      throw new ApiError(400, "invalid_write_level",
+        `write_level ${requestedWriteLevel} must be >= max(source, target) write_level (${floor.min_write})`);
+    }
+  }
 
   const [,,,, entityRows, edgeRows] = await sql.transaction([
     ...setActorContext(sql, actor),
@@ -281,8 +313,8 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
       SELECT
         ${relId}, 'relationship', 'relationship', src.network_id, 1, ${JSON.stringify(properties)}::jsonb,
         ${actor.id},
-        GREATEST(src.read_level, tgt.read_level),
-        GREATEST(src.write_level, tgt.write_level),
+        GREATEST(src.read_level, tgt.read_level, ${requestedReadLevel ?? 0}),
+        GREATEST(src.write_level, tgt.write_level, ${requestedWriteLevel ?? 0}),
         ${actor.id}, NULL, ${now}::timestamptz, ${now}::timestamptz
       FROM entities src, entities tgt
       WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}

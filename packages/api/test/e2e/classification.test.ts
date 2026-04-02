@@ -230,4 +230,70 @@ describe("Classification model", () => {
     const { response } = await getJson(`/spaces/${space.id}`, level1Actor.apiKey);
     expect(response.status).toBe(404); // invisible, not forbidden
   });
+
+  // --- Relationship classification (#6) ---
+
+  test("Relationship inherits max(source, target) classification by default", async () => {
+    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-src-l1") }, { read_level: 1, write_level: 1 });
+    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-tgt-l2") }, { read_level: 2, write_level: 2 });
+
+    const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
+      method: "POST",
+      apiKey: level4Actor.apiKey,
+      json: { predicate: "references", target_id: tgt.id },
+    });
+    expect(response.status).toBe(201);
+    const rel = (body as any).relationship_entity;
+    expect(rel.read_level).toBe(2);
+    expect(rel.write_level).toBe(2);
+  });
+
+  test("Relationship read_level can be set above the endpoint floor", async () => {
+    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-src-up") }, { read_level: 1, write_level: 1 });
+    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-tgt-up") }, { read_level: 1, write_level: 1 });
+
+    const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
+      method: "POST",
+      apiKey: level4Actor.apiKey,
+      json: { predicate: "references", target_id: tgt.id, read_level: 3, write_level: 3 },
+    });
+    expect(response.status).toBe(201);
+    const rel = (body as any).relationship_entity;
+    expect(rel.read_level).toBe(3);
+    expect(rel.write_level).toBe(3);
+  });
+
+  test("Relationship read_level below endpoint floor is rejected with 400", async () => {
+    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-src-lo") }, { read_level: 2, write_level: 2 });
+    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-tgt-lo") }, { read_level: 3, write_level: 1 });
+
+    const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
+      method: "POST",
+      apiKey: level4Actor.apiKey,
+      json: { predicate: "references", target_id: tgt.id, read_level: 1 },
+    });
+    expect(response.status).toBe(400);
+    expect((body as any).error.code).toBe("invalid_read_level");
+  });
+
+  test("Relationship write_level below endpoint floor is rejected with 400", async () => {
+    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-src-wlo") }, { read_level: 1, write_level: 3 });
+    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+      { label: uniqueName("rel-tgt-wlo") }, { read_level: 1, write_level: 1 });
+
+    const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
+      method: "POST",
+      apiKey: level4Actor.apiKey,
+      json: { predicate: "references", target_id: tgt.id, write_level: 1 },
+    });
+    expect(response.status).toBe(400);
+    expect((body as any).error.code).toBe("invalid_write_level");
+  });
 });
