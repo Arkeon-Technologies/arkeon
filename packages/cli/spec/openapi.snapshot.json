@@ -4,6 +4,14 @@
     "schemas": {
       "Actor": {
         "properties": {
+          "arke_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "can_publish_public": {
             "type": "boolean"
           },
@@ -67,6 +75,7 @@
         "required": [
           "id",
           "kind",
+          "arke_id",
           "max_read_level",
           "max_write_level",
           "is_admin",
@@ -141,6 +150,11 @@
       },
       "Entity": {
         "properties": {
+          "arke_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -161,11 +175,6 @@
               "entity",
               "relationship"
             ],
-            "type": "string"
-          },
-          "network_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
           },
           "note": {
@@ -210,7 +219,7 @@
           "id",
           "kind",
           "type",
-          "network_id",
+          "arke_id",
           "ver",
           "properties",
           "owner_id",
@@ -268,6 +277,11 @@
       },
       "Group": {
         "properties": {
+          "arke_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -286,10 +300,11 @@
           "name": {
             "type": "string"
           },
-          "network_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
+          "read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
           },
           "type": {
             "enum": [
@@ -305,7 +320,8 @@
           "id",
           "name",
           "type",
-          "network_id",
+          "arke_id",
+          "read_level",
           "created_by",
           "created_at"
         ],
@@ -317,6 +333,11 @@
       },
       "Space": {
         "properties": {
+          "arke_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -345,11 +366,6 @@
             ]
           },
           "name": {
-            "type": "string"
-          },
-          "network_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
           },
           "owner_id": {
@@ -388,7 +404,7 @@
         },
         "required": [
           "id",
-          "network_id",
+          "arke_id",
           "name",
           "description",
           "owner_id",
@@ -465,7 +481,7 @@
     }
   },
   "info": {
-    "title": "Arke API",
+    "title": "Arkeon API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -761,9 +777,11 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "can_publish_public": {
-                    "description": "Whether actor can publish public content",
-                    "type": "boolean"
+                  "arke_id": {
+                    "description": "Arke to assign the actor to (defaults to creator's arke)",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
                   },
                   "kind": {
                     "description": "Actor kind: user or agent",
@@ -1030,9 +1048,14 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "can_publish_public": {
-                    "description": "Whether actor can publish public content",
-                    "type": "boolean"
+                  "arke_id": {
+                    "description": "Assign to arke (admin only, null = unrestricted)",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "max_read_level": {
                     "description": "New max read level",
@@ -1327,6 +1350,447 @@
         "x-arke-related": [
           "GET /activity"
         ]
+      }
+    },
+    "/actors/{id}/keys": {
+      "post": {
+        "operationId": "createActorKey",
+        "parameters": [
+          {
+            "description": "Actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "label": {
+                    "description": "Optional key label",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "api_key": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "description": "ULID string",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "key_prefix": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "key_prefix",
+                    "api_key",
+                    "label"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "API key created (key value returned once)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Create an API key for a specific actor (admin only)",
+        "tags": [
+          "Actors"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /auth/keys",
+          "POST /auth/keys"
+        ]
+      }
+    },
+    "/admin/actors/{id}": {
+      "put": {
+        "operationId": "adminUpdateActor",
+        "parameters": [
+          {
+            "description": "Actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "can_publish_public": {
+                    "description": "Whether actor can publish public (read_level=0) content",
+                    "type": "boolean"
+                  },
+                  "is_admin": {
+                    "description": "System admin flag",
+                    "type": "boolean"
+                  },
+                  "max_read_level": {
+                    "description": "Max read level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_write_level": {
+                    "description": "Max write level (0-4)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "properties": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/JsonObject"
+                      },
+                      {
+                        "description": "Actor properties"
+                      }
+                    ]
+                  },
+                  "status": {
+                    "description": "Actor status",
+                    "enum": [
+                      "active",
+                      "suspended",
+                      "deactivated"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "actor": {
+                      "$ref": "#/components/schemas/Actor"
+                    }
+                  },
+                  "required": [
+                    "actor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Actor updated"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Update actor admin-only fields (is_admin, status, can_publish_public)",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /actors/{id}",
+          "PUT /actors/{id}"
+        ]
+      }
+    },
+    "/admin/instance": {
+      "get": {
+        "operationId": "getInstanceInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "arke_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "arke_id",
+                    "version"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Instance metadata"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Get instance metadata (Arke ID, version)",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required"
+      }
+    },
+    "/admin/reindex": {
+      "post": {
+        "operationId": "adminReindex",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "indexed": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "indexed"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Reindex result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "summary": "Rebuild the Meilisearch index from Postgres",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required"
+      }
+    },
+    "/admin/stats": {
+      "get": {
+        "operationId": "getInstanceStats",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "stats": {
+                      "properties": {
+                        "actor_count": {
+                          "type": "integer"
+                        },
+                        "arke_count": {
+                          "type": "integer"
+                        },
+                        "db_size_bytes": {
+                          "type": "integer"
+                        },
+                        "entity_count": {
+                          "type": "integer"
+                        },
+                        "relationship_count": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "entity_count",
+                        "actor_count",
+                        "relationship_count",
+                        "arke_count",
+                        "db_size_bytes"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "stats"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Instance statistics"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Get instance statistics (entity, actor, relationship counts and DB size)",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required"
       }
     },
     "/arkes": {
@@ -2388,6 +2852,157 @@
       }
     },
     "/entities": {
+      "get": {
+        "operationId": "listEntities",
+        "parameters": [
+          {
+            "description": "Column/property filters. See GET /help for filter syntax.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "description": "Column/property filters. See GET /help for filter syntax.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "updated_at | created_at (default: updated_at)",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "description": "updated_at | created_at (default: updated_at)",
+              "enum": [
+                "updated_at",
+                "created_at"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "asc | desc (default: desc)",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "description": "asc | desc (default: desc)",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Projection: full | summary",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "description": "Projection: full | summary",
+              "enum": [
+                "full",
+                "summary"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated field list",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated field list",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max results (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max results (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cursor": {
+                      "description": "Opaque pagination cursor",
+                      "example": "eyJ0Ijoi...",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "entities": {
+                      "items": {
+                        "$ref": "#/components/schemas/Entity"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "entities",
+                    "cursor"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Paginated entity list"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "List entities with filtering, sorting, and cursor pagination",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /search",
+          "GET /entities/{id}"
+        ]
+      },
       "post": {
         "operationId": "createEntity",
         "requestBody": {
@@ -2395,8 +3010,8 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "network_id": {
-                    "description": "Arke (network) ULID",
+                  "arke_id": {
+                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
                     "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
                     "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                     "type": "string"
@@ -2424,7 +3039,6 @@
                   }
                 },
                 "required": [
-                  "network_id",
                   "type",
                   "properties"
                 ],
@@ -4600,11 +5214,23 @@
                     "description": "Relationship properties",
                     "type": "object"
                   },
+                  "read_level": {
+                    "description": "Classification level for reading. Must be >= max(source, target) read_level. Defaults to that maximum.",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "target_id": {
                     "description": "Target entity ULID",
                     "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
                     "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                     "type": "string"
+                  },
+                  "write_level": {
+                    "description": "Classification level for writing. Must be >= max(source, target) write_level. Defaults to that maximum.",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -4990,12 +5616,12 @@
             }
           },
           {
-            "description": "Filter by network",
+            "description": "Filter by arke",
             "in": "query",
-            "name": "network_id",
+            "name": "arke_id",
             "required": false,
             "schema": {
-              "description": "Filter by network",
+              "description": "Filter by arke",
               "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
               "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
               "type": "string"
@@ -5077,16 +5703,22 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "arke_id": {
+                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
                   "name": {
                     "description": "Group name",
                     "minLength": 1,
                     "type": "string"
                   },
-                  "network_id": {
-                    "description": "Network (arke) ULID",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
+                  "read_level": {
+                    "description": "Classification level (default: 1 = INTERNAL)",
+                    "maximum": 4,
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "type": {
                     "description": "Group type (default: project)",
@@ -5100,8 +5732,7 @@
                   }
                 },
                 "required": [
-                  "name",
-                  "network_id"
+                  "name"
                 ],
                 "type": "object"
               }
@@ -5950,46 +6581,9 @@
     },
     "/search": {
       "get": {
+        "description": "Keyword search with typo tolerance, prefix matching, and relevance ranking. Results are automatically filtered by the caller's read clearance level. Use the read_level parameter to restrict results below your clearance.",
         "operationId": "searchEntities",
         "parameters": [
-          {
-            "description": "Column/property filters. See GET /help for filter syntax.",
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "description": "Column/property filters. See GET /help for filter syntax.",
-              "type": "string"
-            }
-          },
-          {
-            "description": "updated_at | created_at (default: updated_at)",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "description": "updated_at | created_at (default: updated_at)",
-              "enum": [
-                "updated_at",
-                "created_at"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "description": "asc | desc (default: desc)",
-            "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "description": "asc | desc (default: desc)",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
           {
             "description": "Projection: full | summary",
             "in": "query",
@@ -6016,28 +6610,6 @@
             }
           },
           {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
             "description": "Search query string",
             "in": "query",
             "name": "q",
@@ -6049,13 +6621,84 @@
             }
           },
           {
-            "description": "Network (Arke) ULID to scope search",
+            "description": "Filter by entity type",
             "in": "query",
-            "name": "network_id",
+            "name": "type",
             "required": false,
             "schema": {
-              "description": "Network (Arke) ULID to scope search",
+              "description": "Filter by entity type",
               "type": "string"
+            }
+          },
+          {
+            "description": "Filter by kind (entity or relationship). Defaults to excluding relationships.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "description": "Filter by kind (entity or relationship). Defaults to excluding relationships.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Scope search to an arke ULID",
+            "in": "query",
+            "name": "arke_id",
+            "required": false,
+            "schema": {
+              "description": "Scope search to an arke ULID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Scope search to a space ULID",
+            "in": "query",
+            "name": "space_id",
+            "required": false,
+            "schema": {
+              "description": "Scope search to a space ULID",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict results to this read level or below (cannot exceed your clearance)",
+            "in": "query",
+            "name": "read_level",
+            "required": false,
+            "schema": {
+              "description": "Restrict results to this read level or below (cannot exceed your clearance)",
+              "maximum": 4,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size (default 50, max 200)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Page size (default 50, max 200)",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Offset for pagination (default 0)",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "description": "Offset for pagination (default 0)",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             }
           }
         ],
@@ -6065,13 +6708,14 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                    "estimatedTotalHits": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
                     },
                     "results": {
                       "items": {
@@ -6082,13 +6726,15 @@
                   },
                   "required": [
                     "results",
-                    "cursor"
+                    "estimatedTotalHits",
+                    "limit",
+                    "offset"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "Search results"
+            "description": "Search results ordered by relevance"
           },
           "400": {
             "content": {
@@ -6100,7 +6746,7 @@
             },
             "description": "Bad request"
           },
-          "403": {
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -6108,30 +6754,10 @@
                 }
               }
             },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict"
+            "description": "Service unavailable"
           }
         },
-        "summary": "Full-text search across entities and commons",
+        "summary": "Full-text search across entities via Meilisearch",
         "tags": [
           "Search"
         ],
@@ -6165,12 +6791,12 @@
             }
           },
           {
-            "description": "Filter by network",
+            "description": "Filter by arke",
             "in": "query",
-            "name": "network_id",
+            "name": "arke_id",
             "required": false,
             "schema": {
-              "description": "Filter by network",
+              "description": "Filter by arke",
               "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
               "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
               "type": "string"
@@ -6246,6 +6872,12 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "arke_id": {
+                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
                   "description": {
                     "description": "Space description",
                     "type": [
@@ -6256,12 +6888,6 @@
                   "name": {
                     "description": "Space name",
                     "minLength": 1,
-                    "type": "string"
-                  },
-                  "network_id": {
-                    "description": "Network (arke) ULID",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                     "type": "string"
                   },
                   "properties": {
@@ -6288,8 +6914,7 @@
                   }
                 },
                 "required": [
-                  "name",
-                  "network_id"
+                  "name"
                 ],
                 "type": "object"
               }
@@ -7230,35 +7855,84 @@
           "content": {
             "application/json": {
               "schema": {
-                "properties": {
-                  "grantee_id": {
-                    "description": "Actor or group ID",
-                    "type": "string"
-                  },
-                  "grantee_type": {
-                    "description": "Grantee type",
-                    "enum": [
-                      "actor",
-                      "group"
+                "anyOf": [
+                  {
+                    "properties": {
+                      "grantee_id": {
+                        "description": "Actor or group ID",
+                        "type": "string"
+                      },
+                      "grantee_type": {
+                        "default": "actor",
+                        "description": "Grantee type",
+                        "enum": [
+                          "actor",
+                          "group"
+                        ],
+                        "type": "string"
+                      },
+                      "role": {
+                        "description": "Role to grant",
+                        "enum": [
+                          "contributor",
+                          "editor",
+                          "admin"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "grantee_id",
+                      "role"
                     ],
-                    "type": "string"
+                    "type": "object"
                   },
-                  "role": {
-                    "description": "Role to grant",
-                    "enum": [
-                      "contributor",
-                      "editor",
-                      "admin"
+                  {
+                    "properties": {
+                      "grants": {
+                        "description": "Array of permission grants (max 100)",
+                        "items": {
+                          "properties": {
+                            "grantee_id": {
+                              "description": "Actor or group ID",
+                              "type": "string"
+                            },
+                            "grantee_type": {
+                              "default": "actor",
+                              "description": "Grantee type",
+                              "enum": [
+                                "actor",
+                                "group"
+                              ],
+                              "type": "string"
+                            },
+                            "role": {
+                              "description": "Role to grant",
+                              "enum": [
+                                "contributor",
+                                "editor",
+                                "admin"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "grantee_id",
+                            "role"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 100,
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "grants"
                     ],
-                    "type": "string"
+                    "type": "object"
                   }
-                },
-                "required": [
-                  "grantee_type",
-                  "grantee_id",
-                  "role"
-                ],
-                "type": "object"
+                ]
               }
             }
           },
@@ -7269,53 +7943,105 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "permission": {
+                  "anyOf": [
+                    {
                       "properties": {
-                        "granted_at": {
-                          "example": "2026-01-01T00:00:00.000Z",
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "grantee_id": {
-                          "description": "ULID string",
-                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                          "type": "string"
-                        },
-                        "role": {
-                          "enum": [
-                            "viewer",
-                            "contributor",
-                            "editor",
-                            "admin"
+                        "permission": {
+                          "properties": {
+                            "granted_at": {
+                              "example": "2026-01-01T00:00:00.000Z",
+                              "format": "date-time",
+                              "type": "string"
+                            },
+                            "grantee_id": {
+                              "description": "ULID string",
+                              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                              "type": "string"
+                            },
+                            "role": {
+                              "enum": [
+                                "viewer",
+                                "contributor",
+                                "editor",
+                                "admin"
+                              ],
+                              "type": "string"
+                            },
+                            "space_id": {
+                              "description": "ULID string",
+                              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "space_id",
+                            "grantee_id",
+                            "role",
+                            "granted_at"
                           ],
-                          "type": "string"
-                        },
-                        "space_id": {
-                          "description": "ULID string",
-                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                          "type": "string"
+                          "type": "object"
                         }
                       },
                       "required": [
-                        "space_id",
-                        "grantee_id",
-                        "role",
-                        "granted_at"
+                        "permission"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "permissions": {
+                          "items": {
+                            "properties": {
+                              "granted_at": {
+                                "example": "2026-01-01T00:00:00.000Z",
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "grantee_id": {
+                                "description": "ULID string",
+                                "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                                "type": "string"
+                              },
+                              "role": {
+                                "enum": [
+                                  "viewer",
+                                  "contributor",
+                                  "editor",
+                                  "admin"
+                                ],
+                                "type": "string"
+                              },
+                              "space_id": {
+                                "description": "ULID string",
+                                "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "space_id",
+                              "grantee_id",
+                              "role",
+                              "granted_at"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "permissions"
                       ],
                       "type": "object"
                     }
-                  },
-                  "required": [
-                    "permission"
-                  ],
-                  "type": "object"
+                  ]
                 }
               }
             },
-            "description": "Permission granted"
+            "description": "Permission(s) granted"
           },
           "400": {
             "content": {
@@ -7358,7 +8084,7 @@
             "description": "Not found"
           }
         },
-        "summary": "Grant a role on a space (RLS: owner/admin)",
+        "summary": "Grant role(s) on a space. Accepts a single grant or a bulk grants array (RLS: owner/admin)",
         "tags": [
           "Spaces"
         ],
