@@ -12,15 +12,15 @@ program
   .description("CLI for the Arkeon API")
   .version("0.1.0")
   .option("--api-url <url>", "Override API base URL for this process")
-  .option("--network-id <id>", "Override default network ID for this process");
+  .option("--arke-id <id>", "Override default arke ID for this process");
 
 program.hook("preAction", (command) => {
-  const options = command.optsWithGlobals() as { apiUrl?: string; networkId?: string };
+  const options = command.optsWithGlobals() as { apiUrl?: string; arkeId?: string };
   if (options.apiUrl) {
     process.env.ARKE_API_URL = options.apiUrl;
   }
-  if (options.networkId) {
-    process.env.ARKE_NETWORK_ID = options.networkId;
+  if (options.arkeId) {
+    process.env.ARKE_ID = options.arkeId;
   }
 });
 

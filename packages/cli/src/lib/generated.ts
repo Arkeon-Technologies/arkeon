@@ -147,16 +147,16 @@ export function registerGeneratedGroup(group: Command, operations: GeneratedOper
           }
         }
 
-        // Auto-inject default network_id from config when not explicitly provided
-        const defaultNetworkId = config.get("networkId");
-        if (defaultNetworkId) {
-          const hasBodyNetworkId = operation.bodyFields.some((f) => f.name === "network_id");
-          if (hasBodyNetworkId && body && body.network_id === undefined) {
-            body.network_id = defaultNetworkId;
+        // Auto-inject default arke_id from config when not explicitly provided
+        const defaultArkeId = config.get("arkeId");
+        if (defaultArkeId) {
+          const hasBodyArkeId = operation.bodyFields.some((f) => f.name === "arke_id");
+          if (hasBodyArkeId && body && body.arke_id === undefined) {
+            body.arke_id = defaultArkeId;
           }
-          const hasQueryNetworkId = operation.queryParams.some((f) => f.name === "network_id");
-          if (hasQueryNetworkId && !query.has("network_id")) {
-            query.set("network_id", defaultNetworkId);
+          const hasQueryArkeId = operation.queryParams.some((f) => f.name === "arke_id");
+          if (hasQueryArkeId && !query.has("arke_id")) {
+            query.set("arke_id", defaultArkeId);
           }
         }
 
