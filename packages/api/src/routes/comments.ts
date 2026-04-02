@@ -253,7 +253,7 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
     throw new ApiError(404, "not_found", "Comment not found");
   }
   if (info.author_id !== actor.id && info.owner_id !== actor.id && !info.is_entity_admin && !actor.isAdmin) {
-    throw new ApiError(403, "forbidden", "Forbidden");
+    throw new ApiError(403, "forbidden", "Only the comment author, entity owner, or an admin can delete this comment");
   }
 
   await sql.transaction([
