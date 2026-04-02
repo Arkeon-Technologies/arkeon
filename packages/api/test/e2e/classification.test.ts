@@ -77,7 +77,7 @@ describe("Classification model", () => {
       method: "POST",
       apiKey: level2Actor.apiKey,
       json: {
-        network_id: arkeId,
+        arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("too-high") },
         read_level: 3,

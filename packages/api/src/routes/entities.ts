@@ -7,6 +7,7 @@ import { assertBodyObject, type EntityRecord } from "../lib/entities";
 import { ApiError } from "../lib/errors";
 import {
   requireActor,
+  resolveArkeId,
   parseCursorParam,
   parseJsonBody,
   parseLimit,
@@ -100,7 +101,7 @@ const createEntityRoute = createRoute({
       required: true,
       content: jsonContent(
         z.object({
-          network_id: EntityIdParam.describe("Arke (network) ULID"),
+          arke_id: EntityIdParam.optional().describe("Arke ULID (derived from actor for regular users, required for admins)"),
           type: z.string().describe("Entity type"),
           properties: z.record(z.string(), z.any()).describe("Arbitrary properties"),
           read_level: ClassificationLevel.optional(),
@@ -399,9 +400,7 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   const actor = requireActor(c);
   const body = await parseJsonBody<Record<string, unknown>>(c);
 
-  if (typeof body.network_id !== "string") {
-    throw new ApiError(400, "missing_required_field", "Missing network_id");
-  }
+  const arkeId = resolveArkeId(body, actor);
   if (typeof body.type !== "string") {
     throw new ApiError(400, "missing_required_field", "Missing type");
   }
@@ -418,13 +417,13 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql.query(
       `INSERT INTO entities (
-        id, kind, type, network_id, ver, properties, owner_id,
+        id, kind, type, arke_id, ver, properties, owner_id,
         read_level, write_level, edited_by, note, created_at, updated_at
       ) VALUES (
         $1, 'entity', $2, $3, 1, $4::jsonb, $5,
         $6, $7, $5, NULL, $8::timestamptz, $8::timestamptz
       ) RETURNING *`,
-      [id, body.type, body.network_id, JSON.stringify(properties), actor.id, readLevel, writeLevel, now],
+      [id, body.type, arkeId, JSON.stringify(properties), actor.id, readLevel, writeLevel, now],
     ),
     sql.query(
       `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
@@ -438,7 +437,7 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     ),
   ]);
 
-  const inserted = (results[4] as EntityRecord[])[0]; // 4 context queries + INSERT
+  const inserted = (results[5] as EntityRecord[])[0]; // 5 context queries + INSERT
   if (!inserted) {
     throw new ApiError(403, "forbidden", "Insufficient classification level");
   }

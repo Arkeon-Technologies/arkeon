@@ -35,7 +35,7 @@ describe("Groups", () => {
       json: {
         name: uniqueName("no-create"),
         type: "project",
-        network_id: arkeId,
+        arke_id: arkeId,
       },
     });
     expect(response.status).toBe(403);

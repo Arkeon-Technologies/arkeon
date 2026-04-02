@@ -174,7 +174,7 @@ adminRouter.openapi(updateAdminActorRoute, async (c) => {
   const idParamIdx = paramIdx++;
   params.push(actorId);
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `

@@ -27,10 +27,10 @@ const SearchQuery = ProjectionQuery.extend({
     z.string().optional(),
     "Filter by kind (entity or relationship). Defaults to excluding relationships.",
   ),
-  network_id: queryParam(
-    "network_id",
+  arke_id: queryParam(
+    "arke_id",
     z.string().optional(),
-    "Scope search to a network (Arke) ULID",
+    "Scope search to an arke ULID",
   ),
   space_id: queryParam(
     "space_id",
@@ -107,7 +107,7 @@ searchRouter.openapi(searchRoute, async (c) => {
   const filters = buildSearchFilters(actor, {
     type: c.req.query("type"),
     kind: c.req.query("kind"),
-    networkId: c.req.query("network_id"),
+    arkeId: c.get("actor")?.arkeId ?? c.req.query("arke_id") ?? undefined,
     spaceId: c.req.query("space_id"),
     readLevelOverride,
   });

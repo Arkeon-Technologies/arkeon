@@ -167,7 +167,7 @@ export async function createEntity(
   const { response, body } = await jsonRequest("/entities", {
     method: "POST",
     apiKey,
-    json: { network_id: networkId, type, properties, ...extra },
+    json: { arke_id: networkId, type, properties, ...extra },
   });
   expect(response.status).toBe(201);
   return (body as { entity: Record<string, any> }).entity;
@@ -200,7 +200,7 @@ export async function createSpace(
   const { response, body } = await jsonRequest("/spaces", {
     method: "POST",
     apiKey,
-    json: { network_id: networkId, name, ...extra },
+    json: { arke_id: networkId, name, ...extra },
   });
   expect(response.status).toBe(201);
   return (body as { space: Record<string, any> }).space;
@@ -284,7 +284,7 @@ export async function createGroup(apiKey: string, networkId: string, name: strin
   const { response, body } = await jsonRequest("/groups", {
     method: "POST",
     apiKey,
-    json: { network_id: networkId, name },
+    json: { arke_id: networkId, name },
   });
   expect(response.status).toBe(201);
   return (body as { group: Record<string, any> }).group;

@@ -175,7 +175,7 @@ arkesRouter.openapi(createArkeRoute, async (c) => {
   const defaultWriteLevel = typeof body.default_write_level === "number" ? body.default_write_level : 0;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -204,7 +204,7 @@ arkesRouter.openapi(listArkesRoute, async (c) => {
   const q = c.req.query("q");
 
   const actorCtx = { id: actorId, maxReadLevel: c.get("actor")?.maxReadLevel ?? -1, maxWriteLevel: c.get("actor")?.maxWriteLevel ?? -1, isAdmin: c.get("actor")?.isAdmin ?? false } as any;
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -284,7 +284,7 @@ arkesRouter.openapi(updateArkeRoute, async (c) => {
   const idParamIdx = paramIdx++;
   params.push(arkeId);
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -315,7 +315,7 @@ arkesRouter.openapi(deleteArkeRoute, async (c) => {
   const arkeId = c.req.param("id");
   const sql = createSql();
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `

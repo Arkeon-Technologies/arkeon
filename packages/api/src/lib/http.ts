@@ -2,7 +2,7 @@ import type { Context } from "hono";
 
 import { ApiError } from "./errors";
 import { decodeCursor } from "./cursor";
-import type { AppBindings } from "../types";
+import type { Actor, AppBindings } from "../types";
 
 export function requireActor(c: Context<AppBindings>) {
   const actor = c.get("actor");
@@ -69,6 +69,25 @@ export async function parseJsonBody<T>(c: Context<AppBindings>): Promise<T> {
   } catch {
     throw new ApiError(400, "invalid_json", "Invalid JSON body");
   }
+}
+
+/**
+ * Resolve arke_id for create operations.
+ * Regular actors: always use their arke_id (body param ignored).
+ * Admins (arkeId=null): must pass arke_id explicitly.
+ */
+export function resolveArkeId(body: Record<string, unknown>, actor: Actor): string {
+  if (actor.arkeId) {
+    return actor.arkeId;
+  }
+  if (typeof body.arke_id === "string") {
+    return body.arke_id;
+  }
+  throw new ApiError(
+    400,
+    "missing_required_field",
+    "arke_id is required for admin actors — pass it explicitly or list arkes at GET /arkes",
+  );
 }
 
 export function parseBoolean(value: unknown): boolean | undefined {

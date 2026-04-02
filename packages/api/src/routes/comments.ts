@@ -136,7 +136,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
   const sql = createSql();
 
   if (parentId) {
-    const [,,,, parentRows] = await sql.transaction([
+    const [,,,,, parentRows] = await sql.transaction([
       ...setActorContext(sql, actor),
       sql`SELECT id, parent_id FROM comments WHERE id = ${parentId} AND entity_id = ${entityId} LIMIT 1`,
     ]);
@@ -149,7 +149,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
     }
   }
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO comments (id, entity_id, author_id, body, parent_id, created_at)
@@ -185,7 +185,7 @@ commentsRouter.openapi(listCommentsRoute, async (c) => {
   const cursor = parseCursorParam(c);
 
   const actorCtx = c.get("actor");
-  const [,,,, topRows, replyRows] = await sql.transaction([
+  const [,,,,, topRows, replyRows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -234,7 +234,7 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `

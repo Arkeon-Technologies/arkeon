@@ -4,6 +4,7 @@ import { backgroundTask } from "../lib/background";
 import { ApiError } from "../lib/errors";
 import {
   requireActor,
+  resolveArkeId,
   parseJsonBody,
   parseLimit,
   parseCursorParam,
@@ -33,7 +34,7 @@ import { createSql } from "../lib/sql";
 
 type SpaceRecord = {
   id: string;
-  network_id: string;
+  arke_id: string;
   name: string;
   description: string | null;
   owner_id: string;
@@ -84,7 +85,7 @@ const createSpaceRoute = createRoute({
       content: jsonContent(
         z.object({
           name: z.string().min(1).describe("Space name"),
-          network_id: EntityIdParam.describe("Network (arke) ULID"),
+          arke_id: EntityIdParam.optional().describe("Arke ULID (derived from actor for regular users, required for admins)"),
           description: z.string().nullable().optional().describe("Space description"),
           read_level: ClassificationLevel.optional().describe("Read classification level (0-4)"),
           write_level: ClassificationLevel.optional().describe("Write classification level (0-4)"),
@@ -112,7 +113,7 @@ const listSpacesRoute = createRoute({
   "x-arke-related": ["POST /spaces", "GET /spaces/{id}"],
   request: {
     query: paginationQuerySchema(50, 200).extend({
-      network_id: queryParam("network_id", EntityIdParam.optional(), "Filter by network"),
+      arke_id: queryParam("arke_id", EntityIdParam.optional(), "Filter by arke"),
       q: queryParam("q", z.string().optional(), "Search by name"),
     }),
   },
@@ -427,9 +428,7 @@ spacesRouter.openapi(createSpaceRoute, async (c) => {
   if (typeof body.name !== "string" || body.name.length === 0) {
     throw new ApiError(400, "missing_required_field", "Missing name");
   }
-  if (typeof body.network_id !== "string") {
-    throw new ApiError(400, "missing_required_field", "Missing network_id");
-  }
+  const arkeId = resolveArkeId(body, actor);
 
   const id = generateUlid();
   const now = new Date().toISOString();
@@ -439,15 +438,15 @@ spacesRouter.openapi(createSpaceRoute, async (c) => {
   const writeLevel = typeof body.write_level === "number" ? body.write_level : 0;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
-        INSERT INTO spaces (id, network_id, name, description, owner_id, read_level, write_level, status, entity_count, properties, created_at, updated_at)
+        INSERT INTO spaces (id, arke_id, name, description, owner_id, read_level, write_level, status, entity_count, properties, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', 0, $8::jsonb, $9::timestamptz, $9::timestamptz)
         RETURNING *
       `,
-      [id, body.network_id, body.name, description, actor.id, readLevel, writeLevel, JSON.stringify(properties), now],
+      [id, arkeId, body.name, description, actor.id, readLevel, writeLevel, JSON.stringify(properties), now],
     ),
   ]);
 
@@ -465,7 +464,7 @@ spacesRouter.openapi(listSpacesRoute, async (c) => {
   const isAdmin = c.get("actor")?.isAdmin ?? false;
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
-  const networkId = c.req.query("network_id");
+  const arkeId = c.get("actor")?.arkeId ?? c.req.query("arke_id") ?? null;
   const q = c.req.query("q");
 
   const rows = await sql.query(
@@ -474,13 +473,13 @@ spacesRouter.openapi(listSpacesRoute, async (c) => {
       FROM spaces
       WHERE status != 'deleted'
         AND ($1::boolean OR read_level <= $2)
-        AND ($3::text IS NULL OR network_id = $3)
+        AND ($3::text IS NULL OR arke_id = $3)
         AND ($4::text IS NULL OR name ILIKE '%' || $4 || '%')
         AND ($5::timestamptz IS NULL OR created_at < $5::timestamptz)
       ORDER BY created_at DESC
       LIMIT $6
     `,
-    [isAdmin, actorReadLevel, networkId ?? null, q ?? null, cursor?.t ?? null, limit + 1],
+    [isAdmin, actorReadLevel, arkeId, q ?? null, cursor?.t ?? null, limit + 1],
   );
 
   const spaces = (rows as SpaceRecord[]).slice(0, limit);
@@ -621,7 +620,7 @@ spacesRouter.openapi(listSpaceEntitiesRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Insufficient read level");
   }
 
-  const [,,,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
