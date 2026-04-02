@@ -245,7 +245,7 @@ describe("Classification model", () => {
       json: { predicate: "references", target_id: tgt.id },
     });
     expect(response.status).toBe(201);
-    const rel = (body as any).relationship_entity;
+    const rel = (body as any).relationship;
     expect(rel.read_level).toBe(2);
     expect(rel.write_level).toBe(2);
   });
@@ -262,7 +262,7 @@ describe("Classification model", () => {
       json: { predicate: "references", target_id: tgt.id, read_level: 3, write_level: 3 },
     });
     expect(response.status).toBe(201);
-    const rel = (body as any).relationship_entity;
+    const rel = (body as any).relationship;
     expect(rel.read_level).toBe(3);
     expect(rel.write_level).toBe(3);
   });
