@@ -270,6 +270,40 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
+  // Pre-validate: actor must see both entities and have edit access on source
+  const [,,,, preCheckRows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      SELECT
+        src.owner_id AS source_owner,
+        (
+          current_actor_is_admin()
+          OR src.owner_id = current_actor_id()
+          OR actor_has_entity_role(src.id, ARRAY['editor', 'admin'])
+        ) AS can_edit_source
+      FROM entities src, entities tgt
+      WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
+    `,
+  ]);
+
+  const preCheck = (preCheckRows as Array<{ source_owner: string; can_edit_source: boolean }>)[0];
+  if (!preCheck) {
+    // At least one entity not visible to actor — diagnose which
+    const [, srcExists, tgtExists] = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', '', true)`,
+      sql`SELECT entity_exists(${sourceId}) AS e`,
+      sql`SELECT entity_exists(${body.target_id}) AS e`,
+    ]);
+    const srcE = (srcExists as Array<{ e: boolean }>)[0]?.e;
+    const tgtE = (tgtExists as Array<{ e: boolean }>)[0]?.e;
+    if (!srcE) throw new ApiError(404, "not_found", "Source entity not found");
+    if (!tgtE) throw new ApiError(404, "not_found", "Target entity not found");
+    throw new ApiError(403, "forbidden", "Insufficient classification level to access source or target entity");
+  }
+  if (!preCheck.can_edit_source) {
+    throw new ApiError(403, "forbidden", "You need edit access on the source entity to create relationships from it");
+  }
+
   const [,,,, entityRows, edgeRows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
@@ -316,6 +350,9 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   );
 
   const relEntity = (entityRows as Array<Record<string, unknown>>)[0];
+  if (!relEntity) {
+    throw new ApiError(500, "internal_error", "Failed to create relationship entity");
+  }
   backgroundTask(indexEntity(relEntity, sql));
 
   return c.json(
