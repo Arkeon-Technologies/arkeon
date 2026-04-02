@@ -4655,12 +4655,12 @@
                       ],
                       "type": "object"
                     },
-                    "relationship_entity": {
+                    "relationship": {
                       "$ref": "#/components/schemas/Entity"
                     }
                   },
                   "required": [
-                    "relationship_entity",
+                    "relationship",
                     "edge"
                   ],
                   "type": "object"
