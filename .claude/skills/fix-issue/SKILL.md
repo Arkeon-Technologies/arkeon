@@ -38,20 +38,24 @@ Work exclusively inside `.claude/worktrees/issue-$ARGUMENTS/` for all file edits
 
 ### 5. Migrate and test
 
-From the worktree directory:
+From the worktree directory, use the `/local-dev start` skill to bring up an isolated stack.
+It will auto-detect the worktree, pick free ports, and save them to `.devports`.
 
-```
-# Apply schema migrations (if SQL changed)
-npm run migrate
+Then run tests and tear down:
 
-# Start the dev server against the worktree
-ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e npm run dev -w packages/api &
+```bash
+# Source the ports assigned by local-dev
+source .claude/worktrees/issue-$ARGUMENTS/.devports
 
-# Run e2e tests
-ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e npm run test:e2e -w packages/api
+# Run e2e tests against the isolated server
+ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
+E2E_BASE_URL=http://localhost:$API_PORT \
+npm run test:e2e -w packages/api
 
-# Stop the dev server
-pkill -f "tsx.*packages/api"
+# Stop the isolated stack when done
+# (use /local-dev stop from the worktree, or manually:)
+lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
+PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
 ```
 
 ### 6. Commit and push

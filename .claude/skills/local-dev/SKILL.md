@@ -2,13 +2,47 @@
 name: local-dev
 description: Start the local development environment (Postgres + API with hot reload) and run e2e tests.
 disable-model-invocation: true
-argument-hint: [start|test|reset|stop]
-allowed-tools: Bash(docker *, npm *, curl *, pkill *, sleep *, kill *, lsof *), Read, TaskOutput
+argument-hint: [start|test|reset|stop|status]
+allowed-tools: Bash(docker *, npm *, curl *, pkill *, sleep *, kill *, lsof *, ls *), Read, TaskOutput
 ---
 
 # Local Development Environment
 
 Manage the local dev stack: Dockerized Postgres + local API with hot reload.
+Supports isolated per-worktree environments so multiple branches can run simultaneously.
+
+## Worktree Detection
+
+Before running any command, detect whether you're in a worktree:
+
+1. Check if the current working directory contains `.claude/worktrees/` in its path.
+2. If NOT in a worktree, use defaults: `PG_PORT=5432`, `API_PORT=8000`, `PROJECT=arkeon`.
+3. If in a worktree, extract the worktree name (e.g., `issue-42` from `.claude/worktrees/issue-42/`).
+4. Check if a `.devports` file exists in the worktree root. If yes, read ports from it.
+5. If no `.devports` file, pick a random slot (1-99) and verify the ports are free:
+   ```bash
+   SLOT=$((RANDOM % 99 + 1))
+   PG_PORT=$((5432 + SLOT))
+   API_PORT=$((8000 + SLOT))
+   # Check both ports are free, re-roll if not
+   while lsof -iTCP:$PG_PORT -sTCP:LISTEN >/dev/null 2>&1 || \
+         lsof -iTCP:$API_PORT -sTCP:LISTEN >/dev/null 2>&1; do
+     SLOT=$((RANDOM % 99 + 1))
+     PG_PORT=$((5432 + SLOT))
+     API_PORT=$((8000 + SLOT))
+   done
+   ```
+6. Save the ports to `.devports` in the worktree root so subsequent commands reuse them:
+   ```bash
+   cat > .claude/worktrees/<name>/.devports <<EOF
+   PG_PORT=$PG_PORT
+   API_PORT=$API_PORT
+   PROJECT=arkeon-<worktree-name>
+   EOF
+   ```
+7. Set `PROJECT=arkeon-<worktree-name>` (e.g., `arkeon-issue-42`).
+
+The `.devports` file is gitignored and ensures `start`, `test`, `stop`, and `reset` all use the same ports for a given worktree.
 
 ## Commands
 
@@ -18,46 +52,50 @@ Manage the local dev stack: Dockerized Postgres + local API with hot reload.
 
 1. Check if Postgres is already running:
    ```
-   docker compose --profile local-db ps postgres
+   docker compose -p $PROJECT --profile local-db ps postgres
    ```
 
 2. If not running, start Postgres and run migrations:
    ```
-   docker compose --profile local-db --profile migrate up -d postgres migrate
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
    ```
    Wait for migrate to exit successfully:
    ```
-   docker compose --profile migrate logs -f migrate
+   docker compose -p $PROJECT --profile migrate logs -f migrate
    ```
 
-3. Check if the API is already running on port 8000:
+3. Check if the API is already running on the target port:
    ```
-   curl -s http://localhost:8000/ 2>/dev/null
+   curl -s http://localhost:$API_PORT/ 2>/dev/null
    ```
 
 4. If not running, start the API locally with hot reload:
    ```
    ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-   DATABASE_URL=postgresql://arke_app:arke@localhost:5432/arke \
+   DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke \
+   PORT=$API_PORT \
    npm run dev -w packages/api
    ```
    Run this in the background. Wait a few seconds, then verify with:
    ```
-   curl -s http://localhost:8000/
+   curl -s http://localhost:$API_PORT/
    ```
    Should return `{"name":"arkeon-api","status":"ok"}`.
 
 5. Confirm to the user that the stack is up:
-   - Postgres on port 5432
-   - API on port 8000 with hot reload (code changes auto-restart)
+   - Postgres on port `$PG_PORT`
+   - API on port `$API_PORT` with hot reload (code changes auto-restart)
    - Admin key: `ak_test_admin_key_e2e`
+   - Docker project: `$PROJECT`
 
 ### `test`
 
 1. Verify the API is running (start it if not).
 2. Run e2e tests:
    ```
-   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e npm run test:e2e -w packages/api
+   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
+   E2E_BASE_URL=http://localhost:$API_PORT \
+   npm run test:e2e -w packages/api
    ```
 3. Report results.
 
@@ -65,26 +103,27 @@ Manage the local dev stack: Dockerized Postgres + local API with hot reload.
 
 Use after schema changes (packages/schema). Wipes the DB and starts fresh.
 
-1. Stop the local API process:
+1. Stop the local API process on this port:
    ```
-   pkill -f "tsx.*packages/api" 2>/dev/null || true
+   lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
    ```
 
 2. Tear down Postgres and wipe the volume:
    ```
-   docker compose --profile local-db down -v
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down -v
    ```
 
 3. Start fresh Postgres + migrations:
    ```
-   docker compose --profile local-db --profile migrate up -d postgres migrate
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
    ```
    Wait for migrate to complete successfully.
 
 4. Restart the API:
    ```
    ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e \
-   DATABASE_URL=postgresql://arke_app:arke@localhost:5432/arke \
+   DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke \
+   PORT=$API_PORT \
    npm run dev -w packages/api
    ```
    Run in background, verify with curl.
@@ -93,24 +132,38 @@ Use after schema changes (packages/schema). Wipes the DB and starts fresh.
 
 ### `stop`
 
-1. Stop the local API process:
+1. Stop the local API process on this port:
    ```
-   pkill -f "tsx.*packages/api" 2>/dev/null || true
+   lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
    ```
 
 2. Stop Postgres:
    ```
-   docker compose --profile local-db down
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
    ```
    Note: this preserves the DB volume. Use `reset` to wipe it.
 
 3. Confirm everything is stopped.
 
+### `status`
+
+Show what's running across all worktrees:
+
+```bash
+# List all arkeon docker compose projects
+docker compose ls --filter "name=arkeon"
+
+# Show listening ports
+lsof -iTCP -sTCP:LISTEN -P | grep -E '(tsx|postgres)' || echo "Nothing running"
+```
+
 ## Important Notes
 
 - The API runs locally (not in Docker) for instant hot reload on code changes.
-- Postgres runs in Docker on port 5432.
+- Postgres runs in Docker, port varies by worktree.
 - The `ADMIN_BOOTSTRAP_KEY` must match between server and tests.
 - After schema SQL changes, you MUST use `reset` — migrations run from scratch, no ALTER TABLE.
-- Redis is not started by default (scheduling disabled). Use `docker compose --profile workers up -d redis` if needed.
-- Do NOT start the Docker API container alongside the local API — they both use port 8000.
+- Redis is not started by default (scheduling disabled). Use `REDIS_PORT=$((6379 + SLOT)) docker compose -p $PROJECT --profile workers up -d redis` if needed.
+- Do NOT start the Docker API container alongside the local API — they both use the same port.
+- Each worktree gets its own Docker volumes (namespaced by project name), so schema changes in one worktree don't affect others.
+- Use `stop` or `reset` to clean up when done with a worktree — don't leave orphaned containers.

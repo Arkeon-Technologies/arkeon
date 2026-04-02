@@ -27,6 +27,9 @@ Thumbs.db
 # Local data
 data/
 
+# Worktree dev ports
+.devports
+
 # Misc
 *.log
 packages/sdk-python/arkeon_sdk/__pycache__/
