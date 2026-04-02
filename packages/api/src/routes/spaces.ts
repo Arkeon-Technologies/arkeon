@@ -274,12 +274,18 @@ const removeSpaceEntityRoute = createRoute({
   },
 });
 
+const SpaceGrantSchema = z.object({
+  grantee_type: z.enum(["actor", "group"]).default("actor").describe("Grantee type"),
+  grantee_id: z.string().describe("Actor or group ID"),
+  role: z.enum(["contributor", "editor", "admin"]).describe("Role to grant"),
+});
+
 const grantSpacePermissionRoute = createRoute({
   method: "post",
   path: "/{id}/permissions",
   operationId: "grantSpacePermission",
   tags: ["Spaces"],
-  summary: "Grant a role on a space (RLS: owner/admin)",
+  summary: "Grant role(s) on a space. Accepts a single grant or a bulk grants array (RLS: owner/admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["DELETE /spaces/{id}/permissions/{granteeId}", "GET /spaces/{id}/permissions"],
   request: {
@@ -287,18 +293,23 @@ const grantSpacePermissionRoute = createRoute({
     body: {
       required: true,
       content: jsonContent(
-        z.object({
-          grantee_type: z.enum(["actor", "group"]).describe("Grantee type"),
-          grantee_id: z.string().describe("Actor or group ID"),
-          role: z.enum(["contributor", "editor", "admin"]).describe("Role to grant"),
-        }),
+        z.union([
+          SpaceGrantSchema,
+          z.object({
+            grants: z.array(SpaceGrantSchema).min(1).max(100)
+              .describe("Array of permission grants (max 100)"),
+          }),
+        ]),
       ),
     },
   },
   responses: {
     201: {
-      description: "Permission granted",
-      content: jsonContent(z.object({ permission: SpacePermissionSchema })),
+      description: "Permission(s) granted",
+      content: jsonContent(z.union([
+        z.object({ permission: SpacePermissionSchema }),
+        z.object({ permissions: z.array(SpacePermissionSchema) }),
+      ])),
     },
     ...errorResponses([400, 401, 403, 404]),
   },
@@ -408,12 +419,14 @@ async function requireSpaceRole(
   `;
 
   if (!perm) {
-    throw new ApiError(403, "forbidden", "Forbidden");
+    throw new ApiError(403, "forbidden",
+      `You have no role on this space. Required: ${requiredRole}. Grant access via POST /spaces/${spaceId}/permissions`);
   }
 
   const grantedIdx = roleHierarchy.indexOf(perm.role as string);
   if (grantedIdx < requiredIdx) {
-    throw new ApiError(403, "forbidden", "Insufficient role");
+    throw new ApiError(403, "forbidden",
+      `Your role '${perm.role}' is insufficient, need '${requiredRole}'. Upgrade via POST /spaces/${spaceId}/permissions`);
   }
 
   return s;
@@ -721,17 +734,37 @@ spacesRouter.openapi(grantSpacePermissionRoute, async (c) => {
   const body = await parseJsonBody<Record<string, unknown>>(c);
   const sql = createSql();
 
-  if (typeof body.grantee_id !== "string") {
-    throw new ApiError(400, "missing_required_field", "Missing grantee_id");
+  // Normalize: single grant body → array, bulk grants body → use grants array
+  const isBulk = Array.isArray((body as Record<string, unknown>).grants);
+  const rawGrants = isBulk
+    ? (body as { grants: Array<Record<string, unknown>> }).grants
+    : [body as Record<string, unknown>];
+
+  if (rawGrants.length === 0) {
+    throw new ApiError(400, "invalid_body", "At least one grant is required");
   }
-  const granteeType = typeof body.grantee_type === "string" ? body.grantee_type : "actor";
-  if (!["actor", "group"].includes(granteeType)) {
-    throw new ApiError(400, "invalid_body", "Invalid grantee_type");
-  }
-  if (typeof body.role !== "string" || !["contributor", "editor", "admin"].includes(body.role)) {
-    throw new ApiError(400, "missing_required_field", "Missing or invalid role");
+  if (rawGrants.length > 100) {
+    throw new ApiError(400, "invalid_body", "Maximum 100 grants per request");
   }
 
+  // Validate each grant
+  const validRoles = ["contributor", "editor", "admin"];
+  const validTypes = ["actor", "group"];
+  const grants = rawGrants.map((g, i) => {
+    if (typeof g.grantee_id !== "string") {
+      throw new ApiError(400, "missing_required_field", `grants[${i}]: missing grantee_id`);
+    }
+    const granteeType = typeof g.grantee_type === "string" ? g.grantee_type : "actor";
+    if (!validTypes.includes(granteeType)) {
+      throw new ApiError(400, "invalid_body", `grants[${i}]: invalid grantee_type '${granteeType}'`);
+    }
+    if (typeof g.role !== "string" || !validRoles.includes(g.role)) {
+      throw new ApiError(400, "missing_required_field", `grants[${i}]: missing or invalid role`);
+    }
+    return { grantee_type: granteeType, grantee_id: g.grantee_id as string, role: g.role as string };
+  });
+
+  // Permission check: must be space owner or admin (runs once for the whole batch)
   const space = await requireSpaceRole(sql, actor, spaceId, "admin");
   if (space.owner_id !== actor.id && !actor.isAdmin) {
     throw new ApiError(403, "forbidden", "Only owner or admin can grant permissions");
@@ -740,17 +773,24 @@ spacesRouter.openapi(grantSpacePermissionRoute, async (c) => {
   const now = new Date().toISOString();
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
-    sql.query(
-      `INSERT INTO space_permissions (space_id, grantee_type, grantee_id, role, granted_by, granted_at)
-       VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
-       ON CONFLICT (space_id, grantee_type, grantee_id) DO UPDATE SET role = $4, granted_by = $5, granted_at = $6::timestamptz
-       RETURNING *`,
-      [spaceId, granteeType, body.grantee_id, body.role, actor.id, now],
+    ...grants.map((g) =>
+      sql.query(
+        `INSERT INTO space_permissions (space_id, grantee_type, grantee_id, role, granted_by, granted_at)
+         VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+         ON CONFLICT (space_id, grantee_type, grantee_id) DO UPDATE SET role = $4, granted_by = $5, granted_at = $6::timestamptz
+         RETURNING *`,
+        [spaceId, g.grantee_type, g.grantee_id, g.role, actor.id, now],
+      ),
     ),
   ]);
 
-  const permission = (results[results.length - 1] as SpacePermissionRecord[])[0];
-  return c.json({ permission }, 201);
+  // Extract permission rows (last N results correspond to the N grants)
+  const permissions = results.slice(-grants.length).map((r) => (r as SpacePermissionRecord[])[0]);
+
+  if (isBulk) {
+    return c.json({ permissions }, 201);
+  }
+  return c.json({ permission: permissions[0] }, 201);
 });
 
 spacesRouter.openapi(revokeSpacePermissionRoute, async (c) => {

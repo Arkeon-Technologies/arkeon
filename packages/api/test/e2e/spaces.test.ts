@@ -166,6 +166,60 @@ describe("Spaces", () => {
     expect((body as any).permissions.some((p: any) => p.grantee_id === target.id && p.role === "admin")).toBe(true);
   });
 
+  test("Bulk grant permissions on a space", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("bulk-perm-space"));
+    const actor1 = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
+    const actor2 = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
+    const actor3 = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
+
+    // Bulk grant contributor to all 3 actors
+    const { response, body } = await jsonRequest(`/spaces/${space.id}/permissions`, {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        grants: [
+          { grantee_id: actor1.id, role: "contributor" },
+          { grantee_id: actor2.id, role: "contributor" },
+          { grantee_id: actor3.id, role: "editor" },
+        ],
+      },
+    });
+    expect(response.status).toBe(201);
+    const perms = (body as any).permissions;
+    expect(perms).toHaveLength(3);
+    expect(perms[0].grantee_id).toBe(actor1.id);
+    expect(perms[0].role).toBe("contributor");
+    expect(perms[2].grantee_id).toBe(actor3.id);
+    expect(perms[2].role).toBe("editor");
+
+    // Verify actor1 can add entities to the space
+    const entity = await createEntity(actor1.apiKey, arkeId, "note", {
+      label: uniqueName("bulk-test-entity"),
+    });
+    await addEntityToSpace(actor1.apiKey, space.id, entity.id);
+
+    const { body: spaceEntities } = await getJson(`/spaces/${space.id}/entities`, actor.apiKey);
+    expect((spaceEntities as any).entities.some((e: any) => e.id === entity.id)).toBe(true);
+  });
+
+  test("Space permission 403 includes descriptive message", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("403-msg-space"));
+    const unprivileged = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
+    const entity = await createEntity(unprivileged.apiKey, arkeId, "note", {
+      label: uniqueName("403-msg-entity"),
+    });
+
+    // Try to add entity without contributor role
+    const { response, body } = await jsonRequest(`/spaces/${space.id}/entities`, {
+      method: "POST",
+      apiKey: unprivileged.apiKey,
+      json: { entity_id: entity.id },
+    });
+    expect(response.status).toBe(403);
+    expect((body as any).error.message).toContain("no role on this space");
+    expect((body as any).error.message).toContain("/permissions");
+  });
+
   test("Space feed shows activity", async () => {
     const space = await createSpace(actor.apiKey, arkeId, uniqueName("feed-space"));
     const entity = await createEntity(
