@@ -52,16 +52,6 @@ function jsonPathArray(path: string): string {
   return `{${path.split(".").join(",")}}`;
 }
 
-/** Returns true if value is a JSON literal (boolean, null, or number). */
-function isJsonLiteral(value: string): boolean {
-  return (
-    value === "true" ||
-    value === "false" ||
-    value === "null" ||
-    (value !== "" && isFinite(Number(value)))
-  );
-}
-
 function buildColumnClause(
   column: string,
   columnType: "text" | "numeric" | "timestamp",
@@ -132,20 +122,12 @@ export function buildFilterSql(
     switch (clause.op) {
       case ":":
         params.push(clause.value);
-        if (isJsonLiteral(clause.value)) {
-          sql.push(`properties #> '${pathText}' = $${nextIndex}::jsonb`);
-        } else {
-          sql.push(`properties #>> '${pathText}' = $${nextIndex}`);
-        }
+        sql.push(`properties #>> '${pathText}' = $${nextIndex}`);
         nextIndex += 1;
         break;
       case "!:":
         params.push(clause.value);
-        if (isJsonLiteral(clause.value)) {
-          sql.push(`properties #> '${pathText}' != $${nextIndex}::jsonb`);
-        } else {
-          sql.push(`properties #>> '${pathText}' != $${nextIndex}`);
-        }
+        sql.push(`properties #>> '${pathText}' != $${nextIndex}`);
         nextIndex += 1;
         break;
       case ">":

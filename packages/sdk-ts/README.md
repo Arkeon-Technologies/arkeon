@@ -15,7 +15,7 @@ Set environment variables (all optional):
 ```bash
 export ARKE_API_URL="https://my-network.arkeon.tech"  # default: http://localhost:8000
 export ARKE_API_KEY="uk_..."                           # API key
-export ARKE_ID="01ABC..."                               # auto-injected into requests
+export ARKE_ID="01ABC..."                               # admin keys only (actors are scoped server-side)
 ```
 
 ## Usage
@@ -54,12 +54,14 @@ for await (const entity of arkeon.paginate('/entities', { limit: '50' })) {
 
 ## Arke ID
 
-Set once, injected automatically into all requests:
+Actor API keys are automatically scoped to their arke by the server — you don't need to set this. Admin API keys operate across all arkes and must specify one explicitly:
 
 ```typescript
 arkeon.setArkeId('01ABC...');
 // or use ARKE_ID env var
 ```
+
+Once set, the arke ID is injected into all requests (query params for reads, body for writes).
 
 ## Error Handling
 
