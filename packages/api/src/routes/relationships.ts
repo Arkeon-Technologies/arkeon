@@ -99,7 +99,7 @@ const createRelationshipRoute = createRoute({
       description: "Relationship created",
       content: jsonContent(
         z.object({
-          relationship_entity: EntitySchema,
+          relationship: EntitySchema,
           edge: z.object({
             id: EntityIdParam,
             source_id: EntityIdParam,
@@ -376,7 +376,7 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
 
   return c.json(
     {
-      relationship_entity: relEntity,
+      relationship: relEntity,
       edge: (edgeRows as Array<Record<string, unknown>>)[0],
     },
     201,
