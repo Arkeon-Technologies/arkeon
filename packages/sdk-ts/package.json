@@ -1,6 +1,6 @@
 {
   "name": "@arkeon-technologies/sdk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Lightweight TypeScript SDK for the Arkeon API",
   "repository": {
     "type": "git",
