@@ -1,0 +1,79 @@
+import { Command } from "commander";
+
+import {
+  WHAT_IS_ARKEON,
+  CORE_CONCEPTS,
+  AUTHENTICATION,
+  BEST_PRACTICES,
+  FILTERING_HINT,
+} from "arkeon-shared";
+
+const CLI_GUIDE = `# Arkeon CLI — Getting Started
+
+## What is Arkeon?
+
+${WHAT_IS_ARKEON}
+
+## Core Concepts
+
+${CORE_CONCEPTS}
+
+## Authentication
+
+${AUTHENTICATION}
+
+Set up the CLI:
+  arkeon config set-url https://your-instance.arkeon.tech
+  arkeon auth set-api-key <your-key>
+  arkeon auth status                    # verify you're authenticated
+
+Or use environment variables:
+  export ARKE_API_URL=https://your-instance.arkeon.tech
+  export ARKE_API_KEY=<your-key>
+
+## Your First Workflow
+
+1. Create an entity
+   arkeon entities create --type note --body-field properties.title Hello --body-field properties.body "My first entity."
+
+   Your arke_id is automatically set from your actor's membership.
+   Admin actors must pass --arke-id explicitly.
+
+2. List entities
+   arkeon entities list
+   Results are automatically scoped to your arke.
+
+3. Create a relationship
+   arkeon relationships create --source-id <entity-A> --predicate references --target-id <entity-B> --body-field properties.label references
+
+4. Search
+   arkeon search query --q hello
+
+## Filtering
+
+${FILTERING_HINT}
+
+Example:
+  arkeon entities list --filter 'kind:entity,type:book,created_at>2026-01-01'
+
+## Best Practices
+
+${BEST_PRACTICES}
+
+## Getting More Help
+
+arkeon --help                             List all command groups
+arkeon <group> --help                     List commands in a group
+arkeon <group> <command> --help           Full usage, params, and route info
+
+If a command fails, run --help for that command to see the exact parameters.
+`;
+
+export function registerGuideCommand(program: Command): void {
+  program
+    .command("guide")
+    .description("Show the Arkeon getting-started guide")
+    .action(() => {
+      process.stdout.write(CLI_GUIDE);
+    });
+}

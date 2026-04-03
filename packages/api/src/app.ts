@@ -24,6 +24,14 @@ import { searchRouter } from "./routes/search";
 import { spacesRouter } from "./routes/spaces";
 import { workersRouter } from "./routes/workers";
 
+export const openApiConfig = {
+  openapi: "3.1.0" as const,
+  info: {
+    title: "Arkeon API",
+    version: "2.0.0",
+  },
+};
+
 export function createApp() {
   const app = new OpenAPIHono<AppBindings>({
     defaultHook: validationHook,
@@ -58,13 +66,6 @@ export function createApp() {
     }
   });
 
-  const openApiConfig = {
-    openapi: "3.1.0" as const,
-    info: {
-      title: "Arkeon API",
-      version: "2.0.0",
-    },
-  };
   const getSpec = () => app.getOpenAPI31Document(openApiConfig);
 
   app.doc31("/openapi.json", openApiConfig);

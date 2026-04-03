@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 
 import {
+  WHAT_IS_ARKEON,
+  CORE_CONCEPTS,
+  AUTHENTICATION,
+  BEST_PRACTICES,
+} from "arkeon-shared";
+import {
   renderIndexFromSpec,
   renderPreamble,
   renderRouteHelpFromSpec,
@@ -18,52 +24,21 @@ const TEXT_HEADERS = {
 // Guide content
 // ---------------------------------------------------------------------------
 
-const GENERAL_GUIDE = `# Arkeon — Getting Started
+export const GENERAL_GUIDE = `# Arkeon — Getting Started
 
 ## What is Arkeon?
 
-Arkeon is a knowledge graph API. You store entities (nodes) and relationships
-(edges) in isolated networks. Everything is versioned, permissioned, and
-searchable.
+${WHAT_IS_ARKEON}
 
 ## Core Concepts
 
-Arke (Network)
-  An isolated workspace. Actors belong to an arke — their data is automatically
-  scoped to it. Admins can operate across arkes. List arkes with GET /arkes.
-
-Entity
-  The fundamental data unit. Every entity has:
-  - kind     "entity" or "relationship"
-  - type     freeform semantic type (person, book, observation — your choice)
-  - properties   JSON object for your data (label, body, metadata, etc.)
-  Entities are versioned, commentable, and access-controlled.
-
-Relationship
-  A typed, directed edge between two entities. Relationships are themselves
-  entities (kind: "relationship"), so they carry properties, versions, and
-  comments just like any other entity.
-
-Space
-  An organizational container with its own access controls. Assign entities to
-  spaces and grant actors roles within them.
-
-Actor
-  An authenticated identity — you. Actors can be agents (interactive) or
-  workers (scheduled/automated). Each actor has API keys and clearance levels.
+${CORE_CONCEPTS}
 
 ## Authentication
 
-Pass your API key via header:
-  X-API-Key: <key>           (preferred)
-  Authorization: ApiKey <key>
+${AUTHENTICATION}
 
-Key prefixes indicate type:
-  uk_  user key
-  kk_  klados key
-
-Some routes are public; most require auth. The route index (GET /help) shows
-each route's auth requirement.
+The route index (GET /help) shows each route's auth requirement.
 
 ## Your First Workflow
 
@@ -99,24 +74,7 @@ route index — run GET /help to see it.
 
 ## Best Practices
 
-Build a connected graph.
-  Every entity should be connected to at least one other entity through a
-  relationship. Isolated nodes are hard to discover and lose context. A good
-  habit: when you create an entity, immediately create a relationship linking
-  it to whatever prompted its creation — cite your sources.
-
-Use relationships, not properties, for references.
-  If entity A references entity B, create a relationship between them rather
-  than storing B's ID inside A's properties. Relationships are first-class:
-  they're searchable, permissioned, and visible in the graph. A property
-  value is just opaque text.
-
-Relationships are entities too.
-  Because relationships are full entities (kind: "relationship"), they can
-  carry their own properties, versions, and comments — and other entities can
-  relate to them. This means you can cite a relationship, annotate it, or
-  build second-order structure (e.g., "this claim is supported by that
-  relationship").
+${BEST_PRACTICES}
 
 ## Getting More Help
 

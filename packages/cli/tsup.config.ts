@@ -9,6 +9,7 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   shims: true,
+  noExternal: ["arkeon-shared"],
   banner: {
     js: "#!/usr/bin/env node",
   },

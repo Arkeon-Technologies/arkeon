@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { Agent, type LogEntry, type UsageStats } from "../../../runtime/src/agent.js";
 import { decrypt } from "./crypto.js";
 import { createSql } from "./sql.js";
+import { buildWorkerSystemPrompt } from "./worker-prompt.js";
 
 export type LogLevel = "full" | "errors_only" | "none";
 
@@ -84,19 +85,7 @@ export async function invokeWorker(
 
   const workspace = mkdtempSync(join(tmpdir(), `arke-worker-${workerId}-`));
 
-  const fullSystemPrompt = [
-    props.system_prompt,
-    "",
-    "## Environment",
-    "You are running in an isolated sandbox with a writable workspace directory.",
-    "Pre-installed tools: curl, jq, python3, arkeon (Arkeon CLI).",
-    "Pre-installed SDKs: arkeon-sdk (TypeScript: import * as arkeon from 'arkeon-sdk'), arkeon_sdk (Python: import arkeon_sdk as arkeon).",
-    "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the CLI and SDKs.",
-    "$ARKE_INVOCATION_ID and $ARKE_INVOCATION_DEPTH track invocation nesting.",
-    "When invoking other workers, include headers: -H 'X-Arke-Parent-Invocation: $ARKE_INVOCATION_ID' -H 'X-Arke-Invocation-Depth: $ARKE_INVOCATION_DEPTH'",
-    'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
-    "When done, call the done tool with a summary.",
-  ].join("\n");
+  const fullSystemPrompt = buildWorkerSystemPrompt(props.system_prompt, context);
 
   const agent = new Agent({
     name: props.name ?? workerId,

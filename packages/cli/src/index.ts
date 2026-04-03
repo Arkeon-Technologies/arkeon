@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerAuthCommands } from "./commands/auth/index.js";
 import { registerConfigCommands } from "./commands/config/index.js";
 import { registerEntityContentCommands } from "./commands/entities/index.js";
+import { registerGuideCommand } from "./commands/guide/index.js";
 import { registerApiCommands } from "./generated/index.js";
 
 const program = new Command();
@@ -27,6 +28,7 @@ program.hook("preAction", (command) => {
 registerAuthCommands(program);
 registerConfigCommands(program);
 registerEntityContentCommands(program);
+registerGuideCommand(program);
 registerApiCommands(program, { skipExisting: true });
 
 program.parse();

@@ -20,6 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "arkeon-shared": "*",
     "commander": "^14.0.1",
     "conf": "^13.0.1"
   },

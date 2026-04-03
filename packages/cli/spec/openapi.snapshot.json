@@ -649,6 +649,9 @@
           "GET /entities/{id}/activity",
           "GET /actors/{actorId}/activity",
           "GET /commons/{id}/feed"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
         ]
       }
     },
@@ -768,7 +771,8 @@
         "x-arke-related": [
           "POST /actors",
           "GET /actors/{id}"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "post": {
         "operationId": "createActor",
@@ -885,6 +889,10 @@
         "x-arke-related": [
           "GET /actors/{id}",
           "GET /actors"
+        ],
+        "x-arke-rules": [
+          "Cannot grant max_read_level higher than your own",
+          "Cannot grant max_write_level higher than your own"
         ]
       }
     },
@@ -959,7 +967,10 @@
         "tags": [
           "Actors"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
       },
       "get": {
         "operationId": "getActor",
@@ -1025,7 +1036,8 @@
         "x-arke-related": [
           "PUT /actors/{id}",
           "DELETE /actors/{id}"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "put": {
         "operationId": "updateActor",
@@ -1153,6 +1165,11 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /actors/{id}"
+        ],
+        "x-arke-rules": [
+          "Only the actor themselves or a system admin may update",
+          "Only admins can change arke_id, is_admin, status, or can_publish_public",
+          "Cannot set clearance levels higher than your own"
         ]
       }
     },
@@ -1349,6 +1366,9 @@
         "x-arke-auth": "optional",
         "x-arke-related": [
           "GET /activity"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
         ]
       }
     },
@@ -1460,6 +1480,10 @@
         "x-arke-related": [
           "GET /auth/keys",
           "POST /auth/keys"
+        ],
+        "x-arke-rules": [
+          "System admin only",
+          "Target actor must be active"
         ]
       }
     },
@@ -1599,6 +1623,9 @@
         "x-arke-related": [
           "GET /actors/{id}",
           "PUT /actors/{id}"
+        ],
+        "x-arke-rules": [
+          "System admin only"
         ]
       }
     },
@@ -1656,7 +1683,10 @@
         "tags": [
           "Admin"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
       }
     },
     "/admin/reindex": {
@@ -1716,7 +1746,10 @@
         "tags": [
           "Admin"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
       }
     },
     "/admin/stats": {
@@ -1790,7 +1823,10 @@
         "tags": [
           "Admin"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
       }
     },
     "/arkes": {
@@ -1880,7 +1916,8 @@
         "x-arke-related": [
           "POST /arkes",
           "GET /arkes/{id}"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "post": {
         "operationId": "createArke",
@@ -1991,6 +2028,9 @@
         "x-arke-related": [
           "GET /arkes/{id}",
           "GET /arkes"
+        ],
+        "x-arke-rules": [
+          "System admin only"
         ]
       }
     },
@@ -2050,7 +2090,10 @@
         "tags": [
           "Arkes"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
       },
       "get": {
         "operationId": "getArke",
@@ -2106,7 +2149,8 @@
         "x-arke-related": [
           "PUT /arkes/{id}",
           "DELETE /arkes/{id}"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "put": {
         "operationId": "updateArke",
@@ -2237,6 +2281,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /arkes/{id}"
+        ],
+        "x-arke-rules": [
+          "System admin only"
         ]
       }
     },
@@ -2346,6 +2393,9 @@
         "x-arke-related": [
           "POST /auth/keys",
           "DELETE /auth/keys/{id}"
+        ],
+        "x-arke-rules": [
+          "Lists only your own keys"
         ]
       },
       "post": {
@@ -2431,6 +2481,9 @@
         "x-arke-related": [
           "GET /auth/keys",
           "DELETE /auth/keys/{id}"
+        ],
+        "x-arke-rules": [
+          "Creates a key for your own actor only"
         ]
       }
     },
@@ -2493,6 +2546,10 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /auth/keys"
+        ],
+        "x-arke-rules": [
+          "Can only revoke your own keys",
+          "Cannot revoke the key currently in use"
         ]
       }
     },
@@ -2547,6 +2604,9 @@
         "x-arke-related": [
           "PUT /auth/me",
           "GET /auth/me/inbox"
+        ],
+        "x-arke-rules": [
+          "Operates on your own record only"
         ]
       },
       "put": {
@@ -2611,7 +2671,11 @@
         "tags": [
           "Auth"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Operates on your own record only",
+          "Can only update properties — admin fields require PUT /actors/{id}"
+        ]
       }
     },
     "/auth/me/inbox": {
@@ -2771,6 +2835,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /auth/me/inbox/count"
+        ],
+        "x-arke-rules": [
+          "Operates on your own inbox only"
         ]
       }
     },
@@ -2848,6 +2915,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /auth/me/inbox"
+        ],
+        "x-arke-rules": [
+          "Operates on your own inbox only"
         ]
       }
     },
@@ -3001,6 +3071,9 @@
         "x-arke-related": [
           "GET /search",
           "GET /entities/{id}"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
         ]
       },
       "post": {
@@ -3098,6 +3171,11 @@
         "x-arke-related": [
           "GET /entities/{id}",
           "PUT /entities/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires write_level clearance >= entity's write_level",
+          "Requires read_level clearance >= entity's read_level",
+          "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly"
         ]
       }
     },
@@ -3157,7 +3235,11 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the owner, an entity admin, or a system admin may delete",
+          "Requires write_level clearance >= entity's write_level"
+        ]
       },
       "get": {
         "operationId": "getEntity",
@@ -3242,6 +3324,10 @@
         "x-arke-related": [
           "PUT /entities/{id}",
           "GET /entities/{id}/versions"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level",
+          "Returns 404 if entity is not visible to you"
         ]
       },
       "put": {
@@ -3356,6 +3442,11 @@
         "x-arke-related": [
           "GET /entities/{id}",
           "GET /entities/{id}/versions"
+        ],
+        "x-arke-rules": [
+          "Only the owner, an entity editor, or an entity admin may update",
+          "Requires write_level clearance >= entity's write_level",
+          "Optimistic concurrency: must pass current ver to update"
         ]
       }
     },
@@ -3533,6 +3624,9 @@
         "x-arke-related": [
           "GET /activity",
           "GET /commons/{id}/feed"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
         ]
       }
     },
@@ -3737,7 +3831,10 @@
         "tags": [
           "Comments"
         ],
-        "x-arke-auth": "optional"
+        "x-arke-auth": "optional",
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
+        ]
       },
       "post": {
         "operationId": "createComment",
@@ -3887,6 +3984,10 @@
         "x-arke-related": [
           "GET /entities/{id}/comments",
           "DELETE /entities/{id}/comments/{commentId}"
+        ],
+        "x-arke-rules": [
+          "Requires read access to the entity",
+          "Replies may only target top-level comments"
         ]
       }
     },
@@ -3968,7 +4069,10 @@
         "tags": [
           "Comments"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the comment author, entity owner, entity admin, or system admin may delete"
+        ]
       }
     },
     "/entities/{id}/content": {
@@ -4083,6 +4187,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /entities/{id}/content"
+        ],
+        "x-arke-rules": [
+          "Requires write access to the entity (owner, editor, or admin role)"
         ]
       },
       "get": {
@@ -4172,6 +4279,9 @@
         "x-arke-related": [
           "POST /entities/{id}/content",
           "DELETE /entities/{id}/content"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
         ]
       },
       "patch": {
@@ -4301,7 +4411,10 @@
         "tags": [
           "Content"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Requires write access to the entity (owner, editor, or admin role)"
+        ]
       },
       "post": {
         "operationId": "uploadEntityContent",
@@ -4456,6 +4569,10 @@
         "x-arke-related": [
           "GET /entities/{id}/content",
           "DELETE /entities/{id}/content"
+        ],
+        "x-arke-rules": [
+          "Requires write access to the entity (owner, editor, or admin role)",
+          "Optimistic concurrency: must pass current ver to upload"
         ]
       }
     },
@@ -4556,7 +4673,13 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the owner, an entity editor, or an entity admin may change levels",
+          "Cannot set read_level above your own max_read_level",
+          "Cannot set write_level above your own max_write_level",
+          "Setting read_level to PUBLIC (0) requires can_publish_public flag"
+        ]
       }
     },
     "/entities/{id}/owner": {
@@ -4653,7 +4776,11 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the current owner or a system admin may transfer ownership",
+          "Previous owner loses all access unless they have a separate permission grant"
+        ]
       }
     },
     "/entities/{id}/permissions": {
@@ -4771,7 +4898,10 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
+        ]
       },
       "post": {
         "operationId": "grantEntityPermission",
@@ -4931,7 +5061,10 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the entity owner, an entity admin, or a system admin may grant permissions"
+        ]
       }
     },
     "/entities/{id}/permissions/{granteeId}": {
@@ -5000,7 +5133,10 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the entity owner, an entity admin, or a system admin may revoke permissions"
+        ]
       }
     },
     "/entities/{id}/relationships": {
@@ -5192,6 +5328,10 @@
         "x-arke-related": [
           "POST /entities/{id}/relationships",
           "GET /relationships/{relId}"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance",
+          "Only shows relationships where you can read the relationship entity"
         ]
       },
       "post": {
@@ -5354,6 +5494,12 @@
         "x-arke-related": [
           "GET /entities/{id}/relationships",
           "DELETE /relationships/{relId}"
+        ],
+        "x-arke-rules": [
+          "Requires edit access on the source entity (owner, editor, or admin role)",
+          "Requires read access on the target entity",
+          "Relationship read_level must be >= max(source, target) read_level",
+          "Relationship write_level must be >= max(source, target) write_level"
         ]
       }
     },
@@ -5490,7 +5636,10 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "optional"
+        "x-arke-auth": "optional",
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
+        ]
       }
     },
     "/entities/{id}/versions/{ver}": {
@@ -5596,7 +5745,10 @@
         "tags": [
           "Entities"
         ],
-        "x-arke-auth": "optional"
+        "x-arke-auth": "optional",
+        "x-arke-rules": [
+          "Requires read_level clearance >= entity's read_level"
+        ]
       }
     },
     "/groups": {
@@ -5704,7 +5856,8 @@
         "x-arke-related": [
           "POST /groups",
           "GET /groups/{id}"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "post": {
         "operationId": "createGroup",
@@ -5808,6 +5961,9 @@
         "x-arke-related": [
           "GET /groups/{id}",
           "GET /groups"
+        ],
+        "x-arke-rules": [
+          "System admin only"
         ]
       }
     },
@@ -5867,7 +6023,10 @@
         "tags": [
           "Groups"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Requires group admin role or system admin"
+        ]
       },
       "get": {
         "operationId": "getGroup",
@@ -5967,7 +6126,8 @@
         "x-arke-related": [
           "PUT /groups/{id}",
           "POST /groups/{id}/members"
-        ]
+        ],
+        "x-arke-rules": []
       },
       "put": {
         "operationId": "updateGroup",
@@ -6079,6 +6239,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /groups/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires group admin role or system admin"
         ]
       }
     },
@@ -6221,6 +6384,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "DELETE /groups/{id}/members/{actorId}"
+        ],
+        "x-arke-rules": [
+          "Requires group admin role or system admin"
         ]
       }
     },
@@ -6292,7 +6458,10 @@
         "tags": [
           "Groups"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Requires group admin role or system admin"
+        ]
       }
     },
     "/relationships/{relId}": {
@@ -6361,7 +6530,10 @@
         "tags": [
           "Relationships"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the relationship owner, a system admin, or an actor with edit access on the source entity may delete"
+        ]
       },
       "get": {
         "operationId": "getRelationship",
@@ -6465,6 +6637,9 @@
         "x-arke-related": [
           "PUT /relationships/{relId}",
           "DELETE /relationships/{relId}"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= relationship's read_level"
         ]
       },
       "put": {
@@ -6586,7 +6761,12 @@
         "tags": [
           "Relationships"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the owner, an entity editor, or an entity admin may update",
+          "Requires write_level clearance >= relationship's write_level",
+          "Optimistic concurrency: must pass current ver to update"
+        ]
       }
     },
     "/search": {
@@ -6771,7 +6951,10 @@
         "tags": [
           "Search"
         ],
-        "x-arke-auth": "optional"
+        "x-arke-auth": "optional",
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
+        ]
       }
     },
     "/spaces": {
@@ -6873,6 +7056,9 @@
         "x-arke-related": [
           "POST /spaces",
           "GET /spaces/{id}"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
         ]
       },
       "post": {
@@ -6990,6 +7176,9 @@
         "x-arke-related": [
           "GET /spaces/{id}",
           "GET /spaces"
+        ],
+        "x-arke-rules": [
+          "You become the owner of the space"
         ]
       }
     },
@@ -7064,7 +7253,10 @@
         "tags": [
           "Spaces"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the space owner or a system admin may delete"
+        ]
       },
       "get": {
         "operationId": "getSpace",
@@ -7130,6 +7322,9 @@
         "x-arke-related": [
           "PUT /spaces/{id}",
           "GET /spaces/{id}/entities"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= space's read_level"
         ]
       },
       "put": {
@@ -7261,6 +7456,10 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /spaces/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires space role: editor or above",
+          "Owner and system admins bypass role checks"
         ]
       }
     },
@@ -7373,6 +7572,10 @@
         "x-arke-related": [
           "POST /spaces/{id}/entities",
           "GET /spaces/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= space's read_level",
+          "Entity results further filtered by your classification clearance"
         ]
       },
       "post": {
@@ -7502,6 +7705,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "DELETE /spaces/{id}/entities/{entityId}"
+        ],
+        "x-arke-rules": [
+          "Requires space role: contributor or above"
         ]
       }
     },
@@ -7573,7 +7779,11 @@
         "tags": [
           "Spaces"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "You can remove entities you added yourself",
+          "Otherwise requires space role: editor or above"
+        ]
       }
     },
     "/spaces/{id}/feed": {
@@ -7739,6 +7949,10 @@
         "x-arke-auth": "optional",
         "x-arke-related": [
           "GET /activity"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= space's read_level",
+          "Activity results further filtered by your classification clearance"
         ]
       }
     },
@@ -7843,6 +8057,9 @@
         "x-arke-auth": "optional",
         "x-arke-related": [
           "POST /spaces/{id}/permissions"
+        ],
+        "x-arke-rules": [
+          "Requires read_level clearance >= space's read_level"
         ]
       },
       "post": {
@@ -8102,6 +8319,11 @@
         "x-arke-related": [
           "DELETE /spaces/{id}/permissions/{granteeId}",
           "GET /spaces/{id}/permissions"
+        ],
+        "x-arke-rules": [
+          "Only the space owner or a system admin may grant permissions",
+          "Valid roles: contributor, editor, admin",
+          "Maximum 100 grants per request"
         ]
       }
     },
@@ -8173,7 +8395,10 @@
         "tags": [
           "Spaces"
         ],
-        "x-arke-auth": "required"
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "Only the space owner or a system admin may revoke permissions"
+        ]
       }
     },
     "/workers/{id}": {
@@ -8255,6 +8480,9 @@
         "x-arke-related": [
           "PUT /workers/{id}",
           "POST /workers/{id}/invoke"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may access"
         ]
       },
       "put": {
@@ -8439,6 +8667,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /workers/{id}"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may update"
         ]
       }
     },
@@ -8693,6 +8924,9 @@
         "x-arke-related": [
           "POST /workers/{id}/invoke",
           "GET /workers/{id}/invocations/latest"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may view invocations"
         ]
       }
     },
@@ -8915,6 +9149,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /workers/{id}/invocations"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may view invocations"
         ]
       }
     },
@@ -9114,6 +9351,9 @@
           "GET /actors/{id}",
           "GET /workers/{id}",
           "GET /workers/invocations/{invocationId}"
+        ],
+        "x-arke-rules": [
+          "Requires owner, system admin, or invoker permission grant"
         ]
       }
     },
@@ -9244,6 +9484,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "POST /workers/{id}/permissions"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may view permissions"
         ]
       },
       "post": {
@@ -9405,6 +9648,9 @@
         "x-arke-related": [
           "GET /workers/{id}/permissions",
           "DELETE /workers/{id}/permissions/{granteeId}"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may grant permissions"
         ]
       }
     },
@@ -9477,6 +9723,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /workers/{id}/permissions"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may revoke permissions"
         ]
       }
     },
@@ -9686,6 +9935,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "POST /workers/{id}/invoke"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may view invocations"
         ]
       }
     },
@@ -9898,6 +10150,9 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /workers/invocations/{invocationId}"
+        ],
+        "x-arke-rules": [
+          "Only the worker owner or a system admin may view invocation trees"
         ]
       }
     }
