@@ -371,6 +371,121 @@ const listSpacePermissionsRoute = createRoute({
   },
 });
 
+// -- Space Entity Access (cascading permissions to contained entities) --------
+
+type SpaceEntityAccessRecord = {
+  space_id: string;
+  grantee_type: string;
+  grantee_id: string;
+  role: string;
+  granted_by: string;
+  granted_at: string;
+};
+
+const SpaceEntityAccessSchema = z.object({
+  space_id: EntityIdParam,
+  grantee_type: z.enum(["actor", "group"]),
+  grantee_id: EntityIdParam,
+  role: z.enum(["editor", "admin"]),
+  granted_by: EntityIdParam,
+  granted_at: DateTimeSchema,
+});
+
+const SpaceEntityAccessGrantSchema = z.object({
+  grantee_type: z.enum(["actor", "group"]).default("actor").describe("Grantee type"),
+  grantee_id: z.string().describe("Actor or group ID"),
+  role: z.enum(["editor", "admin"]).describe("Entity role to grant"),
+});
+
+const grantSpaceEntityAccessRoute = createRoute({
+  method: "post",
+  path: "/{id}/entity-access",
+  operationId: "grantSpaceEntityAccess",
+  tags: ["Spaces"],
+  summary: "Grant entity-level access to all entities in a space. Accepts a single grant or bulk grants array",
+  "x-arke-auth": "required",
+  "x-arke-related": ["DELETE /spaces/{id}/entity-access/{granteeId}", "GET /spaces/{id}/entity-access"],
+  "x-arke-rules": [
+    "Only the space owner or a system admin may grant entity access",
+    "Valid roles: editor, admin",
+    "Grantees can edit/admin any entity currently in the space",
+    "Removing an entity from the space revokes this access",
+    "Maximum 100 grants per request",
+  ],
+  request: {
+    params: entityIdParams("Space ULID"),
+    body: {
+      required: true,
+      content: jsonContent(
+        z.union([
+          SpaceEntityAccessGrantSchema,
+          z.object({
+            grants: z.array(SpaceEntityAccessGrantSchema).min(1).max(100)
+              .describe("Array of entity-access grants (max 100)"),
+          }),
+        ]),
+      ),
+    },
+  },
+  responses: {
+    201: {
+      description: "Entity access granted",
+      content: jsonContent(z.union([
+        z.object({ grant: SpaceEntityAccessSchema }),
+        z.object({ grants: z.array(SpaceEntityAccessSchema) }),
+      ])),
+    },
+    ...errorResponses([400, 401, 403, 404]),
+  },
+});
+
+const revokeSpaceEntityAccessRoute = createRoute({
+  method: "delete",
+  path: "/{id}/entity-access/{granteeId}",
+  operationId: "revokeSpaceEntityAccess",
+  tags: ["Spaces"],
+  summary: "Revoke entity-level access on a space",
+  "x-arke-auth": "required",
+  "x-arke-rules": ["Only the space owner or a system admin may revoke entity access"],
+  request: {
+    params: z.object({
+      id: pathParam("id", EntityIdParam, "Space ULID"),
+      granteeId: pathParam("granteeId", EntityIdParam, "Grantee actor/group ULID"),
+    }),
+  },
+  responses: {
+    204: {
+      description: "Entity access revoked",
+    },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
+const listSpaceEntityAccessRoute = createRoute({
+  method: "get",
+  path: "/{id}/entity-access",
+  operationId: "listSpaceEntityAccess",
+  tags: ["Spaces"],
+  summary: "List entity-access grants on a space",
+  "x-arke-auth": "optional",
+  "x-arke-related": ["POST /spaces/{id}/entity-access"],
+  "x-arke-rules": ["Requires read_level clearance >= space's read_level"],
+  request: {
+    params: entityIdParams("Space ULID"),
+  },
+  responses: {
+    200: {
+      description: "Entity-access grants",
+      content: jsonContent(
+        z.object({
+          grants: z.array(SpaceEntityAccessSchema),
+        }),
+      ),
+    },
+    ...errorResponses([403, 404]),
+  },
+});
+
 const spacesFeedRoute = createRoute({
   method: "get",
   path: "/{id}/feed",
@@ -852,6 +967,124 @@ spacesRouter.openapi(listSpacePermissionsRoute, async (c) => {
   `;
 
   return c.json({ permissions: permissions as SpacePermissionRecord[] }, 200);
+});
+
+
+// -- Space Entity Access handlers ---------------------------------------------
+
+spacesRouter.openapi(grantSpaceEntityAccessRoute, async (c) => {
+  const actor = requireActor(c);
+  const spaceId = c.req.param("id");
+  const body = await parseJsonBody<Record<string, unknown>>(c);
+  const sql = createSql();
+
+  // Normalize: single grant body → array, bulk grants body → use grants array
+  const isBulk = Array.isArray((body as Record<string, unknown>).grants);
+  const rawGrants = isBulk
+    ? (body as { grants: Array<Record<string, unknown>> }).grants
+    : [body as Record<string, unknown>];
+
+  if (rawGrants.length === 0) {
+    throw new ApiError(400, "invalid_body", "At least one grant is required");
+  }
+  if (rawGrants.length > 100) {
+    throw new ApiError(400, "invalid_body", "Maximum 100 grants per request");
+  }
+
+  // Validate each grant
+  const validRoles = ["editor", "admin"];
+  const validTypes = ["actor", "group"];
+  const grants = rawGrants.map((g, i) => {
+    if (typeof g.grantee_id !== "string") {
+      throw new ApiError(400, "missing_required_field", `grants[${i}]: missing grantee_id`);
+    }
+    const granteeType = typeof g.grantee_type === "string" ? g.grantee_type : "actor";
+    if (!validTypes.includes(granteeType)) {
+      throw new ApiError(400, "invalid_body", `grants[${i}]: invalid grantee_type '${granteeType}'`);
+    }
+    if (typeof g.role !== "string" || !validRoles.includes(g.role)) {
+      throw new ApiError(400, "missing_required_field", `grants[${i}]: missing or invalid role (must be editor or admin)`);
+    }
+    return { grantee_type: granteeType, grantee_id: g.grantee_id as string, role: g.role as string };
+  });
+
+  // Permission check: must be space owner or admin
+  const space = await requireSpaceRole(sql, actor, spaceId, "admin");
+  if (space.owner_id !== actor.id && !actor.isAdmin) {
+    throw new ApiError(403, "forbidden", "Only owner or admin can grant entity access");
+  }
+
+  const now = new Date().toISOString();
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    ...grants.map((g) =>
+      sql.query(
+        `INSERT INTO space_entity_access (space_id, grantee_type, grantee_id, role, granted_by, granted_at)
+         VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
+         ON CONFLICT (space_id, grantee_type, grantee_id) DO UPDATE SET role = $4, granted_by = $5, granted_at = $6::timestamptz
+         RETURNING *`,
+        [spaceId, g.grantee_type, g.grantee_id, g.role, actor.id, now],
+      ),
+    ),
+  ]);
+
+  const rows = results.slice(-grants.length).map((r) => (r as SpaceEntityAccessRecord[])[0]);
+
+  if (isBulk) {
+    return c.json({ grants: rows }, 201);
+  }
+  return c.json({ grant: rows[0] }, 201);
+});
+
+spacesRouter.openapi(revokeSpaceEntityAccessRoute, async (c) => {
+  const actor = requireActor(c);
+  const spaceId = c.req.param("id");
+  const granteeId = c.req.param("granteeId");
+  const sql = createSql();
+
+  const space = await requireSpaceRole(sql, actor, spaceId, "admin");
+  if (space.owner_id !== actor.id && !actor.isAdmin) {
+    throw new ApiError(403, "forbidden", "Only owner or admin can revoke entity access");
+  }
+
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`DELETE FROM space_entity_access
+        WHERE space_id = ${spaceId} AND grantee_id = ${granteeId}
+        RETURNING space_id`,
+  ]);
+  const rows = results[results.length - 1];
+
+  if ((rows as Array<{ space_id: string }>).length === 0) {
+    throw new ApiError(404, "not_found", "Entity access grant not found");
+  }
+
+  return new Response(null, { status: 204 });
+});
+
+spacesRouter.openapi(listSpaceEntityAccessRoute, async (c) => {
+  const sql = createSql();
+  const spaceId = c.req.param("id");
+  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
+  const isAdmin = c.get("actor")?.isAdmin ?? false;
+
+  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  if (!space) {
+    throw new ApiError(404, "not_found", "Space not found");
+  }
+  const s = space as SpaceRecord;
+  if (s.read_level > actorReadLevel && !isAdmin) {
+    throw new ApiError(403, "forbidden", "Insufficient read level");
+  }
+
+  const grants = await sql`
+    SELECT space_id, grantee_type, grantee_id, role, granted_by, granted_at
+    FROM space_entity_access
+    WHERE space_id = ${spaceId}
+    ORDER BY granted_at ASC
+  `;
+
+  return c.json({ grants: grants as SpaceEntityAccessRecord[] }, 200);
 });
 
 spacesRouter.openapi(spacesFeedRoute, async (c) => {
