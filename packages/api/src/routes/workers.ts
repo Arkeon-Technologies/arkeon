@@ -99,21 +99,14 @@ async function requireWorkerInvoke(
     return worker;
   }
   // Check worker_permissions for invoker grant (direct or via group)
-  const [perm] = await sql`
-    SELECT 1 FROM worker_permissions wp
-    WHERE wp.worker_id = ${workerId}
-    AND wp.role = 'invoker'
-    AND (
-      (wp.grantee_type = 'actor' AND wp.grantee_id = ${actor.id})
-      OR (wp.grantee_type = 'group' AND EXISTS (
-        SELECT 1 FROM group_memberships gm
-        WHERE gm.group_id = wp.grantee_id
-        AND gm.actor_id = ${actor.id}
-      ))
-    )
-    LIMIT 1
-  `;
-  if (!perm) {
+  // Use actor_has_worker_role() which is SECURITY DEFINER and bypasses RLS.
+  // Only need app.actor_id set for current_actor_id() used inside the function.
+  const [, permRow] = await sql.transaction([
+    sql`SELECT set_config('app.actor_id', ${actor.id}, true)`,
+    sql`SELECT actor_has_worker_role(${workerId}, ARRAY['invoker']) AS has_role`,
+  ]);
+  const hasRole = (permRow as Array<Record<string, unknown>>)[0]?.has_role;
+  if (!hasRole) {
     throw new ApiError(403, "forbidden", "You do not have permission to invoke this worker");
   }
   return worker;

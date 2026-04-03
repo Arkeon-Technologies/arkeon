@@ -19,6 +19,8 @@ CREATE TABLE worker_permissions (
 
 CREATE INDEX idx_worker_perms_grantee ON worker_permissions (grantee_type, grantee_id);
 
+GRANT SELECT, INSERT, UPDATE, DELETE ON worker_permissions TO arke_app;
+
 -- Helper: does the current actor hold any of the given roles on a worker?
 CREATE OR REPLACE FUNCTION actor_has_worker_role(
   p_worker_id TEXT,
