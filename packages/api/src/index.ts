@@ -5,10 +5,12 @@ import { createApp } from "./app";
 import { ensureBootstrap } from "./lib/bootstrap";
 import { ensureMeiliIndex, isMeilisearchConfigured } from "./lib/meilisearch";
 import { startScheduler, stopScheduler } from "./lib/scheduler";
+import { initQueue, drainQueue } from "./lib/invocation-queue";
 
 const app = createApp();
 
 await ensureBootstrap();
+await initQueue();
 
 if (isMeilisearchConfigured()) {
   await ensureMeiliIndex();
@@ -24,11 +26,13 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8000) }, (info) => {
 await startScheduler();
 
 process.on("SIGTERM", async () => {
+  await drainQueue();
   await stopScheduler();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
+  await drainQueue();
   await stopScheduler();
   process.exit(0);
 });

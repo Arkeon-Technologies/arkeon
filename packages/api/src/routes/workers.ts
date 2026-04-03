@@ -4,8 +4,7 @@ import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
 import { createRouter } from "../lib/openapi";
 import { encrypt, keyHint } from "../lib/crypto";
-import { invokeWorker } from "../lib/worker-invoke";
-import { recordInvocation } from "../lib/invocation-recorder";
+import { enqueueInvocation, getQueuePosition, getQueueStats } from "../lib/invocation-queue";
 import { syncWorkerSchedule, isSchedulerAvailable } from "../lib/scheduler";
 import { encodeCursor } from "../lib/cursor";
 import { parseLimit, parseCursorParam } from "../lib/http";
@@ -140,10 +139,23 @@ const invokeWorkerRoute = createRoute({
   operationId: "invokeWorker",
   tags: ["Workers"],
   summary: "Invoke a worker with a prompt",
+  description:
+    "Queues a worker invocation. Returns 202 with an invocation ID by default. " +
+    "Pass ?wait=true to block until the invocation completes (returns 200 with full result).",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /actors/{id}", "GET /workers/{id}"],
+  "x-arke-related": [
+    "GET /actors/{id}",
+    "GET /workers/{id}",
+    "GET /workers/invocations/{invocationId}",
+  ],
   request: {
     params: entityIdParams("Worker actor ULID"),
+    query: z.object({
+      wait: z
+        .string()
+        .optional()
+        .describe("If 'true', block until invocation completes and return the full result"),
+    }),
     body: {
       required: true,
       content: jsonContent(
@@ -156,16 +168,26 @@ const invokeWorkerRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Worker invocation result",
+      description: "Worker invocation result (when ?wait=true)",
       content: jsonContent(
         z.object({
+          invocation_id: z.number().int(),
           success: z.boolean(),
           summary: z.string().nullable(),
           iterations: z.number().int(),
         }),
       ),
     },
-    ...errorResponses([400, 401, 403, 404, 408]),
+    202: {
+      description: "Invocation queued",
+      content: jsonContent(
+        z.object({
+          invocation_id: z.number().int(),
+          status: z.literal("queued"),
+        }),
+      ),
+    },
+    ...errorResponses([400, 401, 403, 404, 503]),
   },
 });
 
@@ -255,6 +277,7 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
   const workerId = c.req.param("id");
   const body = await parseJsonBody<{ prompt: string; store_log?: boolean }>(c);
   const sql = createSql();
+  const wait = c.req.query("wait") === "true";
 
   if (!body.prompt || typeof body.prompt !== "string") {
     throw new ApiError(400, "missing_required_field", "prompt is required");
@@ -263,30 +286,33 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
   // Owner or invoker permission check
   await requireWorkerInvoke(sql, actor, workerId);
 
-  const result = await invokeWorker(workerId, body.prompt);
-
-  // Record invocation (fire-and-forget)
-  recordInvocation({
+  const { invocationId, promise } = await enqueueInvocation(
     workerId,
-    invokerId: actor.id,
-    source: "http",
-    prompt: body.prompt,
-    success: result.success,
-    summary: result.summary,
-    iterations: result.iterations,
-    errorMessage: result.errorMessage,
-    log: body.store_log ? result.log : null,
-    startedAt: result.startedAt,
-    completedAt: result.completedAt,
-  });
+    actor.id,
+    "http",
+    body.prompt,
+    body.store_log,
+  );
+
+  if (wait) {
+    const result = await promise;
+    return c.json(
+      {
+        invocation_id: invocationId,
+        success: result.success,
+        summary: result.summary,
+        iterations: result.iterations,
+      },
+      200,
+    );
+  }
 
   return c.json(
     {
-      success: result.success,
-      summary: result.summary,
-      iterations: result.iterations,
+      invocation_id: invocationId,
+      status: "queued" as const,
     },
-    200,
+    202,
   );
 });
 
@@ -392,15 +418,17 @@ const InvocationSchema = z.object({
   worker_id: z.string(),
   invoker_id: z.string(),
   source: z.enum(["http", "scheduler"]),
+  status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   prompt: z.string(),
-  success: z.boolean(),
+  success: z.boolean().nullable(),
   summary: z.string().nullable(),
   iterations: z.number().int(),
   error_message: z.string().nullable(),
   log: z.any().nullable(),
-  started_at: DateTimeSchema,
-  completed_at: DateTimeSchema,
-  duration_ms: z.number().int(),
+  queued_at: DateTimeSchema,
+  started_at: DateTimeSchema.nullable(),
+  completed_at: DateTimeSchema.nullable(),
+  duration_ms: z.number().int().nullable(),
   ts: DateTimeSchema,
 });
 
@@ -442,6 +470,35 @@ const latestInvocationRoute = createRoute({
       content: jsonContent(z.object({ invocation: InvocationSchema.nullable() })),
     },
     ...errorResponses([401, 403, 404]),
+  },
+});
+
+const getInvocationRoute = createRoute({
+  method: "get",
+  path: "/invocations/{invocationId}",
+  operationId: "getWorkerInvocation",
+  tags: ["Workers"],
+  summary: "Get a worker invocation by ID (poll for status)",
+  description:
+    "Retrieve the current state of a worker invocation. Use this to poll for completion " +
+    "after a 202 response from the invoke endpoint. Includes queue_position when status is 'queued'.",
+  "x-arke-auth": "required",
+  "x-arke-related": ["POST /workers/{id}/invoke"],
+  request: {
+    params: z.object({
+      invocationId: z.string().regex(/^\d+$/).describe("Invocation ID"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Invocation details",
+      content: jsonContent(
+        InvocationSchema.extend({
+          queue_position: z.number().int().nullable().describe("Position in queue (1-based), null if not queued"),
+        }),
+      ),
+    },
+    ...errorResponses([401, 404]),
   },
 });
 
@@ -502,6 +559,31 @@ workersRouter.openapi(latestInvocationRoute, async (c) => {
 
   const invocation = (rows as Array<Record<string, unknown>>)[0] ?? null;
   return c.json({ invocation }, 200);
+});
+
+workersRouter.openapi(getInvocationRoute, async (c) => {
+  const actor = requireActor(c);
+  const invocationId = Number(c.req.param("invocationId"));
+  const sql = createSql();
+
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM worker_invocations WHERE id = $1`,
+      [invocationId],
+    ),
+  ]);
+
+  const invocation = (rows as Array<Record<string, unknown>>)[0];
+  if (!invocation) {
+    throw new ApiError(404, "not_found", "Invocation not found");
+  }
+
+  const queuePosition = invocation.status === "queued"
+    ? getQueuePosition(invocationId)
+    : null;
+
+  return c.json({ ...invocation, queue_position: queuePosition }, 200);
 });
 
 // --- Permission management routes ---

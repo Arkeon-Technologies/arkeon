@@ -7,8 +7,7 @@
 import { Queue, Worker as BullWorker } from "bullmq";
 
 import { getRedis, closeRedis } from "./redis.js";
-import { invokeWorker } from "./worker-invoke.js";
-import { recordInvocation } from "./invocation-recorder.js";
+import { enqueueInvocation } from "./invocation-queue.js";
 import { createSql } from "./sql.js";
 
 const QUEUE_NAME = "arke-worker-schedules";
@@ -57,24 +56,13 @@ export async function startScheduler(): Promise<void> {
       const ownerId = (workerRow as Record<string, unknown>)?.owner_id as string ?? workerId;
       const storeLogs = ((workerRow as Record<string, unknown>)?.properties as Record<string, unknown>)?.store_logs === true;
 
-      const result = await invokeWorker(workerId, scheduledPrompt);
+      // Route through shared invocation queue (handles DB recording)
+      const { promise } = await enqueueInvocation(workerId, ownerId, "scheduler", scheduledPrompt, storeLogs);
+      const result = await promise;
+
       console.log(
         `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
       );
-
-      recordInvocation({
-        workerId,
-        invokerId: ownerId,
-        source: "scheduler",
-        prompt: scheduledPrompt,
-        success: result.success,
-        summary: result.summary,
-        iterations: result.iterations,
-        errorMessage: result.errorMessage,
-        log: storeLogs ? result.log : null,
-        startedAt: result.startedAt,
-        completedAt: result.completedAt,
-      });
 
       return { success: result.success, summary: result.summary, iterations: result.iterations };
     },

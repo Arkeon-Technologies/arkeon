@@ -152,4 +152,117 @@ describe("Workers", () => {
     });
     expect(response.status).toBe(403);
   });
+
+  // --- Invocation queue tests ---
+
+  test("Invoke returns 202 with invocation_id by default", async () => {
+    const worker = await createWorker(adminApiKey);
+    const { response, body } = await jsonRequest(`/workers/${worker.id}/invoke`, {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: { prompt: "test prompt" },
+    });
+    expect(response.status).toBe(202);
+    const data = body as { invocation_id: number; status: string };
+    expect(data.invocation_id).toBeTruthy();
+    expect(data.status).toBe("queued");
+  });
+
+  test("Invoke with ?wait=true blocks and returns result", async () => {
+    const worker = await createWorker(adminApiKey);
+    const { response, body } = await jsonRequest(`/workers/${worker.id}/invoke?wait=true`, {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: { prompt: "test prompt" },
+    });
+    // Worker has a fake LLM endpoint, so it will fail — but we still get a 200 with result
+    expect(response.status).toBe(200);
+    const data = body as { invocation_id: number; success: boolean; summary: string | null; iterations: number };
+    expect(data.invocation_id).toBeTruthy();
+    expect(typeof data.success).toBe("boolean");
+    expect(typeof data.iterations).toBe("number");
+  });
+
+  test("Poll invocation by ID returns status and fields", async () => {
+    const worker = await createWorker(adminApiKey);
+    const { body: invokeBody } = await jsonRequest(`/workers/${worker.id}/invoke`, {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: { prompt: "poll test" },
+    });
+    const invocationId = (invokeBody as { invocation_id: number }).invocation_id;
+
+    // Poll immediately — should exist with a valid status
+    const { response, body } = await getJson(`/workers/invocations/${invocationId}`, adminApiKey);
+    expect(response.status).toBe(200);
+    const data = body as Record<string, unknown>;
+    expect(data.id).toBe(invocationId);
+    expect(data.prompt).toBe("poll test");
+    expect(data.source).toBe("http");
+    expect(["queued", "running", "completed", "failed"]).toContain(data.status);
+    expect(data.queued_at).toBeTruthy();
+  });
+
+  test("Poll invocation transitions to completed/failed", async () => {
+    const worker = await createWorker(adminApiKey);
+    // Use ?wait=true to ensure execution completes before polling
+    const { body: invokeBody } = await jsonRequest(`/workers/${worker.id}/invoke?wait=true`, {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: { prompt: "completion test" },
+    });
+    const invocationId = (invokeBody as { invocation_id: number }).invocation_id;
+
+    // Small delay for fire-and-forget DB update to settle
+    await new Promise((r) => setTimeout(r, 500));
+
+    const { response, body } = await getJson(`/workers/invocations/${invocationId}`, adminApiKey);
+    expect(response.status).toBe(200);
+    const data = body as Record<string, unknown>;
+    expect(["completed", "failed"]).toContain(data.status);
+    expect(data.started_at).toBeTruthy();
+    expect(data.completed_at).toBeTruthy();
+    expect(typeof data.duration_ms).toBe("number");
+    expect(typeof data.success).toBe("boolean");
+  });
+
+  test("Poll nonexistent invocation returns 404", async () => {
+    const { response } = await getJson("/workers/invocations/999999", adminApiKey);
+    expect(response.status).toBe(404);
+  });
+
+  test("Invocation appears in worker invocation list", async () => {
+    const worker = await createWorker(adminApiKey);
+    await jsonRequest(`/workers/${worker.id}/invoke?wait=true`, {
+      method: "POST",
+      apiKey: adminApiKey,
+      json: { prompt: "list test" },
+    });
+
+    // Small delay for fire-and-forget DB update
+    await new Promise((r) => setTimeout(r, 500));
+
+    const { response, body } = await getJson(`/workers/${worker.id}/invocations`, adminApiKey);
+    expect(response.status).toBe(200);
+    const data = body as { invocations: Array<Record<string, unknown>> };
+    expect(data.invocations.length).toBeGreaterThanOrEqual(1);
+    const inv = data.invocations.find((i) => i.prompt === "list test");
+    expect(inv).toBeTruthy();
+    expect(inv!.status).toBeTruthy();
+    expect(inv!.queued_at).toBeTruthy();
+  });
+
+  test("Non-owner cannot invoke worker", async () => {
+    const worker = await createWorker(adminApiKey);
+    const other = await createActor(adminApiKey, {
+      maxReadLevel: 1,
+      maxWriteLevel: 1,
+    });
+    const { response } = await jsonRequest(`/workers/${worker.id}/invoke`, {
+      method: "POST",
+      apiKey: other.apiKey,
+      json: { prompt: "unauthorized" },
+    });
+    expect(response.status).toBe(403);
+  });
 });
