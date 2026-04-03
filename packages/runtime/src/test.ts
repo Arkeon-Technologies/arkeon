@@ -83,7 +83,7 @@ const result = await agent.run(prompt);
 
 console.log("\n--- Result ---");
 console.log(`  Success: ${result.success}`);
-console.log(`  Summary: ${result.summary}`);
+console.log(`  Result: ${JSON.stringify(result.result)}`);
 console.log(`  Iterations: ${result.iterations}`);
 
 // Show workspace contents

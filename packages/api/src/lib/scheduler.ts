@@ -64,7 +64,7 @@ export async function startScheduler(): Promise<void> {
         `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
       );
 
-      return { success: result.success, summary: result.summary, iterations: result.iterations };
+      return { success: result.success, result: result.result, iterations: result.iterations };
     },
     {
       connection: redis,

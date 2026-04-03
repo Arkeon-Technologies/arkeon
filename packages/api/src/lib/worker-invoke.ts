@@ -7,9 +7,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { Agent, type LogEntry } from "../../../runtime/src/agent.js";
+import { Agent, type LogEntry, type UsageStats } from "../../../runtime/src/agent.js";
 import { decrypt } from "./crypto.js";
 import { createSql } from "./sql.js";
+
+export type LogLevel = "full" | "errors_only" | "none";
 
 type WorkerProperties = {
   name: string;
@@ -21,6 +23,7 @@ type WorkerProperties = {
   };
   arke_key_encrypted: string;
   max_iterations?: number;
+  log_level?: LogLevel;
   resource_limits?: {
     memory_mb?: number;
     cpu_percent?: number;
@@ -31,9 +34,11 @@ type WorkerProperties = {
 
 export interface InvokeResult {
   success: boolean;
-  summary: string | null;
+  result: Record<string, unknown> | null;
   iterations: number;
   log: LogEntry[];
+  usage: UsageStats;
+  logLevel: LogLevel;
   startedAt: Date;
   completedAt: Date;
   errorMessage?: string;
@@ -43,9 +48,15 @@ export interface InvokeResult {
  * Invoke a worker by ID with a prompt.
  * Fetches the worker from DB, decrypts keys, spawns sandbox, runs agent loop.
  */
+export interface InvocationContext {
+  invocationId: number;
+  depth: number;
+}
+
 export async function invokeWorker(
   workerId: string,
   prompt: string,
+  context?: InvocationContext,
 ): Promise<InvokeResult> {
   const sql = createSql();
 
@@ -81,6 +92,8 @@ export async function invokeWorker(
     "Pre-installed tools: curl, jq, python3, arkeon (Arkeon CLI).",
     "Pre-installed SDKs: arkeon-sdk (TypeScript: import * as arkeon from 'arkeon-sdk'), arkeon_sdk (Python: import arkeon_sdk as arkeon).",
     "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the CLI and SDKs.",
+    "$ARKE_INVOCATION_ID and $ARKE_INVOCATION_DEPTH track invocation nesting.",
+    "When invoking other workers, include headers: -H 'X-Arke-Parent-Invocation: $ARKE_INVOCATION_ID' -H 'X-Arke-Invocation-Depth: $ARKE_INVOCATION_DEPTH'",
     'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
     "When done, call the done tool with a summary.",
   ].join("\n");
@@ -101,12 +114,17 @@ export async function invokeWorker(
       env: {
         ARKE_API_URL: apiBaseUrl,
         ARKE_API_KEY: arkeApiKey,
+        ...(context ? {
+          ARKE_INVOCATION_ID: String(context.invocationId),
+          ARKE_INVOCATION_DEPTH: String(context.depth),
+        } : {}),
       },
     },
     maxIterations: props.max_iterations ?? 50,
   });
 
   const timeoutMs = props.resource_limits?.timeout_ms ?? 300_000;
+  const logLevel = props.log_level ?? "full";
   const startedAt = new Date();
 
   try {
@@ -119,9 +137,11 @@ export async function invokeWorker(
 
     return {
       success: result.success,
-      summary: result.summary,
+      result: result.result,
       iterations: result.iterations,
       log: result.log,
+      usage: result.usage,
+      logLevel,
       startedAt,
       completedAt: new Date(),
     };
@@ -129,9 +149,11 @@ export async function invokeWorker(
     const msg = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      summary: null,
+      result: { error: msg },
       iterations: 0,
       log: [],
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, llmCalls: 0, toolCalls: 0 },
+      logLevel,
       startedAt,
       completedAt: new Date(),
       errorMessage: msg,

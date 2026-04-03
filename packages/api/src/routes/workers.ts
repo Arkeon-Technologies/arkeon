@@ -161,7 +161,7 @@ const invokeWorkerRoute = createRoute({
       content: jsonContent(
         z.object({
           prompt: z.string().min(1).max(100000).describe("The task prompt for the worker"),
-          store_log: z.boolean().optional().describe("Store full agent log in invocation history (default: false)"),
+          store_log: z.boolean().optional().describe("Override log storage (default: true, respects worker's log_level setting)"),
         }),
       ),
     },
@@ -173,8 +173,15 @@ const invokeWorkerRoute = createRoute({
         z.object({
           invocation_id: z.number().int(),
           success: z.boolean(),
-          summary: z.string().nullable(),
+          result: z.any().nullable().describe("Structured result output from the worker"),
           iterations: z.number().int(),
+          usage: z.object({
+            input_tokens: z.number().int(),
+            output_tokens: z.number().int(),
+            total_tokens: z.number().int(),
+            llm_calls: z.number().int(),
+            tool_calls: z.number().int(),
+          }),
         }),
       ),
     },
@@ -240,6 +247,7 @@ const updateWorkerRoute = createRoute({
             })
             .optional(),
           max_iterations: z.number().int().min(1).max(200).optional(),
+          log_level: z.enum(["full", "errors_only", "none"]).optional().describe("Log verbosity for invocations (default: full)"),
           schedule: z.string().nullable().optional().describe("Cron expression (null to remove)"),
           scheduled_prompt: z.string().nullable().optional().describe("Prompt used for scheduled runs"),
           resource_limits: z
@@ -286,12 +294,22 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
   // Owner or invoker permission check
   await requireWorkerInvoke(sql, actor, workerId);
 
+  // Read nesting context from headers (set by parent sandbox env vars)
+  const parentInvocationId = c.req.header("x-arke-parent-invocation")
+    ? Number(c.req.header("x-arke-parent-invocation"))
+    : null;
+  const depth = c.req.header("x-arke-invocation-depth")
+    ? Number(c.req.header("x-arke-invocation-depth")) + 1
+    : 0;
+
   const { invocationId, promise } = await enqueueInvocation(
     workerId,
     actor.id,
     "http",
     body.prompt,
     body.store_log,
+    parentInvocationId,
+    depth,
   );
 
   if (wait) {
@@ -300,8 +318,15 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
       {
         invocation_id: invocationId,
         success: result.success,
-        summary: result.summary,
+        result: result.result,
         iterations: result.iterations,
+        usage: {
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+          total_tokens: result.usage.totalTokens,
+          llm_calls: result.usage.llmCalls,
+          tool_calls: result.usage.toolCalls,
+        },
       },
       200,
     );
@@ -346,6 +371,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
   if (typeof body.name === "string") props.name = body.name;
   if (typeof body.system_prompt === "string") props.system_prompt = body.system_prompt;
   if (typeof body.max_iterations === "number") props.max_iterations = body.max_iterations;
+  if (typeof body.log_level === "string") props.log_level = body.log_level;
   if (body.resource_limits && typeof body.resource_limits === "object") {
     props.resource_limits = { ...(props.resource_limits as object ?? {}), ...body.resource_limits };
   }
@@ -421,10 +447,17 @@ const InvocationSchema = z.object({
   status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   prompt: z.string(),
   success: z.boolean().nullable(),
-  summary: z.string().nullable(),
+  result: z.any().nullable(),
   iterations: z.number().int(),
   error_message: z.string().nullable(),
   log: z.any().nullable(),
+  input_tokens: z.number().int().nullable(),
+  output_tokens: z.number().int().nullable(),
+  total_tokens: z.number().int().nullable(),
+  llm_calls_count: z.number().int().nullable(),
+  tool_calls_count: z.number().int().nullable(),
+  parent_invocation_id: z.number().int().nullable(),
+  depth: z.number().int(),
   queued_at: DateTimeSchema,
   started_at: DateTimeSchema.nullable(),
   completed_at: DateTimeSchema.nullable(),
@@ -584,6 +617,60 @@ workersRouter.openapi(getInvocationRoute, async (c) => {
     : null;
 
   return c.json({ ...invocation, queue_position: queuePosition }, 200);
+});
+
+// --- Invocation tree route ---
+
+const getInvocationTreeRoute = createRoute({
+  method: "get",
+  path: "/invocations/{invocationId}/tree",
+  operationId: "getInvocationTree",
+  tags: ["Workers"],
+  summary: "Get the full invocation tree from a root invocation",
+  description:
+    "Retrieves all invocations in the tree rooted at the given invocation ID using a recursive query. " +
+    "Returns a flat array ordered by depth then timestamp, with parent_invocation_id for client-side tree building.",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /workers/invocations/{invocationId}"],
+  request: {
+    params: z.object({
+      invocationId: z.string().regex(/^\d+$/).describe("Root invocation ID"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Invocation tree",
+      content: jsonContent(z.object({ invocations: z.array(InvocationSchema) })),
+    },
+    ...errorResponses([401, 404]),
+  },
+});
+
+workersRouter.openapi(getInvocationTreeRoute, async (c) => {
+  const actor = requireActor(c);
+  const invocationId = Number(c.req.param("invocationId"));
+  const sql = createSql();
+
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `WITH RECURSIVE tree AS (
+        SELECT * FROM worker_invocations WHERE id = $1
+        UNION ALL
+        SELECT wi.* FROM worker_invocations wi
+        INNER JOIN tree t ON wi.parent_invocation_id = t.id
+      )
+      SELECT * FROM tree ORDER BY depth, ts`,
+      [invocationId],
+    ),
+  ]);
+
+  const invocations = rows as Array<Record<string, unknown>>;
+  if (invocations.length === 0) {
+    throw new ApiError(404, "not_found", "Invocation not found");
+  }
+
+  return c.json({ invocations }, 200);
 });
 
 // --- Permission management routes ---

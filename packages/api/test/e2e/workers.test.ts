@@ -177,10 +177,12 @@ describe("Workers", () => {
     });
     // Worker has a fake LLM endpoint, so it will fail — but we still get a 200 with result
     expect(response.status).toBe(200);
-    const data = body as { invocation_id: number; success: boolean; summary: string | null; iterations: number };
+    const data = body as { invocation_id: number; success: boolean; result: unknown; iterations: number; usage: unknown };
     expect(data.invocation_id).toBeTruthy();
     expect(typeof data.success).toBe("boolean");
     expect(typeof data.iterations).toBe("number");
+    expect(data.usage).toBeTruthy();
+    expect(typeof (data.usage as Record<string, unknown>).input_tokens).toBe("number");
   });
 
   test("Poll invocation by ID returns status and fields", async () => {

@@ -6,8 +6,15 @@
  * so the UPDATE policy is satisfied.
  */
 
-import type { InvokeResult } from "./worker-invoke.js";
+import type { InvokeResult, LogLevel } from "./worker-invoke.js";
+import type { LogEntry } from "../../../runtime/src/agent.js";
 import { createSql } from "./sql.js";
+
+function filterLogs(log: LogEntry[], level: LogLevel): LogEntry[] {
+  if (level === "none") return [];
+  if (level === "errors_only") return log.filter((e) => e.type === "error" || e.type === "done");
+  return log; // "full"
+}
 
 /**
  * Create a queued invocation record. Returns the row ID.
@@ -18,6 +25,8 @@ export async function createInvocationRecord(
   invokerId: string,
   source: "http" | "scheduler",
   prompt: string,
+  parentInvocationId?: number | null,
+  depth = 0,
 ): Promise<number> {
   const sql = createSql();
   const [,, rows] = await sql.transaction([
@@ -25,10 +34,10 @@ export async function createInvocationRecord(
     sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
     sql.query(
       `INSERT INTO worker_invocations
-        (worker_id, invoker_id, source, prompt, status)
-       VALUES ($1, $2, $3, $4, 'queued')
+        (worker_id, invoker_id, source, prompt, status, parent_invocation_id, depth)
+       VALUES ($1, $2, $3, $4, 'queued', $5, $6)
        RETURNING id`,
-      [workerId, invokerId, source, prompt],
+      [workerId, invokerId, source, prompt, parentInvocationId ?? null, depth],
     ),
   ]);
   const row = (rows as Array<{ id: number }>)[0];
@@ -69,26 +78,37 @@ export function completeInvocation(
   const durationMs = completedAt.getTime() - startedAt.getTime();
   const sql = createSql();
 
+  // Use worker's log_level config; storeLogs param acts as override (false = none)
+  const effectiveLevel: LogLevel = storeLogs === false ? "none" : result.logLevel;
+  const filtered = filterLogs(result.log, effectiveLevel);
+
   sql.transaction([
     sql.query(`SELECT set_config('app.actor_id', $1, true)`, [invokerId]),
     sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
     sql.query(
       `UPDATE worker_invocations
-       SET status = $1, success = $2, summary = $3, iterations = $4,
+       SET status = $1, success = $2, result = $3::jsonb, iterations = $4,
            error_message = $5, log = $6::jsonb,
-           started_at = $7::timestamptz, completed_at = $8::timestamptz, duration_ms = $9
+           started_at = $7::timestamptz, completed_at = $8::timestamptz, duration_ms = $9,
+           input_tokens = $11, output_tokens = $12, total_tokens = $13,
+           llm_calls_count = $14, tool_calls_count = $15
        WHERE id = $10`,
       [
         status,
         result.success,
-        result.summary,
+        result.result ? JSON.stringify(result.result) : null,
         result.iterations,
         result.errorMessage ?? null,
-        storeLogs && result.log.length > 0 ? JSON.stringify(result.log) : null,
+        filtered.length > 0 ? JSON.stringify(filtered) : null,
         startedAt.toISOString(),
         completedAt.toISOString(),
         durationMs,
         id,
+        result.usage.inputTokens || null,
+        result.usage.outputTokens || null,
+        result.usage.totalTokens || null,
+        result.usage.llmCalls,
+        result.usage.toolCalls,
       ],
     ),
   ]).catch((err: unknown) => {

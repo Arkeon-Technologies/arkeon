@@ -26,6 +26,7 @@ interface QueueItem {
   invokerId: string;
   prompt: string;
   storeLogs: boolean;
+  depth: number;
   resolve: (result: InvokeResult) => void;
   reject: (err: Error) => void;
 }
@@ -127,7 +128,9 @@ export async function enqueueInvocation(
   invokerId: string,
   source: "http" | "scheduler",
   prompt: string,
-  storeLogs = false,
+  storeLogs = true,
+  parentInvocationId?: number | null,
+  depth = 0,
 ): Promise<EnqueueResult> {
   if (draining) {
     throw new ApiError(503, "server_shutting_down", "Server is shutting down");
@@ -137,7 +140,18 @@ export async function enqueueInvocation(
     throw new ApiError(503, "queue_full", "Invocation queue is full — try again later");
   }
 
-  const invocationId = await createInvocationRecord(workerId, invokerId, source, prompt);
+  const maxDepth = Number(process.env.MAX_INVOCATION_DEPTH) || 5;
+  if (depth > maxDepth) {
+    throw new ApiError(
+      400,
+      "max_depth_exceeded",
+      `Invocation depth ${depth} exceeds maximum of ${maxDepth}`,
+    );
+  }
+
+  const invocationId = await createInvocationRecord(
+    workerId, invokerId, source, prompt, parentInvocationId, depth,
+  );
 
   const { promise, resolve, reject } = createDeferred<InvokeResult>();
 
@@ -147,6 +161,7 @@ export async function enqueueInvocation(
     invokerId,
     prompt,
     storeLogs,
+    depth,
     resolve,
     reject,
   };
@@ -242,16 +257,21 @@ function startItem(item: QueueItem): void {
 
 async function executeItem(item: QueueItem): Promise<void> {
   try {
-    const result = await invokeWorker(item.workerId, item.prompt);
+    const result = await invokeWorker(item.workerId, item.prompt, {
+      invocationId: item.invocationId,
+      depth: item.depth,
+    });
     completeInvocation(item.invocationId, item.invokerId, result, item.storeLogs);
     item.resolve(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const failResult: InvokeResult = {
       success: false,
-      summary: null,
+      result: { error: msg },
       iterations: 0,
       log: [],
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, llmCalls: 0, toolCalls: 0 },
+      logLevel: "full",
       startedAt: new Date(),
       completedAt: new Date(),
       errorMessage: msg,

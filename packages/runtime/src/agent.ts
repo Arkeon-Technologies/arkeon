@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { APIError, AuthenticationError, BadRequestError, PermissionDeniedError } from "openai/error";
 
 import { Sandbox, type SandboxConfig } from "./sandbox.js";
 import { LlmClient, type LlmConfig } from "./llm.js";
@@ -35,11 +36,20 @@ export interface LogEntry {
   detail?: unknown;
 }
 
+export interface UsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  llmCalls: number;
+  toolCalls: number;
+}
+
 export interface AgentResult {
   success: boolean;
-  summary: string | null;
+  result: Record<string, unknown> | null;
   iterations: number;
   log: LogEntry[];
+  usage: UsageStats;
 }
 
 const MAX_TOOL_OUTPUT_LENGTH = 20_000;
@@ -92,6 +102,13 @@ export class Agent {
     ];
 
     let iterations = 0;
+    const usage: UsageStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      llmCalls: 0,
+      toolCalls: 0,
+    };
 
     while (iterations < this.maxIterations) {
       iterations++;
@@ -105,13 +122,36 @@ export class Agent {
         response = await this.llm.chat(messages);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.emit({ type: "error", content: `LLM error: ${msg}` });
+        const isPermanent =
+          err instanceof AuthenticationError ||
+          err instanceof BadRequestError ||
+          err instanceof PermissionDeniedError;
+        const statusInfo = err instanceof APIError ? ` (status ${err.status})` : "";
+        const retryNote = !isPermanent && err instanceof APIError
+          ? " (retries exhausted)"
+          : "";
+        this.emit({
+          type: "error",
+          content: `LLM error${statusInfo}${retryNote}: ${msg}`,
+          detail: err instanceof APIError
+            ? { status: err.status, type: err.type, code: err.code, permanent: isPermanent }
+            : undefined,
+        });
         return {
           success: false,
-          summary: `LLM error: ${msg}`,
+          result: { error: `LLM error${statusInfo}: ${msg}` },
           iterations,
           log: this.log,
+          usage,
         };
+      }
+
+      // Accumulate token usage from this LLM call
+      usage.llmCalls++;
+      if (response.usage) {
+        usage.inputTokens += response.usage.prompt_tokens;
+        usage.outputTokens += response.usage.completion_tokens;
+        usage.totalTokens += response.usage.total_tokens;
       }
 
       const choice = response.choices[0];
@@ -119,9 +159,10 @@ export class Agent {
         this.emit({ type: "error", content: "No response from LLM" });
         return {
           success: false,
-          summary: "No response from LLM",
+          result: { error: "No response from LLM" },
           iterations,
           log: this.log,
+          usage,
         };
       }
 
@@ -150,11 +191,17 @@ export class Agent {
         });
         return {
           success: true,
-          summary: assistantMessage.content,
+          result: assistantMessage.content
+            ? { message: assistantMessage.content }
+            : null,
           iterations,
           log: this.log,
+          usage,
         };
       }
+
+      // Count tool calls for this iteration
+      usage.toolCalls += assistantMessage.tool_calls.length;
 
       // Execute each tool call
       for (const toolCall of assistantMessage.tool_calls) {
@@ -199,8 +246,19 @@ export class Agent {
             );
             break;
           case "done": {
-            const summary = (args.summary as string) ?? "Done";
-            this.emit({ type: "done", content: summary });
+            // Accept args.result if provided, otherwise treat all args as the result
+            // (LLMs sometimes pass fields directly instead of wrapping in { result: ... })
+            const doneResult: Record<string, unknown> | null =
+              args.result != null
+                ? (args.result as Record<string, unknown>)
+                : Object.keys(args).length > 0
+                  ? args
+                  : null;
+            this.emit({
+              type: "done",
+              content: JSON.stringify(doneResult),
+              detail: doneResult,
+            });
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
@@ -208,9 +266,10 @@ export class Agent {
             });
             return {
               success: true,
-              summary,
+              result: doneResult,
               iterations,
               log: this.log,
+              usage,
             };
           }
           default:
@@ -236,9 +295,10 @@ export class Agent {
     });
     return {
       success: false,
-      summary: `Reached max iterations (${this.maxIterations})`,
+      result: { error: `Reached max iterations (${this.maxIterations})` },
       iterations,
       log: this.log,
+      usage,
     };
   }
 
