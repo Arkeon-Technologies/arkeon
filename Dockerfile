@@ -32,11 +32,13 @@ RUN mkdir -p /sdk-standalone \
 # Main app stage with production deps + pre-built CLI
 FROM base AS app
 COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
 COPY packages/api/package.json packages/api/
 COPY packages/runtime/package.json packages/runtime/
 COPY packages/schema/package.json packages/schema/
 RUN npm ci --omit=dev
 
+COPY packages/shared packages/shared
 COPY packages/api packages/api
 COPY packages/runtime packages/runtime
 COPY packages/schema packages/schema
