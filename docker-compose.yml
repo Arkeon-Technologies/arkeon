@@ -14,6 +14,7 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       - MEILI_URL=${MEILI_URL:-}
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+    stop_grace_period: 330s
     depends_on:
       postgres:
         condition: service_healthy

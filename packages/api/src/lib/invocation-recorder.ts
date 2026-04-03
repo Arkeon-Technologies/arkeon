@@ -118,6 +118,37 @@ export function completeInvocation(
 }
 
 /**
+ * Reset an interrupted invocation back to 'queued' for retry.
+ * Increments retry_count and clears partial execution state.
+ * Uses admin context since the original invoker isn't around at startup.
+ */
+export async function resetInvocationForRetry(id: number): Promise<void> {
+  const sql = createSql();
+  await sql.transaction([
+    sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
+    sql.query(
+      `UPDATE worker_invocations
+       SET status = 'queued',
+           started_at = NULL,
+           completed_at = NULL,
+           duration_ms = NULL,
+           success = NULL,
+           result = NULL,
+           error_message = NULL,
+           log = NULL,
+           retry_count = retry_count + 1,
+           input_tokens = NULL,
+           output_tokens = NULL,
+           total_tokens = NULL,
+           llm_calls_count = NULL,
+           tool_calls_count = NULL
+       WHERE id = $1`,
+      [id],
+    ),
+  ]);
+}
+
+/**
  * Cancel a queued invocation. Fire-and-forget.
  */
 export function cancelInvocation(id: number, invokerId: string): void {
