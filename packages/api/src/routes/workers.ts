@@ -21,6 +21,8 @@ import {
   jsonContent,
   JsonObjectSchema,
   paginationQuerySchema,
+  pathParam,
+  EntityIdParam,
 } from "../lib/schemas";
 import { setActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
@@ -75,6 +77,44 @@ async function requireWorker(
   const worker = row as ActorRecord;
   if (worker.owner_id !== actor.id && !actor.isAdmin) {
     throw new ApiError(403, "forbidden", "Only the worker's owner can access it");
+  }
+  return worker;
+}
+
+async function requireWorkerInvoke(
+  sql: ReturnType<typeof createSql>,
+  actor: { id: string; isAdmin: boolean },
+  workerId: string,
+): Promise<ActorRecord> {
+  const [row] = await sql`
+    SELECT * FROM actors
+    WHERE id = ${workerId} AND kind = 'worker' AND status = 'active'
+    LIMIT 1
+  `;
+  if (!row) {
+    throw new ApiError(404, "not_found", "Worker not found");
+  }
+  const worker = row as ActorRecord;
+  if (worker.owner_id === actor.id || actor.isAdmin) {
+    return worker;
+  }
+  // Check worker_permissions for invoker grant (direct or via group)
+  const [perm] = await sql`
+    SELECT 1 FROM worker_permissions wp
+    WHERE wp.worker_id = ${workerId}
+    AND wp.role = 'invoker'
+    AND (
+      (wp.grantee_type = 'actor' AND wp.grantee_id = ${actor.id})
+      OR (wp.grantee_type = 'group' AND EXISTS (
+        SELECT 1 FROM group_memberships gm
+        WHERE gm.group_id = wp.grantee_id
+        AND gm.actor_id = ${actor.id}
+      ))
+    )
+    LIMIT 1
+  `;
+  if (!perm) {
+    throw new ApiError(403, "forbidden", "You do not have permission to invoke this worker");
   }
   return worker;
 }
@@ -227,8 +267,8 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "prompt is required");
   }
 
-  // Owner check
-  await requireWorker(sql, actor, workerId);
+  // Owner or invoker permission check
+  await requireWorkerInvoke(sql, actor, workerId);
 
   const result = await invokeWorker(workerId, body.prompt);
 
@@ -469,4 +509,176 @@ workersRouter.openapi(latestInvocationRoute, async (c) => {
 
   const invocation = (rows as Array<Record<string, unknown>>)[0] ?? null;
   return c.json({ invocation }, 200);
+});
+
+// --- Permission management routes ---
+
+const WorkerPermissionSchema = z.object({
+  worker_id: UlidSchema,
+  grantee_type: z.enum(["actor", "group"]),
+  grantee_id: z.string(),
+  role: z.enum(["invoker"]),
+  granted_by: UlidSchema,
+  granted_at: DateTimeSchema,
+});
+
+const listWorkerPermissionsRoute = createRoute({
+  method: "get",
+  path: "/{id}/permissions",
+  operationId: "listWorkerPermissions",
+  tags: ["Workers"],
+  summary: "List permissions on a worker",
+  "x-arke-auth": "required",
+  "x-arke-related": ["POST /workers/{id}/permissions"],
+  request: {
+    params: entityIdParams("Worker actor ULID"),
+  },
+  responses: {
+    200: {
+      description: "Worker permissions",
+      content: jsonContent(
+        z.object({
+          owner_id: UlidSchema.nullable(),
+          permissions: z.array(WorkerPermissionSchema),
+        }),
+      ),
+    },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
+const grantWorkerPermissionRoute = createRoute({
+  method: "post",
+  path: "/{id}/permissions",
+  operationId: "grantWorkerPermission",
+  tags: ["Workers"],
+  summary: "Grant invocation access on a worker (owner/admin only)",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /workers/{id}/permissions", "DELETE /workers/{id}/permissions/{granteeId}"],
+  request: {
+    params: entityIdParams("Worker actor ULID"),
+    body: {
+      required: true,
+      content: jsonContent(
+        z.object({
+          grantee_type: z.enum(["actor", "group"]).default("actor"),
+          grantee_id: z.string().describe("Actor or group ULID to grant access to"),
+          role: z.enum(["invoker"]).default("invoker"),
+        }),
+      ),
+    },
+  },
+  responses: {
+    201: {
+      description: "Permission granted",
+      content: jsonContent(z.object({ permission: WorkerPermissionSchema })),
+    },
+    ...errorResponses([400, 401, 403, 404]),
+  },
+});
+
+const revokeWorkerPermissionRoute = createRoute({
+  method: "delete",
+  path: "/{id}/permissions/{granteeId}",
+  operationId: "revokeWorkerPermission",
+  tags: ["Workers"],
+  summary: "Revoke invocation access from an actor or group",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /workers/{id}/permissions"],
+  request: {
+    params: z.object({
+      id: pathParam("id", EntityIdParam, "Worker actor ULID"),
+      granteeId: pathParam("granteeId", z.string(), "Grantee actor or group ID"),
+    }),
+  },
+  responses: {
+    204: { description: "Permission revoked" },
+    ...errorResponses([401, 403, 404]),
+  },
+});
+
+workersRouter.openapi(listWorkerPermissionsRoute, async (c) => {
+  const actor = requireActor(c);
+  const workerId = c.req.param("id");
+  const sql = createSql();
+
+  const worker = await requireWorker(sql, actor, workerId);
+
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`SELECT * FROM worker_permissions WHERE worker_id = ${workerId} ORDER BY granted_at`,
+  ]);
+
+  return c.json(
+    {
+      owner_id: worker.owner_id,
+      permissions: rows,
+    },
+    200,
+  );
+});
+
+workersRouter.openapi(grantWorkerPermissionRoute, async (c) => {
+  const actor = requireActor(c);
+  const workerId = c.req.param("id");
+  const body = await parseJsonBody<Record<string, unknown>>(c);
+  const sql = createSql();
+
+  if (!body.grantee_id || typeof body.grantee_id !== "string") {
+    throw new ApiError(400, "invalid_body", "Missing grantee_id");
+  }
+
+  const granteeType = typeof body.grantee_type === "string" ? body.grantee_type : "actor";
+  if (granteeType !== "actor" && granteeType !== "group") {
+    throw new ApiError(400, "invalid_body", "grantee_type must be 'actor' or 'group'");
+  }
+
+  const role = typeof body.role === "string" ? body.role : "invoker";
+  if (role !== "invoker") {
+    throw new ApiError(400, "invalid_body", "role must be 'invoker'");
+  }
+
+  // Owner/admin check
+  await requireWorker(sql, actor, workerId);
+
+  // RLS also enforces this, but the upsert uses ON CONFLICT
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `INSERT INTO worker_permissions (worker_id, grantee_type, grantee_id, role, granted_by)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (worker_id, grantee_type, grantee_id)
+       DO UPDATE SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by, granted_at = NOW()
+       RETURNING *`,
+      [workerId, granteeType, body.grantee_id, role, actor.id],
+    ),
+  ]);
+
+  const perm = (rows as Array<Record<string, unknown>>)[0];
+  if (!perm) {
+    throw new ApiError(403, "forbidden", "Only the worker owner or an admin can grant permissions");
+  }
+
+  return c.json({ permission: perm }, 201);
+});
+
+workersRouter.openapi(revokeWorkerPermissionRoute, async (c) => {
+  const actor = requireActor(c);
+  const workerId = c.req.param("id");
+  const granteeId = c.req.param("granteeId");
+  const sql = createSql();
+
+  // Owner/admin check
+  await requireWorker(sql, actor, workerId);
+
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`DELETE FROM worker_permissions WHERE worker_id = ${workerId} AND grantee_id = ${granteeId} RETURNING worker_id`,
+  ]);
+
+  if ((rows as Array<Record<string, unknown>>).length === 0) {
+    throw new ApiError(404, "not_found", "Permission not found");
+  }
+
+  return new Response(null, { status: 204 });
 });

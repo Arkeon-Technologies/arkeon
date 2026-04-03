@@ -256,6 +256,24 @@ export async function grantSpacePermission(
   return body;
 }
 
+// --- Worker permission helpers ---
+
+export async function grantWorkerPermission(
+  apiKey: string,
+  workerId: string,
+  granteeType: string,
+  granteeId: string,
+  role = "invoker",
+) {
+  const { response, body } = await jsonRequest(`/workers/${workerId}/permissions`, {
+    method: "POST",
+    apiKey,
+    json: { grantee_type: granteeType, grantee_id: granteeId, role },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
 // --- Comment helpers ---
 
 export async function createComment(apiKey: string, entityId: string, body: string, parentId?: string) {
