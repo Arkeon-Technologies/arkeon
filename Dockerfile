@@ -9,16 +9,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build CLI + TS SDK in a separate stage (needs dev deps for tsup)
 FROM base AS cli-build
 COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
 COPY packages/cli/package.json packages/cli/
 COPY packages/sdk-ts/package.json packages/sdk-ts/
-RUN npm ci -w packages/cli -w packages/sdk-ts
+RUN npm ci -w packages/cli -w packages/sdk-ts -w packages/shared
+COPY packages/shared packages/shared
 COPY packages/cli packages/cli
 COPY packages/sdk-ts packages/sdk-ts
 RUN cd packages/cli && npx tsup --no-dts
 RUN cd packages/sdk-ts && npx tsup
-# Re-install production-only deps in an isolated directory for the final image
+# Re-install production-only deps in an isolated directory for the final image.
+# Remove arkeon-shared from deps — it's already bundled into dist by tsup (noExternal).
 RUN mkdir /cli-standalone \
-    && cp packages/cli/package.json /cli-standalone/ \
+    && node -e "const p=require('./packages/cli/package.json'); delete p.dependencies['arkeon-shared']; require('fs').writeFileSync('/cli-standalone/package.json', JSON.stringify(p,null,2))" \
     && cp -r packages/cli/dist /cli-standalone/dist \
     && cd /cli-standalone && npm install --omit=dev
 # SDK has zero runtime deps — just copy the built output
