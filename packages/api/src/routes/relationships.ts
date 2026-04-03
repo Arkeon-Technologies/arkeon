@@ -1,7 +1,13 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
 import { encodeCursor } from "../lib/cursor";
-import { assertBodyObject } from "../lib/entities";
+import {
+  assertBodyObject,
+  addEntityToSpaceQuery,
+  grantEntityPermissionQuery,
+  validatePermissionGrant,
+} from "../lib/entities";
+import { requireSpaceRole } from "../lib/spaces";
 import { ApiError } from "../lib/errors";
 import { requireActor, parseCursorParam, parseJsonBody, parseLimit } from "../lib/http";
 import { setActorContext } from "../lib/actor-context";
@@ -73,15 +79,28 @@ const listRelationshipsRoute = createRoute({
   },
 });
 
+const InlinePermissionGrant = z.object({
+  grantee_type: z.enum(["actor", "group"]).describe("Type of grantee"),
+  grantee_id: z.string().describe("Actor or group ULID"),
+  role: z.enum(["admin", "editor"]).describe("Permission role to grant"),
+});
+
 const createRelationshipRoute = createRoute({
   method: "post",
   path: "/{id}/relationships",
   operationId: "createRelationship",
   tags: ["Relationships"],
-  summary: "Create a relationship from this entity to a target",
+  summary: "Create a relationship from this entity to a target, optionally adding it to a space and granting permissions",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /entities/{id}/relationships", "DELETE /relationships/{relId}"],
-  "x-arke-rules": ["Requires edit access on the source entity (owner, editor, or admin role)", "Requires read access on the target entity", "Relationship read_level must be >= max(source, target) read_level", "Relationship write_level must be >= max(source, target) write_level"],
+  "x-arke-related": ["GET /entities/{id}/relationships", "DELETE /relationships/{relId}", "POST /spaces/{id}/entities", "POST /entities/{id}/permissions"],
+  "x-arke-rules": [
+    "Requires edit access on the source entity (owner, editor, or admin role)",
+    "Requires read access on the target entity",
+    "Relationship read_level must be >= max(source, target) read_level",
+    "Relationship write_level must be >= max(source, target) write_level",
+    "If space_id is provided, requires contributor role or above on that space",
+    "All operations (create, space add, permission grants) are atomic",
+  ],
   request: {
     params: entityIdParams("Source entity ULID"),
     body: {
@@ -93,6 +112,8 @@ const createRelationshipRoute = createRoute({
           properties: z.record(z.string(), z.any()).optional().describe("Relationship properties"),
           read_level: ClassificationLevel.optional().describe("Classification level for reading. Must be >= max(source, target) read_level. Defaults to that maximum."),
           write_level: ClassificationLevel.optional().describe("Classification level for writing. Must be >= max(source, target) write_level. Defaults to that maximum."),
+          space_id: EntityIdParam.optional().describe("Space ULID — if provided, the relationship entity is added to this space atomically"),
+          permissions: z.array(InlinePermissionGrant).optional().describe("Permission grants to apply to the new relationship entity atomically"),
         }),
       ),
     },
@@ -284,9 +305,18 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   const properties = body.properties === undefined ? {} : assertBodyObject(body.properties, "properties");
   const requestedReadLevel = typeof body.read_level === "number" ? body.read_level : null;
   const requestedWriteLevel = typeof body.write_level === "number" ? body.write_level : null;
+  const spaceId = typeof body.space_id === "string" ? body.space_id : null;
+  const permissionGrants = Array.isArray(body.permissions)
+    ? (body.permissions as Array<Record<string, unknown>>).map((g, i) => validatePermissionGrant(g, i))
+    : [];
   const relId = generateUlid();
   const now = new Date().toISOString();
   const sql = createSql();
+
+  // Pre-validate space access before the transaction
+  if (spaceId) {
+    await requireSpaceRole(sql, actor, spaceId, "contributor");
+  }
 
   // Pre-validate: actor must see both entities, have edit access on source,
   // and any requested classification levels must be at or above the endpoint floor
@@ -336,7 +366,8 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
       `write_level ${requestedWriteLevel} must be >= max(source, target) write_level (${preCheck.min_write})`);
   }
 
-  const [,,,,, entityRows, edgeRows] = await sql.transaction([
+  // Build transaction: core relationship insert + optional space/permission queries
+  const queries = [
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO entities (
@@ -369,7 +400,18 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
              ${JSON.stringify({ relationship_id: relId, predicate: body.predicate, target_id: body.target_id })}::jsonb,
              ${now}::timestamptz)
     `,
-  ]);
+  ];
+
+  if (spaceId) {
+    queries.push(addEntityToSpaceQuery(sql, spaceId, relId, actor.id, now));
+  }
+  for (const grant of permissionGrants) {
+    queries.push(grantEntityPermissionQuery(sql, relId, grant.grantee_type, grant.grantee_id, grant.role, actor.id));
+  }
+
+  const txResults = await sql.transaction(queries);
+  const entityRows = txResults[5];
+  const edgeRows = txResults[6];
 
   backgroundTask(
     fanOutNotifications({

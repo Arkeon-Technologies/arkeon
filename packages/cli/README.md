@@ -19,11 +19,10 @@ npm install -g @arkeon-technologies/cli
 
 ### Config
 
-Actor API keys are automatically scoped to their arke by the server. These commands are for admin keys that operate across multiple arkes:
-
-- `arkeon config set-arke <id>` — set default arke ID
-- `arkeon config get-arke` — show current arke ID
-- `arkeon config clear-arke` — remove stored arke ID
+- `arkeon config set-arke <id>` — set default arke ID (for admin keys operating across arkes)
+- `arkeon config get-arke` / `clear-arke` — show or remove stored arke ID
+- `arkeon config set-space <id>` — set default space ID (entities/relationships auto-added on create)
+- `arkeon config get-space` / `clear-space` — show or remove stored space ID
 - `arkeon config show` — show all config
 
 ### Entity Content
@@ -50,11 +49,12 @@ npm run build -w packages/cli        # Build (auto-regenerates)
 
 ## Configuration
 
-Two environment variables:
+Environment variables:
 
 ```bash
 export ARKE_API_URL="http://localhost:8000"
 export ARKE_API_KEY="ak_..."
+export ARKE_SPACE_ID="01ABC..."   # optional: default space for entity/relationship creation
 ```
 
 Credentials are stored locally via the `conf` library.

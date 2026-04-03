@@ -82,16 +82,57 @@ export function registerConfigCommands(program: Command): void {
     });
 
   configCmd
+    .command("set-space")
+    .description("Set the default space ID — entities and relationships will be added to this space on creation")
+    .argument("<id>", "Space ULID")
+    .action((id: string) => {
+      config.set("spaceId", id);
+      output.result({
+        operation: "config.set-space",
+        space_id: id,
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
+    .command("get-space")
+    .description("Show the current default space ID")
+    .action(() => {
+      const spaceId = config.get("spaceId");
+      output.result({
+        operation: "config.get-space",
+        space_id: spaceId ?? null,
+        source: process.env.ARKE_SPACE_ID ? "ARKE_SPACE_ID" : spaceId ? "config" : null,
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
+    .command("clear-space")
+    .description("Remove the stored default space ID")
+    .action(() => {
+      config.delete("spaceId");
+      output.result({
+        operation: "config.clear-space",
+        cleared: true,
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
     .command("show")
     .description("Show all CLI configuration")
     .action(() => {
       const arkeId = config.get("arkeId");
+      const spaceId = config.get("spaceId");
       output.result({
         operation: "config.show",
         api_url: config.get("apiUrl"),
         api_url_source: process.env.ARKE_API_URL ? "ARKE_API_URL" : "config",
         arke_id: arkeId ?? null,
         arke_id_source: process.env.ARKE_ID ? "ARKE_ID" : arkeId ? "config" : null,
+        space_id: spaceId ?? null,
+        space_id_source: process.env.ARKE_SPACE_ID ? "ARKE_SPACE_ID" : spaceId ? "config" : null,
         config_path: config.path(),
       });
     });

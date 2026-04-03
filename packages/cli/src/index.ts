@@ -13,15 +13,19 @@ program
   .description("CLI for the Arkeon API")
   .version("0.1.4")
   .option("--api-url <url>", "Override API base URL for this process")
-  .option("--arke-id <id>", "Override default arke ID for this process");
+  .option("--arke-id <id>", "Override default arke ID for this process")
+  .option("--space-id <id>", "Override default space ID for this process");
 
 program.hook("preAction", (command) => {
-  const options = command.optsWithGlobals() as { apiUrl?: string; arkeId?: string };
+  const options = command.optsWithGlobals() as { apiUrl?: string; arkeId?: string; spaceId?: string };
   if (options.apiUrl) {
     process.env.ARKE_API_URL = options.apiUrl;
   }
   if (options.arkeId) {
     process.env.ARKE_ID = options.arkeId;
+  }
+  if (options.spaceId) {
+    process.env.ARKE_SPACE_ID = options.spaceId;
   }
 });
 
