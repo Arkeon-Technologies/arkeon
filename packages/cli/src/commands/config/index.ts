@@ -85,10 +85,13 @@ export function registerConfigCommands(program: Command): void {
     .command("show")
     .description("Show all CLI configuration")
     .action(() => {
+      const arkeId = config.get("arkeId");
       output.result({
         operation: "config.show",
         api_url: config.get("apiUrl"),
-        arke_id: config.get("arkeId") ?? null,
+        api_url_source: process.env.ARKE_API_URL ? "ARKE_API_URL" : "config",
+        arke_id: arkeId ?? null,
+        arke_id_source: process.env.ARKE_ID ? "ARKE_ID" : arkeId ? "config" : null,
         config_path: config.path(),
       });
     });
