@@ -256,6 +256,22 @@ export async function grantSpacePermission(
   return body;
 }
 
+export async function grantSpaceEntityAccess(
+  apiKey: string,
+  spaceId: string,
+  granteeType: string,
+  granteeId: string,
+  role: string,
+) {
+  const { response, body } = await jsonRequest(`/spaces/${spaceId}/entity-access`, {
+    method: "POST",
+    apiKey,
+    json: { grantee_type: granteeType, grantee_id: granteeId, role },
+  });
+  expect(response.status).toBe(201);
+  return body;
+}
+
 // --- Worker permission helpers ---
 
 export async function grantWorkerPermission(

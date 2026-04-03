@@ -2,12 +2,15 @@ import { describe, expect, test } from "vitest";
 import {
   adminApiKey,
   addEntityToSpace,
+  addGroupMember,
   apiRequest,
   createActor,
   createEntity,
+  createGroup,
   createSpace,
   getArkeId,
   getJson,
+  grantSpaceEntityAccess,
   grantSpacePermission,
   jsonRequest,
   uniqueName,
@@ -218,6 +221,180 @@ describe("Spaces", () => {
     expect(response.status).toBe(403);
     expect((body as any).error.message).toContain("no role on this space");
     expect((body as any).error.message).toContain("/permissions");
+  });
+
+  // -- Space Entity Access tests ------------------------------------------------
+
+  test("Entity-access: grant gives edit access to entities in space", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-grant"));
+    const user = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "ea-doc" }, { read_level: 1, write_level: 1 });
+    await addEntityToSpace(actor.apiKey, space.id, entity.id);
+
+    // Before grant: user cannot edit
+    const { response: failRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: entity.ver, properties: { label: "hacked" } },
+    });
+    expect(failRes.status).toBe(403);
+
+    // Grant entity-access
+    await grantSpaceEntityAccess(actor.apiKey, space.id, "actor", user.id, "editor");
+
+    // After grant: user can edit
+    const { response: okRes, body } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: entity.ver, properties: { label: "modified-via-space" } },
+    });
+    expect(okRes.status).toBe(200);
+    expect((body as any).entity.properties.label).toBe("modified-via-space");
+  });
+
+  test("Entity-access: does not grant access to entities outside the space", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-outside"));
+    const user = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    const insideEntity = await createEntity(actor.apiKey, arkeId, "note", { label: "inside" }, { read_level: 1, write_level: 1 });
+    const outsideEntity = await createEntity(actor.apiKey, arkeId, "note", { label: "outside" }, { read_level: 1, write_level: 1 });
+    await addEntityToSpace(actor.apiKey, space.id, insideEntity.id);
+
+    await grantSpaceEntityAccess(actor.apiKey, space.id, "actor", user.id, "editor");
+
+    // Can edit inside entity
+    const { response: okRes } = await jsonRequest(`/entities/${insideEntity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: insideEntity.ver, properties: { label: "ok" } },
+    });
+    expect(okRes.status).toBe(200);
+
+    // Cannot edit outside entity
+    const { response: failRes } = await jsonRequest(`/entities/${outsideEntity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: outsideEntity.ver, properties: { label: "no" } },
+    });
+    expect(failRes.status).toBe(403);
+  });
+
+  test("Entity-access: revoke removes access", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-revoke"));
+    const user = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "rev-doc" }, { read_level: 1, write_level: 1 });
+    await addEntityToSpace(actor.apiKey, space.id, entity.id);
+    await grantSpaceEntityAccess(actor.apiKey, space.id, "actor", user.id, "editor");
+
+    // Edit works
+    const { response: okRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: entity.ver, properties: { label: "edited" } },
+    });
+    expect(okRes.status).toBe(200);
+
+    // Revoke
+    const { response: revokeRes } = await apiRequest(`/spaces/${space.id}/entity-access/${user.id}`, {
+      method: "DELETE",
+      apiKey: actor.apiKey,
+    });
+    expect(revokeRes.status).toBe(204);
+
+    // Edit now fails
+    const { response: failRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: 2, properties: { label: "should-fail" } },
+    });
+    expect(failRes.status).toBe(403);
+  });
+
+  test("Entity-access: list and bulk grant", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-bulk"));
+    const user1 = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    const user2 = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+
+    // Bulk grant
+    const { response: bulkRes, body: bulkBody } = await jsonRequest(`/spaces/${space.id}/entity-access`, {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        grants: [
+          { grantee_type: "actor", grantee_id: user1.id, role: "editor" },
+          { grantee_type: "actor", grantee_id: user2.id, role: "admin" },
+        ],
+      },
+    });
+    expect(bulkRes.status).toBe(201);
+    expect((bulkBody as any).grants).toHaveLength(2);
+
+    // List
+    const { response: listRes, body: listBody } = await getJson(`/spaces/${space.id}/entity-access`, actor.apiKey);
+    expect(listRes.status).toBe(200);
+    expect((listBody as any).grants).toHaveLength(2);
+    expect((listBody as any).grants.some((g: any) => g.grantee_id === user1.id && g.role === "editor")).toBe(true);
+    expect((listBody as any).grants.some((g: any) => g.grantee_id === user2.id && g.role === "admin")).toBe(true);
+  });
+
+  test("Entity-access: group grant cascades to group members", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-group"));
+    const group = await createGroup(adminApiKey, arkeId, uniqueName("ea-grp"));
+    const member = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    await addGroupMember(adminApiKey, group.id, member.id);
+
+    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "grp-doc" }, { read_level: 1, write_level: 1 });
+    await addEntityToSpace(actor.apiKey, space.id, entity.id);
+
+    // Before grant: member cannot edit
+    const { response: failRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: member.apiKey,
+      json: { ver: entity.ver, properties: { label: "no" } },
+    });
+    expect(failRes.status).toBe(403);
+
+    // Grant entity-access to group
+    await grantSpaceEntityAccess(actor.apiKey, space.id, "group", group.id, "editor");
+
+    // After grant: member can edit
+    const { response: okRes, body } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: member.apiKey,
+      json: { ver: entity.ver, properties: { label: "edited-via-group" } },
+    });
+    expect(okRes.status).toBe(200);
+    expect((body as any).entity.properties.label).toBe("edited-via-group");
+  });
+
+  test("Entity-access: removing entity from space revokes cascaded access", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("ea-remove"));
+    const user = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
+    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "rm-doc" }, { read_level: 1, write_level: 1 });
+    await addEntityToSpace(actor.apiKey, space.id, entity.id);
+    await grantSpaceEntityAccess(actor.apiKey, space.id, "actor", user.id, "editor");
+
+    // Can edit while entity is in space
+    const { response: okRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: entity.ver, properties: { label: "ok" } },
+    });
+    expect(okRes.status).toBe(200);
+
+    // Remove entity from space
+    const { response: removeRes } = await apiRequest(`/spaces/${space.id}/entities/${entity.id}`, {
+      method: "DELETE",
+      apiKey: actor.apiKey,
+    });
+    expect(removeRes.status).toBe(204);
+
+    // Cannot edit after entity removed from space
+    const { response: failRes } = await jsonRequest(`/entities/${entity.id}`, {
+      method: "PUT",
+      apiKey: user.apiKey,
+      json: { ver: 2, properties: { label: "should-fail" } },
+    });
+    expect(failRes.status).toBe(403);
   });
 
   test("Space feed shows activity", async () => {
