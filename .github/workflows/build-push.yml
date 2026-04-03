@@ -72,3 +72,38 @@ jobs:
           docker tag arke:ci $ECR_REPO:sha-${GITHUB_SHA::8}
           docker push $ECR_REPO:latest
           docker push $ECR_REPO:sha-${GITHUB_SHA::8}
+
+  publish-cli:
+    needs: test-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI (fetch spec + generate + bundle)
+        run: npm run build -w packages/cli
+
+      - name: Check if API surface changed
+        id: check
+        run: |
+          if git diff --quiet packages/cli/spec/openapi.snapshot.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump patch version and publish to npm
+        if: steps.check.outputs.changed == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/cli
+          npm version patch --no-git-tag-version
+          npm publish --access public

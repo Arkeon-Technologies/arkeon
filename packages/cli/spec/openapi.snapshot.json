@@ -5042,15 +5042,16 @@
             }
           },
           {
-            "description": "in | out (default: out)",
+            "description": "in | out | both (default: both)",
             "in": "query",
             "name": "direction",
             "required": false,
             "schema": {
-              "description": "in | out (default: out)",
+              "description": "in | out | both (default: both)",
               "enum": [
                 "in",
-                "out"
+                "out",
+                "both"
               ],
               "type": "string"
             }
@@ -5093,6 +5094,14 @@
                     "relationships": {
                       "items": {
                         "properties": {
+                          "direction": {
+                            "description": "Whether this entity is the source (out) or target (in)",
+                            "enum": [
+                              "in",
+                              "out"
+                            ],
+                            "type": "string"
+                          },
                           "id": {
                             "description": "ULID string",
                             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -5126,6 +5135,7 @@
                           "predicate",
                           "source_id",
                           "target_id",
+                          "direction",
                           "properties"
                         ],
                         "type": "object"
@@ -8286,6 +8296,15 @@
                     },
                     "type": "object"
                   },
+                  "log_level": {
+                    "description": "Log verbosity for invocations (default: full)",
+                    "enum": [
+                      "full",
+                      "errors_only",
+                      "none"
+                    ],
+                    "type": "string"
+                  },
                   "max_iterations": {
                     "maximum": 200,
                     "minimum": 1,
@@ -8482,10 +8501,19 @@
                           "completed_at": {
                             "example": "2026-01-01T00:00:00.000Z",
                             "format": "date-time",
-                            "type": "string"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "depth": {
+                            "type": "integer"
                           },
                           "duration_ms": {
-                            "type": "integer"
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           },
                           "error_message": {
                             "type": [
@@ -8496,16 +8524,46 @@
                           "id": {
                             "type": "integer"
                           },
+                          "input_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "invoker_id": {
                             "type": "string"
                           },
                           "iterations": {
                             "type": "integer"
                           },
+                          "llm_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "log": {},
+                          "output_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "parent_invocation_id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "prompt": {
                             "type": "string"
                           },
+                          "queued_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "result": {},
                           "source": {
                             "enum": [
                               "http",
@@ -8516,14 +8574,36 @@
                           "started_at": {
                             "example": "2026-01-01T00:00:00.000Z",
                             "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "queued",
+                              "running",
+                              "completed",
+                              "failed",
+                              "cancelled"
+                            ],
                             "type": "string"
                           },
                           "success": {
-                            "type": "boolean"
-                          },
-                          "summary": {
                             "type": [
-                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "tool_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "total_tokens": {
+                            "type": [
+                              "integer",
                               "null"
                             ]
                           },
@@ -8541,11 +8621,19 @@
                           "worker_id",
                           "invoker_id",
                           "source",
+                          "status",
                           "prompt",
                           "success",
-                          "summary",
                           "iterations",
                           "error_message",
+                          "input_tokens",
+                          "output_tokens",
+                          "total_tokens",
+                          "llm_calls_count",
+                          "tool_calls_count",
+                          "parent_invocation_id",
+                          "depth",
+                          "queued_at",
                           "started_at",
                           "completed_at",
                           "duration_ms",
@@ -8636,10 +8724,19 @@
                         "completed_at": {
                           "example": "2026-01-01T00:00:00.000Z",
                           "format": "date-time",
-                          "type": "string"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "depth": {
+                          "type": "integer"
                         },
                         "duration_ms": {
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "error_message": {
                           "type": [
@@ -8650,16 +8747,46 @@
                         "id": {
                           "type": "integer"
                         },
+                        "input_tokens": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "invoker_id": {
                           "type": "string"
                         },
                         "iterations": {
                           "type": "integer"
                         },
+                        "llm_calls_count": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "log": {},
+                        "output_tokens": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "parent_invocation_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "prompt": {
                           "type": "string"
                         },
+                        "queued_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "result": {},
                         "source": {
                           "enum": [
                             "http",
@@ -8670,14 +8797,36 @@
                         "started_at": {
                           "example": "2026-01-01T00:00:00.000Z",
                           "format": "date-time",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            "queued",
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled"
+                          ],
                           "type": "string"
                         },
                         "success": {
-                          "type": "boolean"
-                        },
-                        "summary": {
                           "type": [
-                            "string",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "tool_calls_count": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "total_tokens": {
+                          "type": [
+                            "integer",
                             "null"
                           ]
                         },
@@ -8695,11 +8844,19 @@
                         "worker_id",
                         "invoker_id",
                         "source",
+                        "status",
                         "prompt",
                         "success",
-                        "summary",
                         "iterations",
                         "error_message",
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "llm_calls_count",
+                        "tool_calls_count",
+                        "parent_invocation_id",
+                        "depth",
+                        "queued_at",
                         "started_at",
                         "completed_at",
                         "duration_ms",
@@ -8763,6 +8920,7 @@
     },
     "/workers/{id}/invoke": {
       "post": {
+        "description": "Queues a worker invocation. Returns 202 with an invocation ID by default. Pass ?wait=true to block until the invocation completes (returns 200 with full result).",
         "operationId": "invokeWorker",
         "parameters": [
           {
@@ -8774,6 +8932,16 @@
               "description": "Worker actor ULID",
               "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
               "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "If 'true', block until invocation completes and return the full result",
+            "in": "query",
+            "name": "wait",
+            "required": false,
+            "schema": {
+              "description": "If 'true', block until invocation completes and return the full result",
               "type": "string"
             }
           }
@@ -8790,7 +8958,7 @@
                     "type": "string"
                   },
                   "store_log": {
-                    "description": "Store full agent log in invocation history (default: false)",
+                    "description": "Override log storage (default: true, respects worker's log_level setting)",
                     "type": "boolean"
                   }
                 },
@@ -8809,29 +8977,82 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "invocation_id": {
+                      "type": "integer"
+                    },
                     "iterations": {
                       "type": "integer"
+                    },
+                    "result": {
+                      "description": "Structured result output from the worker"
                     },
                     "success": {
                       "type": "boolean"
                     },
-                    "summary": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                    "usage": {
+                      "properties": {
+                        "input_tokens": {
+                          "type": "integer"
+                        },
+                        "llm_calls": {
+                          "type": "integer"
+                        },
+                        "output_tokens": {
+                          "type": "integer"
+                        },
+                        "tool_calls": {
+                          "type": "integer"
+                        },
+                        "total_tokens": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "llm_calls",
+                        "tool_calls"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
+                    "invocation_id",
                     "success",
-                    "summary",
-                    "iterations"
+                    "iterations",
+                    "usage"
                   ],
                   "type": "object"
                 }
               }
             },
-            "description": "Worker invocation result"
+            "description": "Worker invocation result (when ?wait=true)"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "invocation_id": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "enum": [
+                        "queued"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "invocation_id",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invocation queued"
           },
           "400": {
             "content": {
@@ -8873,7 +9094,7 @@
             },
             "description": "Not found"
           },
-          "408": {
+          "503": {
             "content": {
               "application/json": {
                 "schema": {
@@ -8881,7 +9102,7 @@
                 }
               }
             },
-            "description": "Error 408"
+            "description": "Service unavailable"
           }
         },
         "summary": "Invoke a worker with a prompt",
@@ -8891,7 +9112,792 @@
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /actors/{id}",
-          "GET /workers/{id}"
+          "GET /workers/{id}",
+          "GET /workers/invocations/{invocationId}"
+        ]
+      }
+    },
+    "/workers/{id}/permissions": {
+      "get": {
+        "operationId": "listWorkerPermissions",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "owner_id": {
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "permissions": {
+                      "items": {
+                        "properties": {
+                          "granted_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "granted_by": {
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "grantee_id": {
+                            "type": "string"
+                          },
+                          "grantee_type": {
+                            "enum": [
+                              "actor",
+                              "group"
+                            ],
+                            "type": "string"
+                          },
+                          "role": {
+                            "enum": [
+                              "invoker"
+                            ],
+                            "type": "string"
+                          },
+                          "worker_id": {
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "worker_id",
+                          "grantee_type",
+                          "grantee_id",
+                          "role",
+                          "granted_by",
+                          "granted_at"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "owner_id",
+                    "permissions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Worker permissions"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "List permissions on a worker",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /workers/{id}/permissions"
+        ]
+      },
+      "post": {
+        "operationId": "grantWorkerPermission",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "grantee_id": {
+                    "description": "Actor or group ULID to grant access to",
+                    "type": "string"
+                  },
+                  "grantee_type": {
+                    "default": "actor",
+                    "enum": [
+                      "actor",
+                      "group"
+                    ],
+                    "type": "string"
+                  },
+                  "role": {
+                    "default": "invoker",
+                    "enum": [
+                      "invoker"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grantee_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "permission": {
+                      "properties": {
+                        "granted_at": {
+                          "example": "2026-01-01T00:00:00.000Z",
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "granted_by": {
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        },
+                        "grantee_id": {
+                          "type": "string"
+                        },
+                        "grantee_type": {
+                          "enum": [
+                            "actor",
+                            "group"
+                          ],
+                          "type": "string"
+                        },
+                        "role": {
+                          "enum": [
+                            "invoker"
+                          ],
+                          "type": "string"
+                        },
+                        "worker_id": {
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "worker_id",
+                        "grantee_type",
+                        "grantee_id",
+                        "role",
+                        "granted_by",
+                        "granted_at"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "permission"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Permission granted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Grant invocation access on a worker (owner/admin only)",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /workers/{id}/permissions",
+          "DELETE /workers/{id}/permissions/{granteeId}"
+        ]
+      }
+    },
+    "/workers/{id}/permissions/{granteeId}": {
+      "delete": {
+        "operationId": "revokeWorkerPermission",
+        "parameters": [
+          {
+            "description": "Worker actor ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Worker actor ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Grantee actor or group ID",
+            "in": "path",
+            "name": "granteeId",
+            "required": true,
+            "schema": {
+              "description": "Grantee actor or group ID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Permission revoked"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Revoke invocation access from an actor or group",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /workers/{id}/permissions"
+        ]
+      }
+    },
+    "/workers/invocations/{invocationId}": {
+      "get": {
+        "description": "Retrieve the current state of a worker invocation. Use this to poll for completion after a 202 response from the invoke endpoint. Includes queue_position when status is 'queued'.",
+        "operationId": "getWorkerInvocation",
+        "parameters": [
+          {
+            "description": "Invocation ID",
+            "in": "path",
+            "name": "invocationId",
+            "required": true,
+            "schema": {
+              "description": "Invocation ID",
+              "pattern": "^\\d+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "completed_at": {
+                      "example": "2026-01-01T00:00:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "depth": {
+                      "type": "integer"
+                    },
+                    "duration_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "error_message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "type": "integer"
+                    },
+                    "input_tokens": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "invoker_id": {
+                      "type": "string"
+                    },
+                    "iterations": {
+                      "type": "integer"
+                    },
+                    "llm_calls_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "log": {},
+                    "output_tokens": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "parent_invocation_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "queue_position": {
+                      "description": "Position in queue (1-based), null if not queued",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "queued_at": {
+                      "example": "2026-01-01T00:00:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "result": {},
+                    "source": {
+                      "enum": [
+                        "http",
+                        "scheduler"
+                      ],
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "example": "2026-01-01T00:00:00.000Z",
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "queued",
+                        "running",
+                        "completed",
+                        "failed",
+                        "cancelled"
+                      ],
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "tool_calls_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "total_tokens": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "ts": {
+                      "example": "2026-01-01T00:00:00.000Z",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "worker_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "worker_id",
+                    "invoker_id",
+                    "source",
+                    "status",
+                    "prompt",
+                    "success",
+                    "iterations",
+                    "error_message",
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                    "llm_calls_count",
+                    "tool_calls_count",
+                    "parent_invocation_id",
+                    "depth",
+                    "queued_at",
+                    "started_at",
+                    "completed_at",
+                    "duration_ms",
+                    "ts",
+                    "queue_position"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invocation details"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a worker invocation by ID (poll for status)",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /workers/{id}/invoke"
+        ]
+      }
+    },
+    "/workers/invocations/{invocationId}/tree": {
+      "get": {
+        "description": "Retrieves all invocations in the tree rooted at the given invocation ID using a recursive query. Returns a flat array ordered by depth then timestamp, with parent_invocation_id for client-side tree building.",
+        "operationId": "getInvocationTree",
+        "parameters": [
+          {
+            "description": "Root invocation ID",
+            "in": "path",
+            "name": "invocationId",
+            "required": true,
+            "schema": {
+              "description": "Root invocation ID",
+              "pattern": "^\\d+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "invocations": {
+                      "items": {
+                        "properties": {
+                          "completed_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "depth": {
+                            "type": "integer"
+                          },
+                          "duration_ms": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "error_message": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "input_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "invoker_id": {
+                            "type": "string"
+                          },
+                          "iterations": {
+                            "type": "integer"
+                          },
+                          "llm_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "log": {},
+                          "output_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "parent_invocation_id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "queued_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "result": {},
+                          "source": {
+                            "enum": [
+                              "http",
+                              "scheduler"
+                            ],
+                            "type": "string"
+                          },
+                          "started_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "queued",
+                              "running",
+                              "completed",
+                              "failed",
+                              "cancelled"
+                            ],
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "tool_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "total_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "ts": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "worker_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "worker_id",
+                          "invoker_id",
+                          "source",
+                          "status",
+                          "prompt",
+                          "success",
+                          "iterations",
+                          "error_message",
+                          "input_tokens",
+                          "output_tokens",
+                          "total_tokens",
+                          "llm_calls_count",
+                          "tool_calls_count",
+                          "parent_invocation_id",
+                          "depth",
+                          "queued_at",
+                          "started_at",
+                          "completed_at",
+                          "duration_ms",
+                          "ts"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "invocations"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invocation tree"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get the full invocation tree from a root invocation",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /workers/invocations/{invocationId}"
         ]
       }
     }

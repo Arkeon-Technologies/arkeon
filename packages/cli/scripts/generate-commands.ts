@@ -180,6 +180,11 @@ const OVERRIDES: Record<string, Override> = {
   invokeWorker: { group: "workers", action: "invoke" },
   listWorkerInvocations: { group: "workers", action: "invocations" },
   getLatestWorkerInvocation: { group: "workers", action: "latest" },
+  getWorkerInvocation: { group: "workers", action: "poll" },
+  getInvocationTree: { group: "workers", action: "tree" },
+  listWorkerPermissions: { group: "workers", action: "permissions" },
+  grantWorkerPermission: { group: "workers", action: "grant" },
+  revokeWorkerPermission: { group: "workers", action: "revoke" },
 
   // --- Activity ---
   listActivity: { group: "activity", action: "list" },

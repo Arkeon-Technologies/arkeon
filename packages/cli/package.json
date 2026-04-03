@@ -13,7 +13,7 @@
   "scripts": {
     "fetch-spec": "tsx scripts/fetch-openapi.ts",
     "generate": "tsx scripts/generate-commands.ts",
-    "build": "npm run generate && tsup",
+    "build": "npm run fetch-spec && npm run generate && tsup",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
