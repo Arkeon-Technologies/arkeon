@@ -57,6 +57,7 @@ const createGroupRoute = createRoute({
   summary: "Create a new group (admin only via RLS)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /groups/{id}", "GET /groups"],
+  "x-arke-rules": ["System admin only"],
   request: {
     body: {
       required: true,
@@ -87,6 +88,7 @@ const listGroupsRoute = createRoute({
   summary: "List groups",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /groups", "GET /groups/{id}"],
+  "x-arke-rules": [],
   request: {
     query: paginationQuerySchema(50, 200).extend({
       arke_id: queryParam("arke_id", EntityIdParam.optional(), "Filter by arke"),
@@ -114,6 +116,7 @@ const getGroupRoute = createRoute({
   summary: "Fetch a group with its members",
   "x-arke-auth": "optional",
   "x-arke-related": ["PUT /groups/{id}", "POST /groups/{id}/members"],
+  "x-arke-rules": [],
   request: {
     params: entityIdParams("Group ULID"),
   },
@@ -134,6 +137,7 @@ const updateGroupRoute = createRoute({
   summary: "Update a group (admin or group admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /groups/{id}"],
+  "x-arke-rules": ["Requires group admin role or system admin"],
   request: {
     params: entityIdParams("Group ULID"),
     body: {
@@ -162,6 +166,7 @@ const deleteGroupRoute = createRoute({
   tags: ["Groups"],
   summary: "Delete a group (admin or group admin)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Requires group admin role or system admin"],
   request: {
     params: entityIdParams("Group ULID"),
   },
@@ -181,6 +186,7 @@ const addMemberRoute = createRoute({
   summary: "Add a member to a group (admin or group admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["DELETE /groups/{id}/members/{actorId}"],
+  "x-arke-rules": ["Requires group admin role or system admin"],
   request: {
     params: entityIdParams("Group ULID"),
     body: {
@@ -209,6 +215,7 @@ const removeMemberRoute = createRoute({
   tags: ["Groups"],
   summary: "Remove a member from a group (admin or group admin)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Requires group admin role or system admin"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Group ULID"),

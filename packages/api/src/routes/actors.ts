@@ -70,6 +70,7 @@ const createActorRoute = createRoute({
   summary: "Create a new actor and its initial API key",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /actors/{id}", "GET /actors"],
+  "x-arke-rules": ["Cannot grant max_read_level higher than your own", "Cannot grant max_write_level higher than your own"],
   request: {
     body: {
       required: true,
@@ -106,6 +107,7 @@ const listActorsRoute = createRoute({
   summary: "List actors (paginated)",
   "x-arke-auth": "required",
   "x-arke-related": ["POST /actors", "GET /actors/{id}"],
+  "x-arke-rules": [],
   request: {
     query: paginationQuerySchema(50, 200).extend({
       status: queryParam(
@@ -137,6 +139,7 @@ const getActorRoute = createRoute({
   summary: "Fetch a single actor by ID",
   "x-arke-auth": "required",
   "x-arke-related": ["PUT /actors/{id}", "DELETE /actors/{id}"],
+  "x-arke-rules": [],
   request: {
     params: entityIdParams("Actor ULID"),
   },
@@ -157,6 +160,7 @@ const updateActorRoute = createRoute({
   summary: "Update an actor (admin or self)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /actors/{id}"],
+  "x-arke-rules": ["Only the actor themselves or a system admin may update", "Only admins can change arke_id, is_admin, status, or can_publish_public", "Cannot set clearance levels higher than your own"],
   request: {
     params: entityIdParams("Actor ULID"),
     body: {
@@ -187,6 +191,7 @@ const deactivateActorRoute = createRoute({
   tags: ["Actors"],
   summary: "Deactivate an actor (admin only)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["System admin only"],
   request: {
     params: entityIdParams("Actor ULID"),
   },
@@ -207,6 +212,7 @@ const createActorKeyRoute = createRoute({
   summary: "Create an API key for a specific actor (admin only)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /auth/keys", "POST /auth/keys"],
+  "x-arke-rules": ["System admin only", "Target actor must be active"],
   request: {
     params: entityIdParams("Actor ULID"),
     body: {
@@ -241,6 +247,7 @@ const actorActivityRoute = createRoute({
   summary: "Activity feed filtered by a specific actor",
   "x-arke-auth": "optional",
   "x-arke-related": ["GET /activity"],
+  "x-arke-rules": ["Results filtered by your classification clearance"],
   request: {
     params: entityIdParams("Actor ULID"),
     query: paginationQuerySchema(50, 200).extend({

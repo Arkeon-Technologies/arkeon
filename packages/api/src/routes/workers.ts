@@ -148,6 +148,7 @@ const invokeWorkerRoute = createRoute({
     "GET /workers/{id}",
     "GET /workers/invocations/{invocationId}",
   ],
+  "x-arke-rules": ["Requires owner, system admin, or invoker permission grant"],
   request: {
     params: entityIdParams("Worker actor ULID"),
     query: z.object({
@@ -206,6 +207,7 @@ const getWorkerRoute = createRoute({
   summary: "Get worker configuration (keys redacted)",
   "x-arke-auth": "required",
   "x-arke-related": ["PUT /workers/{id}", "POST /workers/{id}/invoke"],
+  "x-arke-rules": ["Only the worker owner or a system admin may access"],
   request: {
     params: entityIdParams("Worker actor ULID"),
   },
@@ -231,6 +233,7 @@ const updateWorkerRoute = createRoute({
   summary: "Update worker configuration",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/{id}"],
+  "x-arke-rules": ["Only the worker owner or a system admin may update"],
   request: {
     params: entityIdParams("Worker actor ULID"),
     body: {
@@ -473,6 +476,7 @@ const listInvocationsRoute = createRoute({
   summary: "List invocation history for a worker",
   "x-arke-auth": "required",
   "x-arke-related": ["POST /workers/{id}/invoke", "GET /workers/{id}/invocations/latest"],
+  "x-arke-rules": ["Only the worker owner or a system admin may view invocations"],
   request: {
     params: entityIdParams("Worker actor ULID"),
     query: paginationQuerySchema(50, 200),
@@ -494,6 +498,7 @@ const latestInvocationRoute = createRoute({
   summary: "Get the most recent invocation for a worker",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/{id}/invocations"],
+  "x-arke-rules": ["Only the worker owner or a system admin may view invocations"],
   request: {
     params: entityIdParams("Worker actor ULID"),
   },
@@ -517,6 +522,7 @@ const getInvocationRoute = createRoute({
     "after a 202 response from the invoke endpoint. Includes queue_position when status is 'queued'.",
   "x-arke-auth": "required",
   "x-arke-related": ["POST /workers/{id}/invoke"],
+  "x-arke-rules": ["Only the worker owner or a system admin may view invocations"],
   request: {
     params: z.object({
       invocationId: z.string().regex(/^\d+$/).describe("Invocation ID"),
@@ -632,6 +638,7 @@ const getInvocationTreeRoute = createRoute({
     "Returns a flat array ordered by depth then timestamp, with parent_invocation_id for client-side tree building.",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/invocations/{invocationId}"],
+  "x-arke-rules": ["Only the worker owner or a system admin may view invocation trees"],
   request: {
     params: z.object({
       invocationId: z.string().regex(/^\d+$/).describe("Root invocation ID"),
@@ -692,6 +699,7 @@ const listWorkerPermissionsRoute = createRoute({
   summary: "List permissions on a worker",
   "x-arke-auth": "required",
   "x-arke-related": ["POST /workers/{id}/permissions"],
+  "x-arke-rules": ["Only the worker owner or a system admin may view permissions"],
   request: {
     params: entityIdParams("Worker actor ULID"),
   },
@@ -717,6 +725,7 @@ const grantWorkerPermissionRoute = createRoute({
   summary: "Grant invocation access on a worker (owner/admin only)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/{id}/permissions", "DELETE /workers/{id}/permissions/{granteeId}"],
+  "x-arke-rules": ["Only the worker owner or a system admin may grant permissions"],
   request: {
     params: entityIdParams("Worker actor ULID"),
     body: {
@@ -747,6 +756,7 @@ const revokeWorkerPermissionRoute = createRoute({
   summary: "Revoke invocation access from an actor or group",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/{id}/permissions"],
+  "x-arke-rules": ["Only the worker owner or a system admin may revoke permissions"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Worker actor ULID"),

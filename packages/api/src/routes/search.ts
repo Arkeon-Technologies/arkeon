@@ -65,6 +65,7 @@ const searchRoute = createRoute({
     "Results are automatically filtered by the caller's read clearance level. " +
     "Use the read_level parameter to restrict results below your clearance.",
   "x-arke-auth": "optional",
+  "x-arke-rules": ["Results filtered by your classification clearance"],
   request: {
     query: SearchQuery,
   },

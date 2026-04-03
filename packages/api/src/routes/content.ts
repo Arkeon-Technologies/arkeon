@@ -123,6 +123,7 @@ const uploadContentRoute = createRoute({
   summary: "Upload a file directly to an entity",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}/content", "DELETE /entities/{id}/content"],
+  "x-arke-rules": ["Requires write access to the entity (owner, editor, or admin role)", "Optimistic concurrency: must pass current ver to upload"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),
@@ -161,6 +162,7 @@ const getContentRoute = createRoute({
   summary: "Download a file from an entity",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /entities/{id}/content", "DELETE /entities/{id}/content"],
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),
@@ -191,6 +193,7 @@ const deleteContentRoute = createRoute({
   summary: "Delete a file from an entity",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}/content"],
+  "x-arke-rules": ["Requires write access to the entity (owner, editor, or admin role)"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),
@@ -216,6 +219,7 @@ const renameContentRoute = createRoute({
   tags: ["Content"],
   summary: "Rename a content key",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Requires write access to the entity (owner, editor, or admin role)"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),

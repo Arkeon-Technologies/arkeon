@@ -210,8 +210,12 @@ export function renderIndexFromSpec(spec: OpenAPISpec): string {
     for (const match of matches) {
       const summary = typeof match.operation.summary === "string" ? match.operation.summary : "";
       const auth = String(match.operation["x-arke-auth"] ?? "optional");
+      const ruleCount = Array.isArray(match.operation["x-arke-rules"])
+        ? (match.operation["x-arke-rules"] as unknown[]).length
+        : 0;
+      const rulesTag = ruleCount > 0 ? ` [${ruleCount} rules]` : "";
       lines.push(
-        `${match.method.toUpperCase().padEnd(6)} ${match.path.padEnd(40)} ${auth.padEnd(10)} ${summary}`,
+        `${match.method.toUpperCase().padEnd(6)} ${match.path.padEnd(40)} ${auth.padEnd(10)} ${summary}${rulesTag}`,
       );
     }
     lines.push("");
@@ -227,12 +231,25 @@ export function renderRouteHelpFromSpec(spec: OpenAPISpec, method: string, path:
   }
 
   const { operation } = match;
+  const rules = Array.isArray(operation["x-arke-rules"])
+    ? (operation["x-arke-rules"] as string[])
+    : [];
+
   const lines: string[] = [
     `${match.method.toUpperCase()} ${match.path}`,
     `Auth: ${String(operation["x-arke-auth"] ?? "optional")}`,
     `Summary: ${String(operation.summary ?? "")}`,
-    "",
   ];
+
+  if (rules.length) {
+    lines.push("");
+    lines.push("Permission Rules:");
+    for (const rule of rules) {
+      lines.push(`  - ${rule}`);
+    }
+  }
+
+  lines.push("");
 
   const parameters = Array.isArray(operation.parameters)
     ? (operation.parameters as Array<Record<string, unknown>>)

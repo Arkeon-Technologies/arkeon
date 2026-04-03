@@ -27,6 +27,7 @@ const meRoute = createRoute({
   summary: "Get the authenticated actor's profile",
   "x-arke-auth": "required",
   "x-arke-related": ["PUT /auth/me", "GET /auth/me/inbox"],
+  "x-arke-rules": ["Operates on your own record only"],
   responses: {
     200: {
       description: "Authenticated actor",
@@ -43,6 +44,7 @@ const updateMeRoute = createRoute({
   tags: ["Auth"],
   summary: "Update the authenticated actor's properties",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Operates on your own record only", "Can only update properties — admin fields require PUT /actors/{id}"],
   request: {
     body: {
       required: true,
@@ -70,6 +72,7 @@ const createKeyRoute = createRoute({
   summary: "Create a new API key for the authenticated actor",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /auth/keys", "DELETE /auth/keys/{id}"],
+  "x-arke-rules": ["Creates a key for your own actor only"],
   request: {
     body: {
       content: jsonContent(
@@ -103,6 +106,7 @@ const listKeysRoute = createRoute({
   summary: "List API keys for the authenticated actor",
   "x-arke-auth": "required",
   "x-arke-related": ["POST /auth/keys", "DELETE /auth/keys/{id}"],
+  "x-arke-rules": ["Lists only your own keys"],
   request: {
     query: z.object({
       include_revoked: queryParam(
@@ -142,6 +146,7 @@ const revokeKeyRoute = createRoute({
   summary: "Revoke an API key",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /auth/keys"],
+  "x-arke-rules": ["Can only revoke your own keys", "Cannot revoke the key currently in use"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "API key ULID"),

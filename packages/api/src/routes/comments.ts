@@ -44,6 +44,7 @@ const createCommentRoute = createRoute({
     "GET /entities/{id}/comments",
     "DELETE /entities/{id}/comments/{commentId}",
   ],
+  "x-arke-rules": ["Requires read access to the entity", "Replies may only target top-level comments"],
   request: {
     params: entityIdParams(),
     body: {
@@ -83,6 +84,7 @@ const listCommentsRoute = createRoute({
   tags: ["Comments"],
   summary: "List comments on an entity with nested replies",
   "x-arke-auth": "optional",
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: {
     params: entityIdParams(),
     query: paginationQuerySchema(50, 200),
@@ -103,6 +105,7 @@ const deleteCommentRoute = createRoute({
   tags: ["Comments"],
   summary: "Delete a comment (author, entity owner, or admin)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the comment author, entity owner, entity admin, or system admin may delete"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),

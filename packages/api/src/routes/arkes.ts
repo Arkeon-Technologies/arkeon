@@ -42,6 +42,7 @@ const createArkeRoute = createRoute({
   summary: "Create a new arke (network)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /arkes/{id}", "GET /arkes"],
+  "x-arke-rules": ["System admin only"],
   request: {
     body: {
       required: true,
@@ -73,6 +74,7 @@ const listArkesRoute = createRoute({
   summary: "List all arkes (networks)",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /arkes", "GET /arkes/{id}"],
+  "x-arke-rules": [],
   request: {
     query: paginationQuerySchema(50, 200).extend({
       q: queryParam("q", z.string().optional(), "Search by name"),
@@ -95,6 +97,7 @@ const getArkeRoute = createRoute({
   summary: "Fetch a single arke by ID",
   "x-arke-auth": "optional",
   "x-arke-related": ["PUT /arkes/{id}", "DELETE /arkes/{id}"],
+  "x-arke-rules": [],
   request: {
     params: entityIdParams("Arke ULID"),
   },
@@ -115,6 +118,7 @@ const updateArkeRoute = createRoute({
   summary: "Update an arke (admin only via RLS)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /arkes/{id}"],
+  "x-arke-rules": ["System admin only"],
   request: {
     params: entityIdParams("Arke ULID"),
     body: {
@@ -146,6 +150,7 @@ const deleteArkeRoute = createRoute({
   tags: ["Arkes"],
   summary: "Delete an arke (admin only via RLS)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["System admin only"],
   request: {
     params: entityIdParams("Arke ULID"),
   },

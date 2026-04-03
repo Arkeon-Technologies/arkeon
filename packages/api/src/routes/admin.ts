@@ -26,6 +26,7 @@ const updateAdminActorRoute = createRoute({
   summary: "Update actor admin-only fields (is_admin, status, can_publish_public)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /actors/{id}", "PUT /actors/{id}"],
+  "x-arke-rules": ["System admin only"],
   request: {
     params: entityIdParams("Actor ULID"),
     body: {
@@ -64,6 +65,7 @@ const statsRoute = createRoute({
   tags: ["Admin"],
   summary: "Get instance statistics (entity, actor, relationship counts and DB size)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["System admin only"],
   responses: {
     200: {
       description: "Instance statistics",
@@ -90,6 +92,7 @@ const instanceRoute = createRoute({
   tags: ["Admin"],
   summary: "Get instance metadata (Arke ID, version)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["System admin only"],
   responses: {
     200: {
       description: "Instance metadata",
@@ -111,6 +114,7 @@ const reindexRoute = createRoute({
   tags: ["Admin"],
   summary: "Rebuild the Meilisearch index from Postgres",
   "x-arke-auth": "required",
+  "x-arke-rules": ["System admin only"],
   responses: {
     200: {
       description: "Reindex result",

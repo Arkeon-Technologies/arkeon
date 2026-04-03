@@ -84,7 +84,12 @@ The API has a layered, self-documenting help system served at `/llms.txt` and `/
 Checklist for route changes:
 - Define or update the route with `createRoute()` in the route file
 - Reuse shared schemas from `packages/api/src/lib/schemas.ts` when possible
-- Include `operationId`, `tags`, `summary`, `x-arke-auth`, and `x-arke-related`
+- Include `operationId`, `tags`, `summary`, `x-arke-auth`, `x-arke-related`, and `x-arke-rules`
+- `x-arke-rules` is an array of strings describing permission/authorization rules for the route
+  - Write from the caller's perspective ("Requires...", "Only...", "Cannot...")
+  - Cover both app-layer checks and RLS-layer enforcement
+  - Do not duplicate info already in `x-arke-auth` (e.g. don't say "authentication required")
+  - Use empty array `[]` for routes with no authorization rules beyond basic auth
 - Use OpenAPI path params like `/{id}` in route metadata
 - Keep summaries concise; put detail in parameter descriptions and schema descriptions
 - Make request and response schemas accurate enough for CLI codegen and `/help` rendering

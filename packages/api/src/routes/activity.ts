@@ -72,6 +72,7 @@ const listActivityRoute = createRoute({
     "GET /actors/{actorId}/activity",
     "GET /commons/{id}/feed",
   ],
+  "x-arke-rules": ["Results filtered by your classification clearance"],
   request: {
     query: activityQuery,
   },
@@ -92,6 +93,7 @@ const listEntityActivityRoute = createRoute({
   summary: "Activity changelog for a specific entity",
   "x-arke-auth": "optional",
   "x-arke-related": ["GET /activity", "GET /commons/{id}/feed"],
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: {
     params: entityIdParams(),
     query: entityActivityQuery,

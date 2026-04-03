@@ -76,6 +76,7 @@ const listEntitiesRoute = createRoute({
   summary: "List entities with filtering, sorting, and cursor pagination",
   "x-arke-auth": "optional",
   "x-arke-related": ["GET /search", "GET /entities/{id}"],
+  "x-arke-rules": ["Results filtered by your classification clearance"],
   request: {
     query: ListEntitiesQuery,
   },
@@ -96,6 +97,7 @@ const createEntityRoute = createRoute({
   summary: "Create a new entity",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "PUT /entities/{id}"],
+  "x-arke-rules": ["Requires write_level clearance >= entity's write_level", "Requires read_level clearance >= entity's read_level", "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly"],
   request: {
     body: {
       required: true,
@@ -130,6 +132,7 @@ const getEntityRoute = createRoute({
     "PUT /entities/{id}",
     "GET /entities/{id}/versions",
   ],
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level", "Returns 404 if entity is not visible to you"],
   request: {
     params: entityIdParams(),
     query: z.object({
@@ -159,6 +162,7 @@ const updateEntityRoute = createRoute({
   summary: "Update entity properties",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "GET /entities/{id}/versions"],
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= entity's write_level", "Optimistic concurrency: must pass current ver to update"],
   request: {
     params: entityIdParams(),
     body: {
@@ -188,6 +192,7 @@ const deleteEntityRoute = createRoute({
   tags: ["Entities"],
   summary: "Delete an entity",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the owner, an entity admin, or a system admin may delete", "Requires write_level clearance >= entity's write_level"],
   request: { params: entityIdParams() },
   responses: {
     204: { description: "Entity deleted" },
@@ -202,6 +207,7 @@ const changeLevelRoute = createRoute({
   tags: ["Entities"],
   summary: "Change entity classification levels",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may change levels", "Cannot set read_level above your own max_read_level", "Cannot set write_level above your own max_write_level", "Setting read_level to PUBLIC (0) requires can_publish_public flag"],
   request: {
     params: entityIdParams(),
     body: {
@@ -230,6 +236,7 @@ const getPermissionsRoute = createRoute({
   tags: ["Entities"],
   summary: "List permission grants on an entity",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: { params: entityIdParams() },
   responses: {
     200: {
@@ -252,6 +259,7 @@ const grantPermissionRoute = createRoute({
   tags: ["Entities"],
   summary: "Grant a role on an entity (owner/admin only, enforced by RLS)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the entity owner, an entity admin, or a system admin may grant permissions"],
   request: {
     params: entityIdParams(),
     body: {
@@ -281,6 +289,7 @@ const revokePermissionRoute = createRoute({
   tags: ["Entities"],
   summary: "Revoke a role from a user or group",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the entity owner, an entity admin, or a system admin may revoke permissions"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),
@@ -300,6 +309,7 @@ const transferOwnerRoute = createRoute({
   tags: ["Entities"],
   summary: "Transfer entity ownership",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the current owner or a system admin may transfer ownership", "Previous owner loses all access unless they have a separate permission grant"],
   request: {
     params: entityIdParams(),
     body: {
@@ -327,6 +337,7 @@ const listVersionsRoute = createRoute({
   tags: ["Entities"],
   summary: "List version history",
   "x-arke-auth": "optional",
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: {
     params: entityIdParams(),
     query: paginationQuerySchema(50, 200),
@@ -347,6 +358,7 @@ const getVersionRoute = createRoute({
   tags: ["Entities"],
   summary: "Get a specific version snapshot",
   "x-arke-auth": "optional",
+  "x-arke-rules": ["Requires read_level clearance >= entity's read_level"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Entity ULID"),

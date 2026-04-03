@@ -55,6 +55,7 @@ const listRelationshipsRoute = createRoute({
   summary: "List relationships for an entity",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /entities/{id}/relationships", "GET /relationships/{relId}"],
+  "x-arke-rules": ["Results filtered by your classification clearance", "Only shows relationships where you can read the relationship entity"],
   request: {
     params: entityIdParams(),
     query: paginationQuerySchema(50, 200).extend({
@@ -80,6 +81,7 @@ const createRelationshipRoute = createRoute({
   summary: "Create a relationship from this entity to a target",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}/relationships", "DELETE /relationships/{relId}"],
+  "x-arke-rules": ["Requires edit access on the source entity (owner, editor, or admin role)", "Requires read access on the target entity", "Relationship read_level must be >= max(source, target) read_level", "Relationship write_level must be >= max(source, target) write_level"],
   request: {
     params: entityIdParams("Source entity ULID"),
     body: {
@@ -122,6 +124,7 @@ const getRelationshipRoute = createRoute({
   summary: "Get a relationship by its ID with source/target details",
   "x-arke-auth": "optional",
   "x-arke-related": ["PUT /relationships/{relId}", "DELETE /relationships/{relId}"],
+  "x-arke-rules": ["Requires read_level clearance >= relationship's read_level"],
   request: {
     params: z.object({
       relId: pathParam("relId", EntityIdParam, "Relationship entity ULID"),
@@ -153,6 +156,7 @@ const updateRelationshipRoute = createRoute({
   tags: ["Relationships"],
   summary: "Update relationship properties",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= relationship's write_level", "Optimistic concurrency: must pass current ver to update"],
   request: {
     params: z.object({
       relId: pathParam("relId", EntityIdParam, "Relationship entity ULID"),
@@ -184,6 +188,7 @@ const deleteRelationshipRoute = createRoute({
   tags: ["Relationships"],
   summary: "Delete a relationship",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the relationship owner, a system admin, or an actor with edit access on the source entity may delete"],
   request: {
     params: z.object({
       relId: pathParam("relId", EntityIdParam, "Relationship entity ULID"),

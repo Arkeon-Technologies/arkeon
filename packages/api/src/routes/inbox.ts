@@ -33,6 +33,7 @@ const listInboxRoute = createRoute({
   summary: "Get notification inbox for the authenticated actor",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /auth/me/inbox/count"],
+  "x-arke-rules": ["Operates on your own inbox only"],
   request: {
     query: paginationQuerySchema(50, 200).extend({
       since: queryParam(
@@ -69,6 +70,7 @@ const countInboxRoute = createRoute({
   summary: "Count unread notifications since a timestamp",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /auth/me/inbox"],
+  "x-arke-rules": ["Operates on your own inbox only"],
   request: {
     query: z.object({
       since: queryParam(

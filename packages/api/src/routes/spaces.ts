@@ -79,6 +79,7 @@ const createSpaceRoute = createRoute({
   summary: "Create a new space",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /spaces/{id}", "GET /spaces"],
+  "x-arke-rules": ["You become the owner of the space"],
   request: {
     body: {
       required: true,
@@ -111,6 +112,7 @@ const listSpacesRoute = createRoute({
   summary: "List spaces (paginated, RLS filters by read_level)",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /spaces", "GET /spaces/{id}"],
+  "x-arke-rules": ["Results filtered by your classification clearance"],
   request: {
     query: paginationQuerySchema(50, 200).extend({
       arke_id: queryParam("arke_id", EntityIdParam.optional(), "Filter by arke"),
@@ -134,6 +136,7 @@ const getSpaceRoute = createRoute({
   summary: "Fetch a single space by ID",
   "x-arke-auth": "optional",
   "x-arke-related": ["PUT /spaces/{id}", "GET /spaces/{id}/entities"],
+  "x-arke-rules": ["Requires read_level clearance >= space's read_level"],
   request: {
     params: entityIdParams("Space ULID"),
   },
@@ -154,6 +157,7 @@ const updateSpaceRoute = createRoute({
   summary: "Update a space (RLS: owner/editor/admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /spaces/{id}"],
+  "x-arke-rules": ["Requires space role: editor or above", "Owner and system admins bypass role checks"],
   request: {
     params: entityIdParams("Space ULID"),
     body: {
@@ -185,6 +189,7 @@ const deleteSpaceRoute = createRoute({
   tags: ["Spaces"],
   summary: "Soft-delete a space (set status=deleted, RLS: owner/admin)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the space owner or a system admin may delete"],
   request: {
     params: entityIdParams("Space ULID"),
   },
@@ -205,6 +210,7 @@ const listSpaceEntitiesRoute = createRoute({
   summary: "List entities in a space",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /spaces/{id}/entities", "GET /spaces/{id}"],
+  "x-arke-rules": ["Requires read_level clearance >= space's read_level", "Entity results further filtered by your classification clearance"],
   request: {
     params: entityIdParams("Space ULID"),
     query: paginationQuerySchema(50, 200),
@@ -226,6 +232,7 @@ const addSpaceEntityRoute = createRoute({
   summary: "Add an entity to a space (RLS: contributor+)",
   "x-arke-auth": "required",
   "x-arke-related": ["DELETE /spaces/{id}/entities/{entityId}"],
+  "x-arke-rules": ["Requires space role: contributor or above"],
   request: {
     params: entityIdParams("Space ULID"),
     body: {
@@ -260,6 +267,7 @@ const removeSpaceEntityRoute = createRoute({
   tags: ["Spaces"],
   summary: "Remove an entity from a space (RLS: editor+ or added_by)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["You can remove entities you added yourself", "Otherwise requires space role: editor or above"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Space ULID"),
@@ -288,6 +296,7 @@ const grantSpacePermissionRoute = createRoute({
   summary: "Grant role(s) on a space. Accepts a single grant or a bulk grants array (RLS: owner/admin)",
   "x-arke-auth": "required",
   "x-arke-related": ["DELETE /spaces/{id}/permissions/{granteeId}", "GET /spaces/{id}/permissions"],
+  "x-arke-rules": ["Only the space owner or a system admin may grant permissions", "Valid roles: contributor, editor, admin", "Maximum 100 grants per request"],
   request: {
     params: entityIdParams("Space ULID"),
     body: {
@@ -322,6 +331,7 @@ const revokeSpacePermissionRoute = createRoute({
   tags: ["Spaces"],
   summary: "Revoke a role on a space (RLS: owner/admin)",
   "x-arke-auth": "required",
+  "x-arke-rules": ["Only the space owner or a system admin may revoke permissions"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Space ULID"),
@@ -344,6 +354,7 @@ const listSpacePermissionsRoute = createRoute({
   summary: "List permissions on a space",
   "x-arke-auth": "optional",
   "x-arke-related": ["POST /spaces/{id}/permissions"],
+  "x-arke-rules": ["Requires read_level clearance >= space's read_level"],
   request: {
     params: entityIdParams("Space ULID"),
   },
@@ -368,6 +379,7 @@ const spacesFeedRoute = createRoute({
   summary: "Activity feed scoped to a specific space",
   "x-arke-auth": "optional",
   "x-arke-related": ["GET /activity"],
+  "x-arke-rules": ["Requires read_level clearance >= space's read_level", "Activity results further filtered by your classification clearance"],
   request: {
     params: entityIdParams("Space ULID"),
     query: paginationQuerySchema(50, 200).extend({
