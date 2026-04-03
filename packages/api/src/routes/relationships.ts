@@ -5,6 +5,7 @@ import {
   assertBodyObject,
   addEntityToSpaceQuery,
   grantEntityPermissionQuery,
+  InlinePermissionGrant,
   validatePermissionGrant,
 } from "../lib/entities";
 import { requireSpaceRole } from "../lib/spaces";
@@ -77,12 +78,6 @@ const listRelationshipsRoute = createRoute({
     },
     ...errorResponses([400, 403, 404]),
   },
-});
-
-const InlinePermissionGrant = z.object({
-  grantee_type: z.enum(["actor", "group"]).describe("Type of grantee"),
-  grantee_id: z.string().describe("Actor or group ULID"),
-  role: z.enum(["admin", "editor"]).describe("Permission role to grant"),
 });
 
 const createRelationshipRoute = createRoute({

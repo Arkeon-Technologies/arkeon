@@ -1,5 +1,13 @@
+import { z } from "@hono/zod-openapi";
+
 import { ApiError } from "./errors";
 import type { SqlClient } from "./sql";
+
+export const InlinePermissionGrant = z.object({
+  grantee_type: z.enum(["actor", "group"]).describe("Type of grantee"),
+  grantee_id: z.string().describe("Actor or group ULID"),
+  role: z.enum(["admin", "editor"]).describe("Permission role to grant"),
+});
 
 export type EntityRecord = Record<string, unknown> & {
   id: string;

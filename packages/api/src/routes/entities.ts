@@ -7,6 +7,7 @@ import {
   assertBodyObject,
   addEntityToSpaceQuery,
   grantEntityPermissionQuery,
+  InlinePermissionGrant,
   validatePermissionGrant,
   type EntityRecord,
 } from "../lib/entities";
@@ -94,12 +95,6 @@ const listEntitiesRoute = createRoute({
     },
     ...errorResponses([400, 403]),
   },
-});
-
-const InlinePermissionGrant = z.object({
-  grantee_type: z.enum(["actor", "group"]).describe("Type of grantee"),
-  grantee_id: z.string().describe("Actor or group ULID"),
-  role: z.enum(["admin", "editor"]).describe("Permission role to grant"),
 });
 
 const createEntityRoute = createRoute({
