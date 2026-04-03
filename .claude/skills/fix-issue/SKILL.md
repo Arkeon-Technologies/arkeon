@@ -108,6 +108,7 @@ git branch -d fix/issue-$ARGUMENTS
 - All work happens inside the worktree
 - Run migrations if any SQL files changed
 - Run e2e tests before opening the PR
+- If changing `packages/runtime/src/sandbox.ts` or `packages/api/src/lib/worker-invoke.ts`, run `./scripts/test-sandbox.sh` to test bwrap inside Docker — macOS won't catch bwrap issues
 - If tests fail, fix and re-test — don't open a broken PR
 - If you abandon the issue (user says stop, or it's blocked), remove the `in-progress` label: `gh issue edit $ARGUMENTS --remove-label "in-progress"`
 - CRITICAL: Only ever clean up YOUR OWN worktree (`.claude/worktrees/issue-$ARGUMENTS`). NEVER run `rm -rf .claude/worktrees/`, `git worktree prune`, or remove any other worktree. Other worktrees may contain active work from other sessions. If cleanup is needed, only target the exact worktree path for this issue.

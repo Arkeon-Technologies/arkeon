@@ -31,6 +31,7 @@ npm run migrate                    # Run schema migrations
 npm run build -w packages/cli      # Build CLI
 npm run typecheck -w packages/api  # Typecheck API
 npm run test:e2e -w packages/api   # Run API e2e tests
+./scripts/test-sandbox.sh          # Test bwrap sandbox in Docker (required for sandbox/worker-invoke changes)
 ```
 
 ## Docker

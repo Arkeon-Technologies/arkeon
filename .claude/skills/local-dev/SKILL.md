@@ -113,6 +113,16 @@ This file is gitignored. Write it on every `start` and `reset` to keep it in syn
    The `.env` file provides `ADMIN_BOOTSTRAP_KEY` and `E2E_BASE_URL` automatically.
 3. Report results.
 
+### `test:sandbox`
+
+Run sandbox integration tests inside Docker to test the bwrap code path. This is **required** when changing `packages/runtime/src/sandbox.ts` or `packages/api/src/lib/worker-invoke.ts` — macOS always uses the fallback path and won't catch bwrap issues.
+
+```bash
+./scripts/test-sandbox.sh
+```
+
+This builds the production Docker image and runs `packages/runtime/test/sandbox.test.ts` inside it, testing shell execution, file I/O, env vars, curl, python3, timeouts, and namespace isolation. Runs twice: once with `seccomp=unconfined` (bwrap with namespaces) and once without (verifies fallback detection).
+
 ### `reset`
 
 Use after schema changes (packages/schema). Wipes the DB and starts fresh.

@@ -58,7 +58,14 @@ export class Sandbox {
 
   private checkBwrap(): boolean {
     try {
-      const r = spawnSync("bwrap", ["--version"], { stdio: "pipe" });
+      // Check that bwrap exists AND can actually create namespaces.
+      // Just checking --version isn't enough — bwrap may be installed but
+      // namespace creation blocked (e.g. inside Docker without SYS_ADMIN).
+      const r = spawnSync("bwrap", [
+        "--ro-bind", "/", "/",
+        "--unshare-pid",
+        "--", "/bin/true",
+      ], { stdio: "pipe", timeout: 5_000 });
       return r.status === 0;
     } catch {
       return false;
@@ -88,13 +95,13 @@ export class Sandbox {
       "--ro-bind",
       "/",
       "/",
-      // Writable workspace
+      // Fresh /tmp (must come BEFORE workspace bind so the bind overlays on top)
+      "--tmpfs",
+      "/tmp",
+      // Writable workspace (inside the fresh /tmp)
       "--bind",
       this.config.workspaceDir,
       this.config.workspaceDir,
-      // Writable /tmp
-      "--tmpfs",
-      "/tmp",
       // Fresh /dev and /proc
       "--dev",
       "/dev",
