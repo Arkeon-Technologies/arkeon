@@ -7,6 +7,43 @@ export function registerConfigCommands(program: Command): void {
   const configCmd = program.command("config").description("CLI configuration");
 
   configCmd
+    .command("set-url")
+    .description("Set the API URL (e.g. https://my-instance.arkeon.tech)")
+    .argument("<url>", "API base URL")
+    .action((url: string) => {
+      config.set("apiUrl", url.replace(/\/$/, ""));
+      output.result({
+        operation: "config.set-url",
+        api_url: config.get("apiUrl"),
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
+    .command("get-url")
+    .description("Show the current API URL")
+    .action(() => {
+      output.result({
+        operation: "config.get-url",
+        api_url: config.get("apiUrl"),
+        source: process.env.ARKE_API_URL ? "ARKE_API_URL" : "config",
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
+    .command("clear-url")
+    .description("Reset API URL to the default")
+    .action(() => {
+      config.delete("apiUrl");
+      output.result({
+        operation: "config.clear-url",
+        api_url: config.get("apiUrl"),
+        config_path: config.path(),
+      });
+    });
+
+  configCmd
     .command("set-arke")
     .description("Set the default arke ID used when --arke-id is not provided")
     .argument("<id>", "Arke ULID")
