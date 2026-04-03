@@ -379,6 +379,62 @@ describe("Entities CRUD", () => {
     expect(ids).not.toContain(e1.id);
   });
 
+  test("Filter entities by nested property (dot notation)", async () => {
+    const tag = uniqueName("nested-filter");
+    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      metadata: { source: "arxiv", year: 2024 },
+    });
+    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      metadata: { source: "pubmed", year: 2023 },
+    });
+
+    // Filter nested string property
+    const { response, body } = await getJson(
+      `/entities?filter=label:${tag},metadata.source:arxiv`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(e1.id);
+    expect(ids).not.toContain(e2.id);
+  });
+
+  test("Filter with properties. prefix is normalized", async () => {
+    const tag = uniqueName("prefix-filter");
+    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      processed: true,
+    });
+    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      processed: false,
+    });
+
+    // Using "properties.processed" should work the same as "processed"
+    const { response, body } = await getJson(
+      `/entities?filter=label:${tag},properties.processed:true`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(e1.id);
+    expect(ids).not.toContain(e2.id);
+
+    // Also test nested with prefix
+    const e3 = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      metadata: { source: "arxiv" },
+    });
+    const { body: body2 } = await getJson(
+      `/entities?filter=label:${tag},properties.metadata.source:arxiv`,
+      actor.apiKey,
+    );
+    const ids2 = (body2 as any).entities.map((e: any) => e.id);
+    expect(ids2).toContain(e3.id);
+  });
+
   test("Comments: create, list with threading, delete", async () => {
     const entity = await createEntity(actor.apiKey, arkeId, "note", {
       label: uniqueName("comment-target"),

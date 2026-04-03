@@ -117,8 +117,12 @@ export function buildFilterSql(
       continue;
     }
 
-    // Property JSONB filter
-    const pathText = jsonPathArray(clause.path);
+    // Property JSONB filter — strip leading "properties." since we already
+    // target the properties column (LLMs naturally use the full response path).
+    const normalizedPath = clause.path.startsWith("properties.")
+      ? clause.path.slice("properties.".length)
+      : clause.path;
+    const pathText = jsonPathArray(normalizedPath);
     switch (clause.op) {
       case ":":
         params.push(clause.value);
