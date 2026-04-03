@@ -406,7 +406,7 @@ const grantSpaceEntityAccessRoute = createRoute({
   "x-arke-auth": "required",
   "x-arke-related": ["DELETE /spaces/{id}/entity-access/{granteeId}", "GET /spaces/{id}/entity-access"],
   "x-arke-rules": [
-    "Only the space owner or a system admin may grant entity access",
+    "Requires space role: admin",
     "Valid roles: editor, admin",
     "Grantees can edit/admin any entity currently in the space",
     "Removing an entity from the space revokes this access",
@@ -446,7 +446,7 @@ const revokeSpaceEntityAccessRoute = createRoute({
   tags: ["Spaces"],
   summary: "Revoke entity-level access on a space",
   "x-arke-auth": "required",
-  "x-arke-rules": ["Only the space owner or a system admin may revoke entity access"],
+  "x-arke-rules": ["Requires space role: admin"],
   request: {
     params: z.object({
       id: pathParam("id", EntityIdParam, "Space ULID"),
@@ -467,7 +467,7 @@ const listSpaceEntityAccessRoute = createRoute({
   operationId: "listSpaceEntityAccess",
   tags: ["Spaces"],
   summary: "List entity-access grants on a space",
-  "x-arke-auth": "optional",
+  "x-arke-auth": "required",
   "x-arke-related": ["POST /spaces/{id}/entity-access"],
   "x-arke-rules": ["Requires read_level clearance >= space's read_level"],
   request: {
@@ -1008,11 +1008,8 @@ spacesRouter.openapi(grantSpaceEntityAccessRoute, async (c) => {
     return { grantee_type: granteeType, grantee_id: g.grantee_id as string, role: g.role as string };
   });
 
-  // Permission check: must be space owner or admin
-  const space = await requireSpaceRole(sql, actor, spaceId, "admin");
-  if (space.owner_id !== actor.id && !actor.isAdmin) {
-    throw new ApiError(403, "forbidden", "Only owner or admin can grant entity access");
-  }
+  // Permission check: must have admin role on space (owner, space admin grant, or system admin)
+  await requireSpaceRole(sql, actor, spaceId, "admin");
 
   const now = new Date().toISOString();
   const results = await sql.transaction([
@@ -1042,10 +1039,7 @@ spacesRouter.openapi(revokeSpaceEntityAccessRoute, async (c) => {
   const granteeId = c.req.param("granteeId");
   const sql = createSql();
 
-  const space = await requireSpaceRole(sql, actor, spaceId, "admin");
-  if (space.owner_id !== actor.id && !actor.isAdmin) {
-    throw new ApiError(403, "forbidden", "Only owner or admin can revoke entity access");
-  }
+  await requireSpaceRole(sql, actor, spaceId, "admin");
 
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
