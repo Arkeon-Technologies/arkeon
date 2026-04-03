@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'packages/api/**'
+      - 'packages/cli/src/**'
+      - 'packages/sdk-ts/src/**'
+      - 'packages/sdk-python/arkeon_sdk/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
       - 'Dockerfile'
