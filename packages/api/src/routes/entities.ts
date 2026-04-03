@@ -3,7 +3,15 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { backgroundTask } from "../lib/background";
 import { encodeCursor } from "../lib/cursor";
 import { parseProjection, projectEntity } from "../lib/entity-projection";
-import { assertBodyObject, type EntityRecord } from "../lib/entities";
+import {
+  assertBodyObject,
+  addEntityToSpaceQuery,
+  grantEntityPermissionQuery,
+  InlinePermissionGrant,
+  validatePermissionGrant,
+  type EntityRecord,
+} from "../lib/entities";
+import { requireSpaceRole } from "../lib/spaces";
 import { ApiError } from "../lib/errors";
 import {
   requireActor,
@@ -94,10 +102,16 @@ const createEntityRoute = createRoute({
   path: "/",
   operationId: "createEntity",
   tags: ["Entities"],
-  summary: "Create a new entity",
+  summary: "Create a new entity, optionally adding it to a space and granting permissions",
   "x-arke-auth": "required",
-  "x-arke-related": ["GET /entities/{id}", "PUT /entities/{id}"],
-  "x-arke-rules": ["Requires write_level clearance >= entity's write_level", "Requires read_level clearance >= entity's read_level", "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly"],
+  "x-arke-related": ["GET /entities/{id}", "PUT /entities/{id}", "POST /spaces/{id}/entities", "POST /entities/{id}/permissions"],
+  "x-arke-rules": [
+    "Requires write_level clearance >= entity's write_level",
+    "Requires read_level clearance >= entity's read_level",
+    "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly",
+    "If space_id is provided, requires contributor role or above on that space",
+    "All operations (create, space add, permission grants) are atomic",
+  ],
   request: {
     body: {
       required: true,
@@ -108,6 +122,8 @@ const createEntityRoute = createRoute({
           properties: z.record(z.string(), z.any()).describe("Arbitrary properties"),
           read_level: ClassificationLevel.optional(),
           write_level: ClassificationLevel.optional(),
+          space_id: EntityIdParam.optional().describe("Space ULID — if provided, the entity is added to this space atomically"),
+          permissions: z.array(InlinePermissionGrant).optional().describe("Permission grants to apply to the new entity atomically"),
         }),
       ),
     },
@@ -422,10 +438,19 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   const now = new Date().toISOString();
   const readLevel = typeof body.read_level === "number" ? body.read_level : 1;
   const writeLevel = typeof body.write_level === "number" ? body.write_level : 1;
+  const spaceId = typeof body.space_id === "string" ? body.space_id : null;
+  const permissionGrants = Array.isArray(body.permissions)
+    ? (body.permissions as Array<Record<string, unknown>>).map((g, i) => validatePermissionGrant(g, i))
+    : [];
   const sql = createSql();
 
-  // RLS enforces: actor.max_write_level >= write_level AND actor.max_read_level >= read_level
-  const results = await sql.transaction([
+  // Pre-validate space access before the transaction
+  if (spaceId) {
+    await requireSpaceRole(sql, actor, spaceId, "contributor");
+  }
+
+  // Build transaction: core entity insert + optional space/permission queries
+  const queries = [
     ...setActorContext(sql, actor),
     sql.query(
       `INSERT INTO entities (
@@ -447,7 +472,17 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
        VALUES ($1, $2, 'entity_created', $3::jsonb, $4::timestamptz)`,
       [id, actor.id, JSON.stringify({ kind: "entity", type: body.type }), now],
     ),
-  ]);
+  ];
+
+  if (spaceId) {
+    queries.push(addEntityToSpaceQuery(sql, spaceId, id, actor.id, now));
+  }
+  for (const grant of permissionGrants) {
+    queries.push(grantEntityPermissionQuery(sql, id, grant.grantee_type, grant.grantee_id, grant.role, actor.id));
+  }
+
+  // RLS enforces: actor.max_write_level >= write_level AND actor.max_read_level >= read_level
+  const results = await sql.transaction(queries);
 
   const inserted = (results[5] as EntityRecord[])[0]; // 5 context queries + INSERT
   if (!inserted) {
@@ -684,21 +719,12 @@ entitiesRouter.openapi(grantPermissionRoute, async (c) => {
   const body = await parseJsonBody<Record<string, unknown>>(c);
   const sql = createSql();
 
-  if (!body.grantee_type || !body.grantee_id || !body.role) {
-    throw new ApiError(400, "invalid_body", "Missing grantee_type, grantee_id, or role");
-  }
+  const grant = validatePermissionGrant(body);
 
   // RLS on entity_permissions INSERT enforces: owner or admin
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
-    sql.query(
-      `INSERT INTO entity_permissions (entity_id, grantee_type, grantee_id, role, granted_by)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (entity_id, grantee_type, grantee_id)
-       DO UPDATE SET role = EXCLUDED.role, granted_by = EXCLUDED.granted_by, granted_at = NOW()
-       RETURNING *`,
-      [entityId, body.grantee_type, body.grantee_id, body.role, actor.id],
-    ),
+    grantEntityPermissionQuery(sql, entityId, grant.grantee_type, grant.grantee_id, grant.role, actor.id),
   ]);
 
   const perm = (results[results.length - 1] as Array<Record<string, unknown>>)[0];

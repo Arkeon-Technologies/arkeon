@@ -66,6 +66,29 @@ The route index (GET /help) shows each route's auth requirement.
 4. Search
    GET /search?q=hello
 
+## Working Within a Space
+
+Spaces are organizational containers with their own access controls. You can
+add an entity to a space and grant permissions in the same call that creates it:
+
+   POST /entities
+   {
+     "type": "note",
+     "properties": { "title": "Hello" },
+     "space_id": "<space ULID>",
+     "permissions": [
+       { "grantee_type": "actor", "grantee_id": "<actor ULID>", "role": "editor" }
+     ]
+   }
+
+This is atomic — if any part fails (e.g. you lack contributor access on the
+space), nothing is created. The same space_id and permissions fields work on
+relationship creation (POST /entities/{id}/relationships).
+
+You can still add entities to spaces and grant permissions separately:
+   POST /spaces/{id}/entities          — add existing entity to space
+   POST /entities/{id}/permissions     — grant permissions on existing entity
+
 ## Filtering
 
 Any listing endpoint supports the filter query param. The full syntax

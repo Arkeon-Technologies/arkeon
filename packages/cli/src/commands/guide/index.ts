@@ -49,6 +49,30 @@ Or use environment variables:
 4. Search
    arkeon search query --q hello
 
+## Working Within a Space
+
+Spaces are organizational containers with their own access controls. Set a
+default space so that every entity and relationship you create is automatically
+added to it:
+
+  arkeon config set-space <space-id>
+
+Now entity and relationship creates automatically include space_id:
+  arkeon entities create --type note --body-field properties.title Hello
+  # ^ this entity is added to your configured space atomically
+
+You can also pass --space-id per-command or as a global flag:
+  arkeon --space-id <id> entities create --type note --body-field properties.title Hello
+
+To grant permissions on an entity at creation time, pass --permissions:
+  arkeon entities create --type note --body-field properties.title Hello --permissions '[{"grantee_type":"actor","grantee_id":"<id>","role":"editor"}]'
+
+Override priority: --space-id flag > ARKE_SPACE_ID env var > config set-space
+
+View or clear your space config:
+  arkeon config get-space
+  arkeon config clear-space
+
 ## Filtering
 
 ${FILTERING_HINT}

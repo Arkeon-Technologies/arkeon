@@ -160,6 +160,15 @@ export function registerGeneratedGroup(group: Command, operations: GeneratedOper
           }
         }
 
+        // Auto-inject default space_id from config when not explicitly provided
+        const defaultSpaceId = config.get("spaceId");
+        if (defaultSpaceId) {
+          const hasBodySpaceId = operation.bodyFields.some((f) => f.name === "space_id");
+          if (hasBodySpaceId && body && body.space_id === undefined) {
+            body.space_id = defaultSpaceId;
+          }
+        }
+
         const response = await apiRequest<unknown>(applyQuery(builtPath, query), {
           method: operation.method,
           auth: operation.auth === "required" ? true : operation.auth === "optional" ? "optional" : false,

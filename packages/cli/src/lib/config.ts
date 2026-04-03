@@ -3,6 +3,7 @@ import Conf from "conf";
 type ConfigSchema = {
   apiUrl: string;
   arkeId?: string;
+  spaceId?: string;
 };
 
 const DEFAULT_API_URL = "https://arke-api.nick-chimicles-professional.workers.dev";
@@ -23,6 +24,9 @@ export const config = {
     }
     if (key === "arkeId" && process.env.ARKE_ID) {
       return process.env.ARKE_ID as ConfigSchema[K];
+    }
+    if (key === "spaceId" && process.env.ARKE_SPACE_ID) {
+      return process.env.ARKE_SPACE_ID as ConfigSchema[K];
     }
     const value = store.get(key);
     if (key === "apiUrl" && value === LEGACY_API_URL) {
