@@ -78,7 +78,21 @@ If any of these have changes, tell the user:
 
 If nothing changed, skip this step silently.
 
-### 5. Clean up the worktree (if applicable)
+### 5. Clean up issue labels
+
+If the merged PR body contains `Fixes #N`, clean up the issue label:
+
+```bash
+# Extract issue number from PR body
+ISSUE_NUM=$(gh pr view $ARGUMENTS --json body -q '.body' | grep -oP 'Fixes #\K\d+' | head -1)
+if [ -n "$ISSUE_NUM" ]; then
+  gh issue edit "$ISSUE_NUM" --remove-label "in-review" 2>/dev/null || true
+fi
+```
+
+This is best-effort — the issue gets closed automatically by GitHub via the `Fixes` keyword, but the label should be cleaned up too.
+
+### 6. Clean up the worktree (if applicable)
 
 Check if a worktree exists for this PR's branch:
 
