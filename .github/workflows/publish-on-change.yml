@@ -1,0 +1,116 @@
+name: Auto-Publish Packages on Change
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/cli/src/**'
+      - 'packages/sdk-ts/src/**'
+      - 'packages/sdk-python/arkeon_sdk/**'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      cli: ${{ steps.filter.outputs.cli }}
+      sdk-ts: ${{ steps.filter.outputs.sdk-ts }}
+      sdk-python: ${{ steps.filter.outputs.sdk-python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cli:
+              - 'packages/cli/src/**'
+            sdk-ts:
+              - 'packages/sdk-ts/src/**'
+            sdk-python:
+              - 'packages/sdk-python/arkeon_sdk/**'
+
+  publish-cli:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CLI
+        run: npm run build -w packages/cli
+
+      - name: Bump patch version and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/cli
+          npm version patch --no-git-tag-version
+          npm publish --access public
+
+  publish-sdk-ts:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk-ts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript SDK
+        run: npm run build -w packages/sdk-ts
+
+      - name: Bump patch version and publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/sdk-ts
+          npm version patch --no-git-tag-version
+          npm publish --access public
+
+  publish-sdk-python:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk-python == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bump patch version
+        run: |
+          cd packages/sdk-python
+          CURRENT=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          sed -i "s/^version = .*/version = \"${NEW}\"/" pyproject.toml
+          echo "Publishing version ${NEW}"
+
+      - name: Build package
+        run: |
+          pip install build
+          cd packages/sdk-python
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/sdk-python/dist/
