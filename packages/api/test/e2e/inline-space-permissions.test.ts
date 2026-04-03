@@ -61,7 +61,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
         arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("orphan-test") },
-        space_id: "01NONEXISTENT0000000000000",
+        space_id: "01JAAAAAAAAAAAAAAAAAAAAAAA",
       },
     });
     expect(response.status).toBe(404);
@@ -262,7 +262,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
       json: {
         predicate: "references",
         target_id: target.id,
-        space_id: "01NONEXISTENT0000000000000",
+        space_id: "01JAAAAAAAAAAAAAAAAAAAAAAA",
       },
     });
     expect(response.status).toBe(404);
