@@ -46,12 +46,16 @@ jobs:
       - name: Build CLI
         run: npm run build -w packages/cli
 
-      - name: Bump patch version and publish
+      - name: Publish next patch version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/cli
-          npm version patch --no-git-tag-version
+          PKG=$(node -p "require('./package.json').name")
+          LATEST=$(npm view "$PKG" version 2>/dev/null || echo "0.0.0")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          npm version "$NEXT" --no-git-tag-version
           npm publish --access public
 
   publish-sdk-ts:
@@ -72,12 +76,16 @@ jobs:
       - name: Build TypeScript SDK
         run: npm run build -w packages/sdk-ts
 
-      - name: Bump patch version and publish
+      - name: Publish next patch version
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/sdk-ts
-          npm version patch --no-git-tag-version
+          PKG=$(node -p "require('./package.json').name")
+          LATEST=$(npm view "$PKG" version 2>/dev/null || echo "0.0.0")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          npm version "$NEXT" --no-git-tag-version
           npm publish --access public
 
   publish-sdk-python:
@@ -95,14 +103,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Bump patch version
+      - name: Bump to next patch version
         run: |
           cd packages/sdk-python
-          CURRENT=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          sed -i "s/^version = .*/version = \"${NEW}\"/" pyproject.toml
-          echo "Publishing version ${NEW}"
+          PKG=$(grep '^name = ' pyproject.toml | sed 's/name = "\(.*\)"/\1/')
+          LATEST=$(pip index versions "$PKG" 2>/dev/null | head -1 | sed 's/.*(\(.*\))/\1/' || echo "0.0.0")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          sed -i "s/^version = .*/version = \"${NEXT}\"/" pyproject.toml
+          echo "Publishing version ${NEXT}"
 
       - name: Build package
         run: |

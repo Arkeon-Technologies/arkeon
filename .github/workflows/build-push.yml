@@ -102,11 +102,15 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump patch version and publish to npm
+      - name: Publish next patch version to npm
         if: steps.check.outputs.changed == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/cli
-          npm version patch --no-git-tag-version
+          PKG=$(node -p "require('./package.json').name")
+          LATEST=$(npm view "$PKG" version 2>/dev/null || echo "0.0.0")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          npm version "$NEXT" --no-git-tag-version
           npm publish --access public
