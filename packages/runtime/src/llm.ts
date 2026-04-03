@@ -11,8 +11,6 @@ export interface LlmConfig {
   apiKey: string;
   /** Model identifier */
   model: string;
-  /** Max tokens for completion (default: 4096) */
-  maxTokens?: number;
 }
 
 /** The tools available to agents in the sandbox */
@@ -106,7 +104,6 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
 export class LlmClient {
   private client: OpenAI;
   private model: string;
-  private maxTokens: number;
 
   constructor(config: LlmConfig) {
     this.client = new OpenAI({
@@ -115,7 +112,6 @@ export class LlmClient {
       maxRetries: 3,
     });
     this.model = config.model;
-    this.maxTokens = config.maxTokens ?? 4096;
   }
 
   async chat(
@@ -126,7 +122,6 @@ export class LlmClient {
       messages,
       tools: AGENT_TOOLS,
       tool_choice: "auto",
-      max_tokens: this.maxTokens,
     });
   }
 }
