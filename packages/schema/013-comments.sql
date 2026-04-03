@@ -19,8 +19,8 @@ CREATE TABLE comments (
   CONSTRAINT body_length CHECK (char_length(body) BETWEEN 1 AND 4096)
 );
 
-CREATE INDEX idx_comments_entity ON comments(entity_id, created_at DESC);
-CREATE INDEX idx_comments_parent ON comments(parent_id, created_at ASC);
-CREATE INDEX idx_comments_author ON comments(author_id);
+CREATE INDEX IF NOT EXISTS idx_comments_entity ON comments(entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
 
 GRANT SELECT, INSERT, DELETE ON comments TO arke_app;

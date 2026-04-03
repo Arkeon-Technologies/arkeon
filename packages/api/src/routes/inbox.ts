@@ -98,7 +98,7 @@ inboxRouter.openapi(listInboxRoute, async (c) => {
   const cursor = parseCursorParam(c);
   const actions = c.req.query("action")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 
-  const [,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -132,7 +132,7 @@ inboxRouter.openapi(countInboxRoute, async (c) => {
   }
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
 
-  const [,, rows] = await sql.transaction([
+  const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       SELECT COUNT(*)::int AS count

@@ -27,8 +27,8 @@ CREATE TABLE worker_invocations (
   CONSTRAINT valid_invocation_source CHECK (source IN ('http', 'scheduler'))
 );
 
-CREATE INDEX idx_invocations_worker ON worker_invocations(worker_id, ts DESC);
-CREATE INDEX idx_invocations_invoker ON worker_invocations(invoker_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_invocations_worker ON worker_invocations(worker_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_invocations_invoker ON worker_invocations(invoker_id, ts DESC);
 
 -- Immutable log: SELECT and INSERT only, no UPDATE or DELETE
 GRANT SELECT, INSERT ON worker_invocations TO arke_app;

@@ -17,8 +17,8 @@ CREATE TABLE notifications (
   ts           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_notifications_recipient ON notifications(recipient_id, ts DESC);
-CREATE INDEX idx_notifications_ts ON notifications(ts);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient ON notifications(recipient_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_ts ON notifications(ts);
 
 GRANT SELECT, INSERT, DELETE ON notifications TO arke_app;
 GRANT USAGE, SELECT ON SEQUENCE notifications_id_seq TO arke_app;

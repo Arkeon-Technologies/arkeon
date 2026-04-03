@@ -26,6 +26,6 @@ CREATE TABLE arkes (
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_arkes_owner ON arkes (owner_id);
+CREATE INDEX IF NOT EXISTS idx_arkes_owner ON arkes (owner_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON arkes TO arke_app;

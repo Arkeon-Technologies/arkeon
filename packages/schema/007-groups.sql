@@ -26,8 +26,8 @@ CREATE TABLE groups (
   CONSTRAINT valid_group_type CHECK (type IN ('org', 'project', 'editorial', 'admin'))
 );
 
-CREATE INDEX idx_groups_network ON groups (network_id);
-CREATE INDEX idx_groups_read_level ON groups (read_level);
+CREATE INDEX IF NOT EXISTS idx_groups_network ON groups (network_id);
+CREATE INDEX IF NOT EXISTS idx_groups_read_level ON groups (read_level);
 
 CREATE TABLE group_memberships (
   actor_id      TEXT NOT NULL REFERENCES actors(id) ON DELETE CASCADE,
@@ -38,7 +38,7 @@ CREATE TABLE group_memberships (
   CONSTRAINT valid_group_role CHECK (role_in_group IN ('member', 'admin'))
 );
 
-CREATE INDEX idx_group_memberships_group ON group_memberships (group_id);
+CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON group_memberships (group_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON groups TO arke_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON group_memberships TO arke_app;

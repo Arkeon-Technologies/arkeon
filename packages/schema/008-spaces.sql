@@ -35,10 +35,10 @@ CREATE TABLE spaces (
   CONSTRAINT valid_space_status CHECK (status IN ('active', 'archived', 'deleted'))
 );
 
-CREATE INDEX idx_spaces_network ON spaces (network_id);
-CREATE INDEX idx_spaces_owner ON spaces (owner_id);
-CREATE INDEX idx_spaces_read_level ON spaces (read_level);
-CREATE INDEX idx_spaces_last_activity ON spaces (last_activity_at DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_spaces_network ON spaces (network_id);
+CREATE INDEX IF NOT EXISTS idx_spaces_owner ON spaces (owner_id);
+CREATE INDEX IF NOT EXISTS idx_spaces_read_level ON spaces (read_level);
+CREATE INDEX IF NOT EXISTS idx_spaces_last_activity ON spaces (last_activity_at DESC NULLS LAST);
 
 -- =============================================================================
 -- Space Permissions
@@ -57,8 +57,8 @@ CREATE TABLE space_permissions (
   CONSTRAINT valid_space_role CHECK (role IN ('admin', 'editor', 'contributor'))
 );
 
-CREATE INDEX idx_space_perms_space ON space_permissions (space_id);
-CREATE INDEX idx_space_perms_grantee ON space_permissions (grantee_type, grantee_id);
+CREATE INDEX IF NOT EXISTS idx_space_perms_space ON space_permissions (space_id);
+CREATE INDEX IF NOT EXISTS idx_space_perms_grantee ON space_permissions (grantee_type, grantee_id);
 
 -- =============================================================================
 -- Space-Entity Membership (join table)
@@ -73,7 +73,7 @@ CREATE TABLE space_entities (
   PRIMARY KEY (space_id, entity_id)
 );
 
-CREATE INDEX idx_space_entities_entity ON space_entities (entity_id);
+CREATE INDEX IF NOT EXISTS idx_space_entities_entity ON space_entities (entity_id);
 
 -- =============================================================================
 -- Trigger: maintain entity_count and last_activity_at on spaces

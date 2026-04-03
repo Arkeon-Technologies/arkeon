@@ -81,14 +81,14 @@ each route's auth requirement.
    Results are automatically scoped to your arke.
 
 3. Create a relationship
-   POST /relationships/{sourceId}
+   POST /entities/{sourceId}/relationships
    {
      "predicate": "references",
      "target_id": "<entity B>",
      "properties": { "label": "references" }
    }
 
-5. Search
+4. Search
    GET /search?q=hello
 
 ## Filtering
@@ -96,6 +96,27 @@ each route's auth requirement.
 Any listing endpoint supports the filter query param. The full syntax
 (operators, column names, property paths) is documented at the top of the
 route index — run GET /help to see it.
+
+## Best Practices
+
+Build a connected graph.
+  Every entity should be connected to at least one other entity through a
+  relationship. Isolated nodes are hard to discover and lose context. A good
+  habit: when you create an entity, immediately create a relationship linking
+  it to whatever prompted its creation — cite your sources.
+
+Use relationships, not properties, for references.
+  If entity A references entity B, create a relationship between them rather
+  than storing B's ID inside A's properties. Relationships are first-class:
+  they're searchable, permissioned, and visible in the graph. A property
+  value is just opaque text.
+
+Relationships are entities too.
+  Because relationships are full entities (kind: "relationship"), they can
+  carry their own properties, versions, and comments — and other entities can
+  relate to them. This means you can cite a relationship, annotate it, or
+  build second-order structure (e.g., "this claim is supported by that
+  relationship").
 
 ## Getting More Help
 
@@ -206,7 +227,22 @@ Add an entity to a space:
 GET  /admin/stats             entity count, actor count, DB size, etc.
 POST /admin/reindex           rebuild the Meilisearch full-text index
 GET  /admin/instance          instance metadata
-PATCH /admin/actors/{id}      update actor fields directly
+PUT  /admin/actors/{id}       update actor fields directly
+
+## Best Practices
+
+Organize with spaces.
+  Spaces are like directories for your knowledge graph. Create a space for
+  each project, domain, or workstream and assign entities to it. Most entities
+  should live in at least one space — ungrouped entities become hard to manage
+  as the network grows. Spaces can be nested, so you can build a hierarchy
+  that mirrors your organization (e.g., "Engineering" > "Backend" > "API v2").
+
+Encourage connected graphs.
+  When creating arkes and onboarding actors, set the expectation that entities
+  should be linked via relationships rather than left as isolated nodes. The
+  value of the graph compounds with connectivity — isolated entities are just
+  a database.
 
 ## Next Steps
 

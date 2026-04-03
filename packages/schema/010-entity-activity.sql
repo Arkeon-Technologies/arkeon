@@ -20,12 +20,12 @@ CREATE TABLE entity_activity (
   ts        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_activity_entity ON entity_activity(entity_id, ts DESC);
-CREATE INDEX idx_activity_entity_action ON entity_activity(entity_id, action, ts DESC);
-CREATE INDEX idx_activity_space ON entity_activity(space_id, ts DESC);
-CREATE INDEX idx_activity_actor ON entity_activity(actor_id, ts DESC);
-CREATE INDEX idx_activity_ts ON entity_activity(ts DESC);
-CREATE INDEX idx_activity_action ON entity_activity(action, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_entity ON entity_activity(entity_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_entity_action ON entity_activity(entity_id, action, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_space ON entity_activity(space_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_actor ON entity_activity(actor_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_ts ON entity_activity(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_action ON entity_activity(action, ts DESC);
 
 -- Real-time push via LISTEN/NOTIFY
 CREATE OR REPLACE FUNCTION notify_activity() RETURNS trigger AS $$

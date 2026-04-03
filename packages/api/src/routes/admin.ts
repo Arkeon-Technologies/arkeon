@@ -199,7 +199,7 @@ adminRouter.openapi(statsRoute, async (c) => {
   const actor = requireAdmin(c);
   const sql = createSql();
 
-  const [, , , , rows] = await sql.transaction([
+  const [, , , , , rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT

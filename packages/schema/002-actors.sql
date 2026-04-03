@@ -35,8 +35,8 @@ CREATE TABLE actors (
   CONSTRAINT valid_actor_status CHECK (status IN ('active', 'suspended', 'deactivated'))
 );
 
-CREATE INDEX idx_actors_owner ON actors (owner_id);
-CREATE INDEX idx_actors_status ON actors (status);
+CREATE INDEX IF NOT EXISTS idx_actors_owner ON actors (owner_id);
+CREATE INDEX IF NOT EXISTS idx_actors_status ON actors (status);
 
 -- Grant table access to app role
 GRANT SELECT, INSERT, UPDATE, DELETE ON actors TO arke_app;

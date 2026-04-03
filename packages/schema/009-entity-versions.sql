@@ -20,6 +20,6 @@ CREATE TABLE entity_versions (
   PRIMARY KEY (entity_id, ver)
 );
 
-CREATE INDEX idx_versions_entity_desc ON entity_versions(entity_id, ver DESC);
+CREATE INDEX IF NOT EXISTS idx_versions_entity_desc ON entity_versions(entity_id, ver DESC);
 
 GRANT SELECT, INSERT ON entity_versions TO arke_app;

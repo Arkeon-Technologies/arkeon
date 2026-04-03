@@ -32,7 +32,7 @@ CREATE TABLE entity_permissions (
   CONSTRAINT valid_entity_role CHECK (role IN ('admin', 'editor'))
 );
 
-CREATE INDEX idx_entity_perms_entity ON entity_permissions (entity_id);
-CREATE INDEX idx_entity_perms_grantee ON entity_permissions (grantee_type, grantee_id);
+CREATE INDEX IF NOT EXISTS idx_entity_perms_entity ON entity_permissions (entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_perms_grantee ON entity_permissions (grantee_type, grantee_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON entity_permissions TO arke_app;

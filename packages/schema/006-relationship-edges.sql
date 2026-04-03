@@ -23,10 +23,10 @@ CREATE TABLE relationship_edges (
   predicate  TEXT NOT NULL                                 -- cites, contains, references, etc.
 );
 
-CREATE INDEX idx_edges_source ON relationship_edges(source_id);
-CREATE INDEX idx_edges_target ON relationship_edges(target_id);
-CREATE INDEX idx_edges_source_target ON relationship_edges(source_id, target_id);
-CREATE INDEX idx_edges_source_predicate ON relationship_edges(source_id, predicate);
-CREATE INDEX idx_edges_target_predicate ON relationship_edges(target_id, predicate);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON relationship_edges(source_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON relationship_edges(target_id);
+CREATE INDEX IF NOT EXISTS idx_edges_source_target ON relationship_edges(source_id, target_id);
+CREATE INDEX IF NOT EXISTS idx_edges_source_predicate ON relationship_edges(source_id, predicate);
+CREATE INDEX IF NOT EXISTS idx_edges_target_predicate ON relationship_edges(target_id, predicate);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON relationship_edges TO arke_app;

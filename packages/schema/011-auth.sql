@@ -19,7 +19,7 @@ CREATE TABLE agent_keys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_agent_keys_pubkey ON agent_keys(public_key);
+CREATE INDEX IF NOT EXISTS idx_agent_keys_pubkey ON agent_keys(public_key);
 
 -- API keys
 CREATE TABLE api_keys (
@@ -33,8 +33,8 @@ CREATE TABLE api_keys (
   revoked_at TIMESTAMPTZ                                   -- NULL = active
 );
 
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash);
-CREATE INDEX idx_api_keys_actor ON api_keys(actor_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_actor ON api_keys(actor_id);
 
 -- Grants
 GRANT SELECT, INSERT, UPDATE, DELETE ON agent_keys TO arke_app;

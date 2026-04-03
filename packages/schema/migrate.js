@@ -99,6 +99,9 @@ for (const file of files) {
       const msg = err.message ?? "";
       if (err.code === "42P07" || msg.includes("already exists")) {
         skipped = true;
+      } else if (err.code === "42703" && msg.includes("does not exist")) {
+        // Column was renamed by a later migration — index already covers it
+        skipped = true;
       } else if (
         msg.includes("cron") ||
         msg.includes("pg_cron") ||

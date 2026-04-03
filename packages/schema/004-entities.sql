@@ -57,14 +57,14 @@ CREATE TABLE entities (
 );
 
 -- Indexes
-CREATE INDEX idx_entities_kind ON entities(kind);
-CREATE INDEX idx_entities_type ON entities(type);
-CREATE INDEX idx_entities_kind_type_updated ON entities(kind, type, updated_at DESC);
-CREATE INDEX idx_entities_updated ON entities(updated_at DESC);
-CREATE INDEX idx_entities_owner ON entities(owner_id);
-CREATE INDEX idx_entities_edited_by ON entities(edited_by, updated_at DESC);
-CREATE INDEX idx_entities_network ON entities(network_id);
-CREATE INDEX idx_entities_read_level ON entities(read_level);
+CREATE INDEX IF NOT EXISTS idx_entities_kind ON entities(kind);
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
+CREATE INDEX IF NOT EXISTS idx_entities_kind_type_updated ON entities(kind, type, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entities_updated ON entities(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entities_owner ON entities(owner_id);
+CREATE INDEX IF NOT EXISTS idx_entities_edited_by ON entities(edited_by, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entities_network ON entities(network_id);
+CREATE INDEX IF NOT EXISTS idx_entities_read_level ON entities(read_level);
 
 -- Grant table access to app role
 GRANT SELECT, INSERT, UPDATE, DELETE ON entities TO arke_app;
