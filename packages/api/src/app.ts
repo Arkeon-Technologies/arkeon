@@ -6,6 +6,7 @@ import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { authMiddleware } from "./middleware/auth";
 import { ApiError, errorBody } from "./lib/errors";
+import { mapPostgresError } from "./lib/pg-errors";
 import { createSql } from "./lib/sql";
 import { activityRouter, entityActivityRouter } from "./routes/activity";
 import { actorsRouter } from "./routes/actors";
@@ -117,6 +118,15 @@ export function createApp() {
         headers: {
           "content-type": "application/json; charset=utf-8",
         },
+      });
+    }
+
+    const pgError = mapPostgresError(error);
+    if (pgError) {
+      console.error("[pg]", error);
+      return new Response(JSON.stringify(errorBody(pgError, requestId)), {
+        status: pgError.status,
+        headers: { "content-type": "application/json; charset=utf-8" },
       });
     }
 
