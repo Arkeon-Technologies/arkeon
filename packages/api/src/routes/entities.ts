@@ -76,7 +76,7 @@ const ListEntitiesQuery = filterQuerySchema(["updated_at", "created_at"], "updat
   .merge(ProjectionQuery)
   .merge(paginationQuerySchema(50, 200))
   .merge(z.object({
-    space_id: queryParam("space_id", EntityIdParam.optional(), "Scope results to a space ULID"),
+    space_id: queryParam("space_id", z.string().optional(), "Scope results to a space ULID"),
   }));
 
 const listEntitiesRoute = createRoute({
