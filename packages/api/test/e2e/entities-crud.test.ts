@@ -1,13 +1,16 @@
 import { describe, expect, test } from "vitest";
 import {
   adminApiKey,
+  addEntityToSpace,
   apiRequest,
   createActor,
   createComment,
   createEntity,
   createRelationship,
+  createSpace,
   getArkeId,
   getJson,
+  grantSpacePermission,
   jsonRequest,
   uniqueName,
 } from "./helpers";
@@ -475,5 +478,66 @@ describe("Entities CRUD", () => {
       { method: "DELETE", apiKey: actor.apiKey },
     );
     expect(deleteRes.status).toBe(204);
+  });
+
+  test("List entities with space_id filter returns only entities in that space", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("filter-space"));
+    const inSpace = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("in-space"),
+    });
+    const outside = await createEntity(actor.apiKey, arkeId, "note", {
+      label: uniqueName("outside-space"),
+    });
+
+    await addEntityToSpace(actor.apiKey, space.id, inSpace.id);
+
+    const { response, body } = await getJson(
+      `/entities?space_id=${space.id}`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(inSpace.id);
+    expect(ids).not.toContain(outside.id);
+  });
+
+  test("List entities with space_id filter combines with other filters", async () => {
+    const space = await createSpace(actor.apiKey, arkeId, uniqueName("combo-space"));
+    const tag = uniqueName("combo-tag");
+    const match = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      status: "active",
+    });
+    const noMatch = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+      status: "archived",
+    });
+
+    await addEntityToSpace(actor.apiKey, space.id, match.id);
+    await addEntityToSpace(actor.apiKey, space.id, noMatch.id);
+
+    const { response, body } = await getJson(
+      `/entities?space_id=${space.id}&filter=status:active`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(match.id);
+    expect(ids).not.toContain(noMatch.id);
+  });
+
+  test("List entities without space_id returns all entities", async () => {
+    const tag = uniqueName("no-space-filter");
+    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+      label: tag,
+    });
+
+    const { response, body } = await getJson(
+      `/entities?filter=label:${tag}`,
+      actor.apiKey,
+    );
+    expect(response.status).toBe(200);
+    const ids = (body as any).entities.map((e: any) => e.id);
+    expect(ids).toContain(entity.id);
   });
 });

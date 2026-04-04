@@ -8,6 +8,7 @@ interface BuildListingQueryOptions {
   cursor: TimestampCursor | null;
   sort: string;
   order: "asc" | "desc";
+  spaceId?: string;
 }
 
 export function parseOrder(raw: string | undefined): "asc" | "desc" {
@@ -52,6 +53,12 @@ export function buildEntityListingQuery(options: BuildListingQueryOptions) {
   const filters = buildFilterSql(options.filter, params, nextIndex);
   where.push(...filters.sql);
   nextIndex = filters.nextIndex;
+
+  if (options.spaceId) {
+    params.push(options.spaceId);
+    where.push(`id IN (SELECT entity_id FROM space_entities WHERE space_id = $${nextIndex})`);
+    nextIndex += 1;
+  }
 
   const sortExpr = options.sort;
   const comparator = options.order === "desc" ? "<" : ">";

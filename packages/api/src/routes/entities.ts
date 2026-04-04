@@ -74,7 +74,10 @@ const VersionSchema = z.object({
 
 const ListEntitiesQuery = filterQuerySchema(["updated_at", "created_at"], "updated_at")
   .merge(ProjectionQuery)
-  .merge(paginationQuerySchema(50, 200));
+  .merge(paginationQuerySchema(50, 200))
+  .merge(z.object({
+    space_id: queryParam("space_id", z.string().optional(), "Scope results to a space ULID"),
+  }));
 
 const listEntitiesRoute = createRoute({
   method: "get",
@@ -84,7 +87,10 @@ const listEntitiesRoute = createRoute({
   summary: "List entities with filtering, sorting, and cursor pagination",
   "x-arke-auth": "optional",
   "x-arke-related": ["GET /search", "GET /entities/{id}"],
-  "x-arke-rules": ["Results filtered by your classification clearance"],
+  "x-arke-rules": [
+    "Results filtered by your classification clearance",
+    "If space_id is provided, only entities belonging to that space are returned",
+  ],
   request: {
     query: ListEntitiesQuery,
   },
@@ -408,7 +414,8 @@ entitiesRouter.openapi(listEntitiesRoute, async (c) => {
   const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
   const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
 
-  const listing = buildEntityListingQuery({ filter, limit, cursor, sort, order });
+  const spaceId = c.req.query("space_id");
+  const listing = buildEntityListingQuery({ filter, limit, cursor, sort, order, spaceId });
 
   const txResults = await sql.transaction([
     ...setActorContext(sql, actorCtx),
