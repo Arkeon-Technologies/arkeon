@@ -1,5 +1,7 @@
 """Lightweight Python SDK for the Arkeon API (arkeon-sdk)."""
 
+__version__ = "0.1.2"
+
 import os
 from typing import Any, Iterator
 
