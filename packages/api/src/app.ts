@@ -1,7 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 
 import type { AppBindings } from "./types";
-import { renderIndexFromSpec, renderPreamble } from "./lib/openapi-help";
+import type { OpenAPISpec } from "arkeon-shared";
+import { renderFullApiReferenceFromSpec, renderPreamble } from "./lib/openapi-help";
 import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";
 import { authMiddleware } from "./middleware/auth";
@@ -77,7 +78,7 @@ export function createApp() {
   app.get("/llms.txt", (c) => {
     const actor = c.get("actor");
     const preamble = renderPreamble(actor);
-    return c.text(preamble + renderIndexFromSpec(getSpec()), 200, {
+    return c.text(preamble + renderFullApiReferenceFromSpec(getSpec() as unknown as OpenAPISpec), 200, {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
     });

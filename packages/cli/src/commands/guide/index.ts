@@ -34,7 +34,7 @@ Or use environment variables:
 ## Your First Workflow
 
 1. Create an entity
-   arkeon entities create --type note --body-field properties.title Hello --body-field properties.body "My first entity."
+   arkeon entities create --type note --properties '{"title":"Hello","body":"My first entity."}'
 
    Your arke_id is automatically set from your actor's membership.
    Admin actors must pass --arke-id explicitly.
@@ -43,8 +43,8 @@ Or use environment variables:
    arkeon entities list
    Results are automatically scoped to your arke.
 
-3. Create a relationship
-   arkeon relationships create --source-id <entity-A> --predicate references --target-id <entity-B> --body-field properties.label references
+3. Create a relationship (source entity is the path argument, target is a flag)
+   arkeon relationships create <source-entity-id> --predicate references --target-id <target-entity-id>
 
 4. Search
    arkeon search query --q hello
@@ -58,14 +58,14 @@ added to it:
   arkeon config set-space <space-id>
 
 Now entity and relationship creates automatically include space_id:
-  arkeon entities create --type note --body-field properties.title Hello
+  arkeon entities create --type note --properties '{"title":"Hello"}'
   # ^ this entity is added to your configured space atomically
 
 You can also pass --space-id per-command or as a global flag:
-  arkeon --space-id <id> entities create --type note --body-field properties.title Hello
+  arkeon --space-id <id> entities create --type note --properties '{"title":"Hello"}'
 
 To grant permissions on an entity at creation time, pass --permissions:
-  arkeon entities create --type note --body-field properties.title Hello --permissions '[{"grantee_type":"actor","grantee_id":"<id>","role":"editor"}]'
+  arkeon entities create --type note --properties '{"title":"Hello"}' --permissions '[{"grantee_type":"actor","grantee_id":"<id>","role":"editor"}]'
 
 Override priority: --space-id flag > ARKE_SPACE_ID env var > config set-space
 

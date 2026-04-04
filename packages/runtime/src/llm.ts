@@ -83,6 +83,25 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "view_image",
+      description:
+        "View an image file. The image is sent to you as visual content so you can see and analyze it. Supports PNG, JPEG, GIF, and WebP. Use this instead of read_file for image files.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description:
+              "Image file path relative to the workspace directory",
+          },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "done",
       description:
         "Signal that you have completed the task. Provide a structured result object with your output.",

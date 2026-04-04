@@ -1,20 +1,21 @@
 # Arkeon SDK: Lightweight API Wrappers
 
-Minimal Python and TypeScript packages for programmatic access to any Arkeon network. Pre-authenticated HTTP clients with automatic network ID injection and cursor-based pagination.
+Minimal Python and TypeScript packages for programmatic access to any Arkeon network. Pre-authenticated HTTP clients with automatic arke/space ID injection and cursor-based pagination.
 
 **Status:** Implemented. Both SDKs are pre-installed in worker sandboxes alongside the Arkeon CLI.
 
-- TypeScript: `packages/sdk-ts` — published as `@arkeon-technologies/sdk` on npm, globally available as `arkeon-sdk` in sandboxes
-- Python: `packages/sdk-python` — published as `arkeon-sdk` on PyPI, pip-installed in sandboxes
+- TypeScript: `packages/sdk-ts` — published as `@arkeon-technologies/sdk` on npm
+- Python: `packages/sdk-python` — published as `arkeon-sdk` on PyPI
 
 ## Configuration
 
-Three environment variables (all optional):
+Environment variables (all optional):
 
 ```bash
 export ARKE_API_URL="http://localhost:8000"       # defaults to this if unset
 export ARKE_API_KEY="uk_..."                      # user key, klados key, or agent key
-export ARKE_NETWORK_ID="01ABC..."                 # auto-injected into requests
+export ARKE_ID="01ABC..."                         # auto-injected into requests (admin actors only)
+export ARKE_SPACE_ID="01XYZ..."                   # auto-injected into requests
 ```
 
 No config files, no init calls, no client objects.
@@ -22,7 +23,7 @@ No config files, no init calls, no client objects.
 ## TypeScript
 
 ```typescript
-import * as arkeon from 'arkeon-sdk';
+import * as arkeon from '@arkeon-technologies/sdk';
 
 // CRUD
 const entities = await arkeon.get('/entities', { params: { limit: '10' } });
@@ -30,20 +31,27 @@ const created = await arkeon.post('/entities', { type: 'note', properties: { lab
 await arkeon.put(`/entities/${id}`, { ver, properties: { label: 'Updated' } });
 await arkeon.del(`/entities/${id}`);
 
+// Relationships — source entity in path, target in body
+await arkeon.post(`/entities/${sourceId}/relationships`, {
+  predicate: 'references',
+  target_id: targetId,
+});
+
 // Pagination — async generator yields individual items across all pages
 for await (const entity of arkeon.paginate('/entities', { limit: '50' })) {
   console.log(entity.id);
 }
 
-// Network ID — set programmatically (or use ARKE_NETWORK_ID env var)
-arkeon.setNetworkId('01ABC...');
+// Configuration — set programmatically (or use env vars)
+arkeon.setArkeId('01ABC...');     // ARKE_ID env var
+arkeon.setSpaceId('01XYZ...');    // ARKE_SPACE_ID env var
 
 // Errors
 try { await arkeon.get('/missing'); }
 catch (e) { /* ArkeError { status, code, requestId, details } */ }
 ```
 
-Zero dependencies — native `fetch` (Node 18+). Exports: `get`, `post`, `put`, `patch`, `del`, `paginate`, `setNetworkId`, `getNetworkId`, `ArkeError`.
+Zero dependencies — native `fetch` (Node 18+). Exports: `get`, `post`, `put`, `patch`, `del`, `paginate`, `setArkeId`, `getArkeId`, `setSpaceId`, `getSpaceId`, `ArkeError`.
 
 ## Python
 
@@ -51,18 +59,24 @@ Zero dependencies — native `fetch` (Node 18+). Exports: `get`, `post`, `put`, 
 import arkeon_sdk as arkeon
 
 # CRUD
-entities = arkeon.get("/entities", params={"limit": 10})
+entities = arkeon.get("/entities", {"limit": 10})
 created = arkeon.post("/entities", {"type": "note", "properties": {"label": "Hello"}})
 arkeon.put(f"/entities/{eid}", {"ver": ver, "properties": {"label": "Updated"}})
 arkeon.delete(f"/entities/{eid}")
 
+# Relationships — source entity in path, target in body
+arkeon.post(f"/entities/{source_id}/relationships", {
+    "predicate": "references",
+    "target_id": target_id,
+})
+
 # Pagination — iterator yields individual items across all pages
-from arkeon_sdk import paginate
-for entity in paginate("/entities", {"limit": 50}):
+for entity in arkeon.paginate("/entities", {"limit": 50}):
     print(entity["id"])
 
-# Network ID
-arkeon.set_network_id("01ABC...")
+# Configuration
+arkeon.set_arke_id("01ABC...")     # ARKE_ID env var
+arkeon.set_space_id("01XYZ...")    # ARKE_SPACE_ID env var
 
 # Errors
 from arkeon_sdk import ArkeError
@@ -72,11 +86,12 @@ except ArkeError as e:
     print(e.status, e.code, e.request_id)
 ```
 
-One dependency: `httpx`. Exports: `get`, `post`, `put`, `patch`, `delete`, `paginate`, `set_network_id`, `get_network_id`, `ArkeError`.
+One dependency: `httpx`. Exports: `get`, `post`, `put`, `patch`, `delete`, `paginate`, `set_arke_id`, `get_arke_id`, `set_space_id`, `get_space_id`, `ArkeError`.
 
 ## Features
 
-- **Auto network_id injection**: reads `ARKE_NETWORK_ID` or `set_network_id()` and injects into body (POST/PUT) or query params (GET) when not already present
+- **Auto arke_id injection**: reads `ARKE_ID` env or `set_arke_id()` and injects into body (POST/PUT) or query params (GET) when not already present
+- **Auto space_id injection**: same pattern with `ARKE_SPACE_ID` / `set_space_id()`
 - **Structured errors**: `ArkeError` with `status`, `code`, `request_id`, `details` fields parsed from API response
 - **Cursor pagination**: `paginate()` transparently follows cursor tokens, yielding individual items
 - **Content-type detection**: returns parsed JSON for API responses, raw text for help/docs endpoints

@@ -9,7 +9,8 @@ import httpx
 
 _url = os.environ.get("ARKE_API_URL", "http://localhost:8000")
 _key = os.environ.get("ARKE_API_KEY", "")
-_network_id = os.environ.get("ARKE_NETWORK_ID", "")
+_arke_id = os.environ.get("ARKE_ID", "")
+_space_id = os.environ.get("ARKE_SPACE_ID", "")
 _client = httpx.Client(
     base_url=_url,
     headers={"Authorization": f"ApiKey {_key}", "Content-Type": "application/json"},
@@ -20,15 +21,26 @@ _client = httpx.Client(
 # Configuration
 # ---------------------------------------------------------------------------
 
-def set_network_id(network_id: str):
-    """Set the default network ID injected into requests."""
-    global _network_id
-    _network_id = network_id
+def set_arke_id(arke_id: str):
+    """Set the default arke ID injected into requests."""
+    global _arke_id
+    _arke_id = arke_id
 
 
-def get_network_id() -> str:
-    """Get the current default network ID."""
-    return _network_id
+def get_arke_id() -> str:
+    """Get the current default arke ID."""
+    return _arke_id
+
+
+def set_space_id(space_id: str):
+    """Set the default space ID injected into requests."""
+    global _space_id
+    _space_id = space_id
+
+
+def get_space_id() -> str:
+    """Get the current default space ID."""
+    return _space_id
 
 
 # ---------------------------------------------------------------------------
@@ -70,13 +82,16 @@ def _parse(r: httpx.Response):
     return r.text
 
 
-def _inject_network_id(params: dict | None, is_body: bool) -> dict | None:
-    """Auto-inject network_id if a default is set and not already present."""
-    if not _network_id:
+def _inject_defaults(params: dict | None) -> dict | None:
+    """Auto-inject arke_id and space_id if defaults are set and not already present."""
+    defaults = {}
+    if _arke_id and not (params and "arke_id" in params):
+        defaults["arke_id"] = _arke_id
+    if _space_id and not (params and "space_id" in params):
+        defaults["space_id"] = _space_id
+    if not defaults:
         return params
-    if params and "network_id" in params:
-        return params
-    merged = {"network_id": _network_id}
+    merged = {**defaults}
     if params:
         merged.update(params)
     return merged
@@ -87,15 +102,15 @@ def _inject_network_id(params: dict | None, is_body: bool) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def get(path: str, params: dict | None = None):
-    return _parse(_client.get(path, params=_inject_network_id(params, False)))
+    return _parse(_client.get(path, params=_inject_defaults(params)))
 
 
 def post(path: str, json: Any = None):
-    return _parse(_client.post(path, json=_inject_network_id(json, True)))
+    return _parse(_client.post(path, json=_inject_defaults(json)))
 
 
 def put(path: str, json: Any = None):
-    return _parse(_client.put(path, json=_inject_network_id(json, True)))
+    return _parse(_client.put(path, json=_inject_defaults(json)))
 
 
 def patch(path: str, json: Any = None):

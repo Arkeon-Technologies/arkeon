@@ -52,16 +52,16 @@ for await (const entity of arkeon.paginate('/entities', { limit: '50' })) {
 }
 ```
 
-## Arke ID
+## Arke ID & Space ID
 
 Actor API keys are automatically scoped to their arke by the server — you don't need to set this. Admin API keys operate across all arkes and must specify one explicitly:
 
 ```typescript
-arkeon.setArkeId('01ABC...');
-// or use ARKE_ID env var
+arkeon.setArkeId('01ABC...');   // or ARKE_ID env var
+arkeon.setSpaceId('01XYZ...');  // or ARKE_SPACE_ID env var
 ```
 
-Once set, the arke ID is injected into all requests (query params for reads, body for writes).
+Once set, both are injected into all requests (query params for reads, body for writes). Explicit values in individual requests take precedence.
 
 ## Error Handling
 
@@ -92,6 +92,8 @@ try {
 | `paginate(path, params?)` | Async generator over paginated list endpoints. |
 | `setArkeId(id)` | Set default arke ID for all requests. |
 | `getArkeId()` | Get current default arke ID. |
+| `setSpaceId(id)` | Set default space ID for all requests. |
+| `getSpaceId()` | Get current default space ID. |
 | `ArkeError` | Error class with `status`, `code`, `requestId`, `details`. |
 
 ## API Discovery

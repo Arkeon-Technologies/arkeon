@@ -1,3 +1,11 @@
+import {
+  type OpenAPISpec as SharedOpenAPISpec,
+  type GeneratedField,
+  type GeneratedOperation,
+  parseOperations,
+  toFlagName,
+} from "arkeon-shared";
+
 import type { Actor } from "../types";
 
 export function renderPreamble(actor: Actor | null): string {
@@ -37,10 +45,82 @@ const FILTER_SYNTAX_BLOCK = [
   "# Tip: Actors belong to an arke (network). Your arke_id is automatically set",
   "# on all operations. Admin actors (arke_id=null) must pass arke_id explicitly.",
   "#",
-  "# Tools: CLI and SDK handle auth and pagination for you.",
-  "#   CLI: npm install -g @arkeon-technologies/cli — run 'arkeon --help' for commands",
-  "#   SDK: npm install @arkeon-technologies/sdk — TypeScript client for programmatic use",
-  "#   Both read ARKE_API_URL and ARKE_API_KEY from env. See GET /help/guide for details.",
+  "",
+  "## SDKs",
+  "",
+  "Auth is automatic from ARKE_API_URL + ARKE_API_KEY env vars. Zero config.",
+  "Paths and body fields are identical to the API reference below.",
+  "",
+  "### TypeScript (@arkeon-technologies/sdk)",
+  "",
+  "  import * as arkeon from '@arkeon-technologies/sdk';",
+  "",
+  "  // HTTP methods",
+  "  await arkeon.get('/entities', { params: { limit: '10', filter: 'type:note' } });",
+  "  await arkeon.post('/entities', { type: 'note', properties: { label: 'Hello' } });",
+  "  await arkeon.put(`/entities/${id}`, { ver: 1, properties: { label: 'Updated' } });",
+  "  await arkeon.del(`/entities/${id}`);",
+  "",
+  "  // Relationships — source in path, target in body",
+  "  await arkeon.post(`/entities/${sourceId}/relationships`, {",
+  "    predicate: 'references', target_id: targetId,",
+  "  });",
+  "",
+  "  // Pagination — async generator, yields items across all pages",
+  "  for await (const e of arkeon.paginate('/entities', { limit: '50' })) { ... }",
+  "",
+  "  // Configuration",
+  "  arkeon.setArkeId('01ABC...');   // or ARKE_ID env var (admin actors only)",
+  "  arkeon.setSpaceId('01XYZ...');  // or ARKE_SPACE_ID env var",
+  "",
+  "  // Errors: ArkeError { status, code, requestId, details }",
+  "",
+  "Notes: get(path, { params }) / post(path, body) / put(path, body) / del(path)  [del, not delete]",
+  "put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
+  "",
+  "### Python (arkeon-sdk)",
+  "",
+  "  import arkeon_sdk as arkeon",
+  "",
+  "  # HTTP methods",
+  "  arkeon.get('/entities', {'limit': 10, 'filter': 'type:note'})",
+  "  arkeon.post('/entities', {'type': 'note', 'properties': {'label': 'Hello'}})",
+  "  arkeon.put(f'/entities/{eid}', {'ver': 1, 'properties': {'label': 'Updated'}})",
+  "  arkeon.delete(f'/entities/{eid}')",
+  "",
+  "  # Relationships",
+  "  arkeon.post(f'/entities/{source_id}/relationships', {",
+  "      'predicate': 'references', 'target_id': target_id,",
+  "  })",
+  "",
+  "  # Pagination — iterator, yields items across all pages",
+  "  for e in arkeon.paginate('/entities', {'limit': 50}): ...",
+  "",
+  "  # Configuration",
+  "  arkeon.set_arke_id('01ABC...')   # or ARKE_ID env var (admin actors only)",
+  "  arkeon.set_space_id('01XYZ...')  # or ARKE_SPACE_ID env var",
+  "",
+  "  # Errors: ArkeError with .status, .code, .request_id, .details",
+  "",
+  "Notes: get(path, params_dict) / post(path, body) / put(path, body) / delete(path)",
+  "put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
+  "",
+  "## Response Patterns",
+  "",
+  "IMPORTANT: API responses wrap objects in a named key. Never access .id directly.",
+  "",
+  "  Single entity:       { entity: { id, kind, type, ver, properties, ... } }",
+  "  Entity list:         { entities: [{ ... }], cursor: string|null }",
+  "  Single space:        { space: { id, name, ... } }",
+  "  Space list:          { spaces: [{ ... }], cursor: string|null }",
+  "  Relationship create: { relationship: { id, ... }, edge: { id, source_id, target_id, predicate } }",
+  "  Relationship list:   { relationships: [{ direction, predicate, source_id, target_id, ... }], cursor }",
+  "  Actor create:        { actor: { id, ... }, api_key: string }",
+  "",
+  "  Examples:",
+  "    resp = arkeon.post('/entities', { type: 'note', properties: { label: 'Hi' } })",
+  "    entity_id = resp['entity']['id']     # Python",
+  "    const id = resp.entity.id;           // TypeScript",
   "",
   "## Filter Syntax",
   "# Use the `filter` query param on any listing endpoint.",
@@ -326,6 +406,190 @@ export function renderRouteHelpFromSpec(spec: OpenAPISpec, method: string, path:
   }
 
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Full CLI reference for worker prompts
+// ---------------------------------------------------------------------------
+
+function renderFieldLine(field: GeneratedField, isBody: boolean): string {
+  const flag = `--${toFlagName(field.name)}`;
+  const req = field.required ? "*" : "";
+  const enumText = field.enumValues?.length ? ` (${field.enumValues.join("|")})` : "";
+  const jsonHint = isBody && (field.type === "object" || field.type === "array") ? " <json>" : " <value>";
+  const desc = field.description || field.name;
+  return `  ${flag}${req}${jsonHint}${" ".repeat(Math.max(1, 28 - flag.length - req.length - jsonHint.length))}${field.type.padEnd(10)} ${desc}${enumText}`;
+}
+
+function renderOperationBlock(op: GeneratedOperation): string {
+  const positionals = op.pathParams.map((p) => `<${p.name}>`).join(" ");
+  const signature = positionals ? `${op.action} ${positionals}` : op.action;
+  const lines: string[] = [
+    `### arkeon ${op.group} ${signature}`,
+    `${op.method} ${op.path} | Auth: ${op.auth}`,
+    op.summary,
+  ];
+
+  if (op.pathParams.length) {
+    lines.push("");
+    lines.push("Path:");
+    for (const p of op.pathParams) {
+      lines.push(`  <${p.name}> — ${p.description || p.name}`);
+    }
+  }
+
+  if (op.queryParams.length) {
+    lines.push("");
+    lines.push("Query:");
+    for (const f of op.queryParams) {
+      lines.push(renderFieldLine(f, false));
+    }
+  }
+
+  if (op.bodyFields.length) {
+    lines.push("");
+    lines.push("Body:");
+    for (const f of op.bodyFields) {
+      lines.push(renderFieldLine(f, true));
+    }
+    lines.push(`  --data <json|@file|@->    (alternative: pass entire request body as JSON)`);
+  }
+
+  if (op.rules.length) {
+    lines.push("");
+    lines.push("Rules:");
+    for (const rule of op.rules) {
+      lines.push(`  - ${rule}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Renders a comprehensive CLI reference from the OpenAPI spec.
+ * Every operation is shown with its exact CLI syntax, all parameters,
+ * types, descriptions, and permission rules.
+ *
+ * Used in worker prompts so LLMs have complete tool knowledge from the start.
+ */
+export function renderFullReferenceFromSpec(spec: SharedOpenAPISpec): string {
+  const operations = parseOperations(spec);
+  const grouped = new Map<string, GeneratedOperation[]>();
+
+  for (const op of operations) {
+    const list = grouped.get(op.group) ?? [];
+    list.push(op);
+    grouped.set(op.group, list);
+  }
+
+  const sections: string[] = [];
+
+  for (const [group, ops] of grouped) {
+    sections.push(`## ${group}`);
+    sections.push("");
+    for (const op of ops) {
+      sections.push(renderOperationBlock(op));
+      sections.push("");
+    }
+  }
+
+  return sections.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Full API reference for /llms.txt
+// ---------------------------------------------------------------------------
+
+function renderApiFieldLine(field: GeneratedField): string {
+  const req = field.required ? "*" : "";
+  const enumText = field.enumValues?.length ? ` (${field.enumValues.join("|")})` : "";
+  const desc = field.description || field.name;
+  const name = `${field.name}${req}`;
+  return `  ${name.padEnd(22)} ${field.type.padEnd(10)} ${desc}${enumText}`;
+}
+
+function renderApiOperationBlock(op: GeneratedOperation): string {
+  const lines: string[] = [
+    `### ${op.method} ${op.path}`,
+    `Auth: ${op.auth}`,
+    op.summary,
+  ];
+
+  if (op.pathParams.length) {
+    lines.push("");
+    lines.push("Path params:");
+    for (const p of op.pathParams) {
+      lines.push(renderApiFieldLine(p));
+    }
+  }
+
+  if (op.queryParams.length) {
+    lines.push("");
+    lines.push("Query params:");
+    for (const f of op.queryParams) {
+      lines.push(renderApiFieldLine(f));
+    }
+  }
+
+  if (op.bodyFields.length) {
+    lines.push("");
+    lines.push("Request body (JSON):");
+    for (const f of op.bodyFields) {
+      lines.push(renderApiFieldLine(f));
+    }
+  }
+
+  if (op.responseFields.length) {
+    lines.push("");
+    lines.push("Response:");
+    for (const f of op.responseFields) {
+      lines.push(renderApiFieldLine(f));
+    }
+  }
+
+  if (op.rules.length) {
+    lines.push("");
+    lines.push("Rules:");
+    for (const rule of op.rules) {
+      lines.push(`  - ${rule}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Renders a comprehensive HTTP API reference from the OpenAPI spec.
+ * Every operation is shown with method, path, all parameters,
+ * request body fields, types, descriptions, and permission rules.
+ *
+ * Used for /llms.txt so external LLMs get complete API knowledge in one fetch.
+ */
+export function renderFullApiReferenceFromSpec(spec: SharedOpenAPISpec): string {
+  const operations = parseOperations(spec);
+
+  // Group by first path segment (matches the /help index grouping)
+  const grouped = new Map<string, GeneratedOperation[]>();
+  for (const op of operations) {
+    const section = op.path.split("/")[1] ?? "other";
+    const list = grouped.get(section) ?? [];
+    list.push(op);
+    grouped.set(section, list);
+  }
+
+  const sections: string[] = [...FILTER_SYNTAX_BLOCK];
+
+  for (const [section, ops] of grouped) {
+    sections.push(`## ${section}`);
+    sections.push("");
+    for (const op of ops) {
+      sections.push(renderApiOperationBlock(op));
+      sections.push("");
+    }
+  }
+
+  return sections.join("\n");
 }
 
 export function renderRouteNotFoundFromSpec(spec: OpenAPISpec, method: string, path: string): string {
