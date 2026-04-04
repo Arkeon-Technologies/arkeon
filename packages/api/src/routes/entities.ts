@@ -1030,14 +1030,6 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
     }
   }
 
-  // CAS check
-  if (target.ver !== expectedVer) {
-    throw new ApiError(409, "cas_conflict", "Version mismatch", {
-      entity_id: targetId,
-      expected_ver: expectedVer,
-    });
-  }
-
   // Compute merged properties
   let mergedProperties: Record<string, unknown>;
   switch (strategy) {

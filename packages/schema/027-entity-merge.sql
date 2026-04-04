@@ -6,8 +6,11 @@
 --   1. entity_redirects table — maps merged entity IDs to their canonical target
 --   2. perform_entity_merge() — SECURITY DEFINER function for merge mutations
 --      (bypasses RLS since the app layer verifies admin access before calling)
---   3. UPDATE RLS policy on relationship_edges — for non-merge edge edits
---   4. UPDATE grant + RLS policy on comments — for non-merge comment edits
+--
+-- The merge function is the ONLY writer to entity_redirects, and the ONLY
+-- code path that repoints edges, transfers space memberships, or moves
+-- comments across entities. No additional RLS policies are needed because
+-- SECURITY DEFINER bypasses RLS entirely.
 --
 -- =============================================================================
 
@@ -21,21 +24,14 @@ CREATE TABLE entity_redirects (
 
 CREATE INDEX IF NOT EXISTS idx_entity_redirects_new ON entity_redirects(new_id);
 
-GRANT SELECT, INSERT, UPDATE ON entity_redirects TO arke_app;
+-- arke_app only needs SELECT (for redirect lookups on GET).
+-- All writes go through the SECURITY DEFINER function.
+GRANT SELECT ON entity_redirects TO arke_app;
 
--- RLS: permissive read/write for the app role (auth checked at app layer)
 ALTER TABLE entity_redirects ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY redirects_select ON entity_redirects
 FOR SELECT TO arke_app
-USING (true);
-
-CREATE POLICY redirects_insert ON entity_redirects
-FOR INSERT TO arke_app
-WITH CHECK (true);
-
-CREATE POLICY redirects_update ON entity_redirects
-FOR UPDATE TO arke_app
 USING (true);
 
 
@@ -50,8 +46,9 @@ USING (true);
 --   - Delete/repoint relationship entities owned by third parties
 --   - Transfer space memberships for spaces the actor may not have roles in
 --   - Transfer comments by other authors
+--   - Write to entity_redirects (no INSERT grant to arke_app)
 --
--- Returns the updated target entity row, or NULL if the CAS check failed.
+-- Returns the updated target entity row, or empty set if the CAS check failed.
 --
 -- =============================================================================
 
@@ -162,45 +159,6 @@ BEGIN
 END;
 $$;
 
+-- Harden: only arke_app can call this function, not PUBLIC
+REVOKE ALL ON FUNCTION perform_entity_merge FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION perform_entity_merge TO arke_app;
-
-
--- =============================================================================
--- Additional RLS policies for non-merge use cases
--- =============================================================================
-
--- UPDATE policy on relationship_edges (for direct edge edits outside of merge)
-CREATE POLICY edges_update ON relationship_edges
-FOR UPDATE TO arke_app
-USING (
-  current_actor_is_admin()
-  OR EXISTS (
-    SELECT 1 FROM entities e
-    WHERE e.id = relationship_edges.id
-    AND e.owner_id = current_actor_id()
-  )
-  OR EXISTS (
-    SELECT 1 FROM entities e
-    WHERE e.id = source_id
-    AND (
-      e.owner_id = current_actor_id()
-      OR actor_has_entity_role(e.id, ARRAY['editor', 'admin'])
-    )
-  )
-);
-
--- UPDATE grant + policy on comments (for direct comment edits outside of merge)
-GRANT UPDATE ON comments TO arke_app;
-
-CREATE POLICY comments_update ON comments
-FOR UPDATE TO arke_app
-USING (
-  current_actor_is_admin()
-  OR author_id = current_actor_id()
-  OR EXISTS (
-    SELECT 1 FROM entities e
-    WHERE e.id = comments.entity_id
-    AND e.owner_id = current_actor_id()
-  )
-  OR actor_has_entity_role(entity_id, ARRAY['admin'])
-);
