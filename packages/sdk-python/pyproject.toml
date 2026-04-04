@@ -9,6 +9,7 @@ description = "Lightweight Python SDK for the Arkeon API"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [{ name = "Arkeon Technologies" }]
+readme = "README.md"
 dependencies = ["httpx>=0.24"]
 
 [project.urls]
