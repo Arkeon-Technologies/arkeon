@@ -173,6 +173,7 @@ const getEntityRoute = createRoute({
     },
     304: { description: "Not modified" },
     ...errorResponses([400, 404]),
+    410: { description: "Entity was merged into another entity" },
   },
 });
 
@@ -373,6 +374,45 @@ const listVersionsRoute = createRoute({
   },
 });
 
+const mergeEntityRoute = createRoute({
+  method: "post",
+  path: "/{id}/merge",
+  operationId: "mergeEntity",
+  tags: ["Entities"],
+  summary: "Merge a source entity into this entity",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /entities/{id}", "DELETE /entities/{id}"],
+  "x-arke-rules": [
+    "Requires admin access on both source and target entities",
+    "Both entities must belong to the same arke",
+    "Both entities must have the same kind (entity or relationship)",
+    "If merging relationships, both must connect the same source and target entities",
+    "Source entity is deleted after merge; a redirect is created from source ID to target ID",
+  ],
+  request: {
+    params: entityIdParams(),
+    body: {
+      required: true,
+      content: jsonContent(
+        z.object({
+          source_id: EntityIdParam.describe("Entity ULID to merge FROM (will be deleted)"),
+          property_strategy: z.enum(["keep_target", "keep_source", "shallow_merge"]).default("keep_source")
+            .describe("How to merge properties: keep_target, keep_source (default), or shallow_merge (source wins conflicts)"),
+          ver: z.number().int().describe("Expected current version of the target entity (CAS token)"),
+          note: z.string().optional().describe("Optional version note for the merge"),
+        }),
+      ),
+    },
+  },
+  responses: {
+    200: {
+      description: "Entity merged successfully",
+      content: jsonContent(EntityResponse),
+    },
+    ...errorResponses([400, 401, 403, 404, 409]),
+  },
+});
+
 const getVersionRoute = createRoute({
   method: "get",
   path: "/{id}/versions/{ver}",
@@ -515,6 +555,15 @@ entitiesRouter.openapi(getEntityRoute, async (c) => {
 
   const entity = (results[results.length - 1] as EntityRecord[])[0];
   if (!entity) {
+    // Check if entity was merged into another
+    const redirectRows = await sql`SELECT new_id, merged_at FROM entity_redirects WHERE old_id = ${entityId} LIMIT 1`;
+    const redirect = (redirectRows as Array<{ new_id: string; merged_at: string }>)[0];
+    if (redirect) {
+      throw new ApiError(410, "entity_merged", "This entity was merged into another entity", {
+        merged_into: redirect.new_id,
+        merged_at: redirect.merged_at,
+      });
+    }
     throw new ApiError(404, "not_found", "Entity not found");
   }
 
@@ -855,4 +904,187 @@ entitiesRouter.openapi(getVersionRoute, async (c) => {
   }
 
   return c.json(version, 200);
+});
+
+entitiesRouter.openapi(mergeEntityRoute, async (c) => {
+  const actor = requireActor(c);
+  const targetId = c.req.param("id");
+  const body = await parseJsonBody<Record<string, unknown>>(c);
+
+  const sourceId = typeof body.source_id === "string" ? body.source_id : null;
+  if (!sourceId) {
+    throw new ApiError(400, "missing_required_field", "Missing source_id");
+  }
+  if (sourceId === targetId) {
+    throw new ApiError(400, "invalid_body", "Cannot merge an entity into itself");
+  }
+
+  const expectedVer = typeof body.ver === "number" ? body.ver : null;
+  if (expectedVer === null) {
+    throw new ApiError(400, "missing_required_field", "Missing ver");
+  }
+
+  const strategy = typeof body.property_strategy === "string"
+    ? body.property_strategy
+    : "keep_source";
+  if (!["keep_target", "keep_source", "shallow_merge"].includes(strategy)) {
+    throw new ApiError(400, "invalid_body", "Invalid property_strategy");
+  }
+
+  const note = typeof body.note === "string" ? body.note : null;
+  const sql = createSql();
+  const now = new Date().toISOString();
+
+  // Single atomic transaction for the entire merge
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+
+    // Fetch both entities (RLS applies classification check)
+    sql.query(
+      `SELECT * FROM entities WHERE id = ANY($1)`,
+      [[targetId, sourceId]],
+    ),
+
+    // Fetch relationship edges if these are relationships (for endpoint validation)
+    sql.query(
+      `SELECT id, source_id, target_id FROM relationship_edges WHERE id = ANY($1)`,
+      [[targetId, sourceId]],
+    ),
+  ]);
+
+  const ctxLen = 5; // setActorContext produces 5 queries
+  const lockedRows = results[ctxLen] as EntityRecord[];
+  const target = lockedRows.find((r) => r.id === targetId);
+  const source = lockedRows.find((r) => r.id === sourceId);
+
+  if (!target) {
+    throw new ApiError(404, "not_found", "Target entity not found");
+  }
+  if (!source) {
+    throw new ApiError(404, "not_found", "Source entity not found");
+  }
+
+  // Validate same kind
+  if (source.kind !== target.kind) {
+    throw new ApiError(400, "invalid_body", "Cannot merge entities of different kinds");
+  }
+
+  // Validate same arke
+  if (source.arke_id !== target.arke_id) {
+    throw new ApiError(400, "invalid_body", "Cannot merge entities from different arkes");
+  }
+
+  // Validate admin access on both
+  const isTargetAdmin = target.owner_id === actor.id || actor.isAdmin;
+  const isSourceAdmin = source.owner_id === actor.id || actor.isAdmin;
+
+  if (!isTargetAdmin || !isSourceAdmin) {
+    // Check entity_permissions for admin grants (only for the ones not already covered)
+    const permChecks = await sql.transaction([
+      ...setActorContext(sql, actor),
+      ...(!isTargetAdmin ? [sql.query(
+        `SELECT 1 FROM entity_permissions WHERE entity_id = $1 AND role = 'admin'
+         AND ((grantee_type = 'actor' AND grantee_id = $2)
+           OR (grantee_type = 'group' AND EXISTS (
+             SELECT 1 FROM group_memberships WHERE group_id = grantee_id AND actor_id = $2)))
+         LIMIT 1`,
+        [targetId, actor.id],
+      )] : []),
+      ...(!isSourceAdmin ? [sql.query(
+        `SELECT 1 FROM entity_permissions WHERE entity_id = $1 AND role = 'admin'
+         AND ((grantee_type = 'actor' AND grantee_id = $2)
+           OR (grantee_type = 'group' AND EXISTS (
+             SELECT 1 FROM group_memberships WHERE group_id = grantee_id AND actor_id = $2)))
+         LIMIT 1`,
+        [sourceId, actor.id],
+      )] : []),
+    ]);
+
+    let idx = ctxLen;
+    if (!isTargetAdmin) {
+      const targetPerm = (permChecks[idx] as Array<Record<string, unknown>>);
+      if (targetPerm.length === 0) {
+        throw new ApiError(403, "forbidden", "Requires admin access on both entities");
+      }
+      idx++;
+    }
+    if (!isSourceAdmin) {
+      const sourcePerm = (permChecks[idx] as Array<Record<string, unknown>>);
+      if (sourcePerm.length === 0) {
+        throw new ApiError(403, "forbidden", "Requires admin access on both entities");
+      }
+    }
+  }
+
+  // If relationships, validate same endpoints
+  if (source.kind === "relationship") {
+    const edgeRows = results[ctxLen + 1] as Array<{ id: string; source_id: string; target_id: string }>;
+    const targetEdge = edgeRows.find((r) => r.id === targetId);
+    const sourceEdge = edgeRows.find((r) => r.id === sourceId);
+
+    if (!targetEdge || !sourceEdge) {
+      throw new ApiError(400, "invalid_body", "Relationship edge data not found");
+    }
+    if (targetEdge.source_id !== sourceEdge.source_id || targetEdge.target_id !== sourceEdge.target_id) {
+      throw new ApiError(400, "invalid_body", "Cannot merge relationships with different endpoints");
+    }
+  }
+
+  // CAS check
+  if (target.ver !== expectedVer) {
+    throw new ApiError(409, "cas_conflict", "Version mismatch", {
+      entity_id: targetId,
+      expected_ver: expectedVer,
+    });
+  }
+
+  // Compute merged properties
+  let mergedProperties: Record<string, unknown>;
+  switch (strategy) {
+    case "keep_target":
+      mergedProperties = target.properties;
+      break;
+    case "keep_source":
+      mergedProperties = source.properties;
+      break;
+    case "shallow_merge":
+      mergedProperties = { ...target.properties, ...source.properties };
+      break;
+    default:
+      mergedProperties = source.properties;
+  }
+
+  const newVer = target.ver + 1;
+  const mergeDetail = JSON.stringify({
+    source_id: sourceId,
+    source_type: source.type,
+    source_ver: source.ver,
+    source_properties: source.properties,
+    property_strategy: strategy,
+  });
+
+  // Execute the merge via SECURITY DEFINER function (bypasses RLS since
+  // app layer already verified admin access on both entities)
+  const mergeResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM perform_entity_merge($1, $2, $3::jsonb, $4, $5, $6, $7, $8::timestamptz, $9::jsonb)`,
+      [sourceId, targetId, JSON.stringify(mergedProperties), newVer, expectedVer, actor.id, note, now, mergeDetail],
+    ),
+  ]);
+
+  const updated = (mergeResults[ctxLen] as EntityRecord[])[0];
+  if (!updated) {
+    // CAS guard failed — target was modified between validation and merge
+    throw new ApiError(409, "cas_conflict", "Target entity was modified during merge, please retry", {
+      entity_id: targetId,
+      expected_ver: expectedVer,
+    });
+  }
+
+  // Background tasks: clean up search index
+  backgroundTask(removeEntity(sourceId));
+  backgroundTask(indexEntity(updated, sql));
+
+  return c.json({ entity: updated }, 200);
 });
