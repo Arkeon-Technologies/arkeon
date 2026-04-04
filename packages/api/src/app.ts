@@ -51,6 +51,10 @@ export function createApp() {
         llms_txt: "/llms.txt",
         openapi: "/openapi.json",
       },
+      tools: {
+        cli: "npm install -g @arkeon-technologies/cli",
+        sdk: "npm install @arkeon-technologies/sdk",
+      },
     }),
   );
 

@@ -99,6 +99,34 @@ route index — run GET /help to see it.
 
 ${BEST_PRACTICES}
 
+## Tools
+
+Beyond direct HTTP calls, Arkeon provides a CLI and language SDKs that handle
+authentication and pagination for you.
+
+### CLI
+
+Install:  npm install -g @arkeon-technologies/cli
+Config:   export ARKE_API_URL=https://<your-instance>.arkeon.tech
+          export ARKE_API_KEY=<your-api-key>
+Usage:    arkeon entities list
+          arkeon entities create --type note --properties '{"title":"Hello"}'
+          arkeon search --q hello
+          arkeon --help
+
+The CLI is auto-generated from the API's OpenAPI spec, so every route is
+available as a command. Use --help on any command for full options.
+
+### SDK
+
+Install:    npm install @arkeon-technologies/sdk
+Usage:      import { ArkeonClient } from '@arkeon-technologies/sdk';
+            const client = new ArkeonClient();
+            await client.get('/entities');
+
+The SDK reads ARKE_API_URL and ARKE_API_KEY from the environment and handles
+authentication, pagination, and error handling automatically.
+
 ## Getting More Help
 
 GET /help                         Full route index with auth & summary

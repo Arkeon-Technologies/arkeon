@@ -78,14 +78,13 @@ export function buildWorkerSystemPrompt(
 
     // ----- Tools: SDK -----
     "### TypeScript SDK (for bulk or scripted operations)",
-    "Write a short Node.js script. The SDK is pre-installed with zero config.",
+    "Write a short Node.js script. The SDK (@arkeon-technologies/sdk) is pre-installed with zero config.",
     "",
-    "  import * as arkeon from 'arkeon-sdk';",
-    "  const items = await arkeon.get('/entities', { params: { type: 'note' } });",
-    "  await arkeon.post('/entities', { type: 'note', properties: { label: 'Hello' } });",
-    "  for await (const e of arkeon.paginate('/entities')) { /* process each */ }",
+    "  import { ArkeonClient } from '@arkeon-technologies/sdk';",
+    "  const client = new ArkeonClient();",
+    "  const items = await client.get('/entities', { params: { type: 'note' } });",
+    "  await client.post('/entities', { type: 'note', properties: { label: 'Hello' } });",
     "",
-    "A Python SDK exists (import arkeon_sdk) but is not currently installable in this sandbox.",
     "As a last resort, use curl + jq — but prefer the CLI or SDK as they handle auth and errors automatically.",
     "",
 
