@@ -1,6 +1,7 @@
 const baseUrl = process.env.ARKE_API_URL ?? "http://localhost:8000";
 const apiKey = process.env.ARKE_API_KEY ?? "";
 let defaultArkeId = process.env.ARKE_ID ?? "";
+let defaultSpaceId = process.env.ARKE_SPACE_ID ?? "";
 
 const defaultHeaders: Record<string, string> = {
   Authorization: `ApiKey ${apiKey}`,
@@ -19,6 +20,16 @@ export function setArkeId(id: string) {
 /** Get the current default arke ID. */
 export function getArkeId(): string {
   return defaultArkeId;
+}
+
+/** Set the default space ID injected into requests. */
+export function setSpaceId(id: string) {
+  defaultSpaceId = id;
+}
+
+/** Get the current default space ID. */
+export function getSpaceId(): string {
+  return defaultSpaceId;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,22 +70,27 @@ type RequestOpts = {
 async function request(method: string, path: string, opts?: RequestOpts) {
   const url = new URL(path, baseUrl);
 
-  // Auto-inject arke_id into query params for GET requests
+  // Auto-inject arke_id and space_id into query params for GET requests
   if (defaultArkeId && method === "GET" && !url.searchParams.has("arke_id")) {
     url.searchParams.set("arke_id", defaultArkeId);
+  }
+  if (defaultSpaceId && method === "GET" && !url.searchParams.has("space_id")) {
+    url.searchParams.set("space_id", defaultSpaceId);
   }
 
   if (opts?.params)
     for (const [k, v] of Object.entries(opts.params))
       url.searchParams.set(k, v);
 
-  // Auto-inject arke_id into body for mutating requests
+  // Auto-inject arke_id and space_id into body for mutating requests
   let body: string | undefined;
   if (opts?.json) {
-    const payload =
-      defaultArkeId && !opts.json.arke_id
-        ? { arke_id: defaultArkeId, ...opts.json }
-        : opts.json;
+    const defaults: Record<string, string> = {};
+    if (defaultArkeId && !opts.json.arke_id) defaults.arke_id = defaultArkeId;
+    if (defaultSpaceId && !opts.json.space_id) defaults.space_id = defaultSpaceId;
+    const payload = Object.keys(defaults).length > 0
+      ? { ...defaults, ...opts.json }
+      : opts.json;
     body = JSON.stringify(payload);
   }
 

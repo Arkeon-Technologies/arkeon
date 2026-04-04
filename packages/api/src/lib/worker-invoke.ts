@@ -103,6 +103,10 @@ export async function invokeWorker(
       env: {
         ARKE_API_URL: apiBaseUrl,
         ARKE_API_KEY: arkeApiKey,
+        // Allow pip install --target to work; packages land in workspace/pip-pkgs
+        PYTHONPATH: `${workspace}/pip-pkgs`,
+        PIP_TARGET: `${workspace}/pip-pkgs`,
+        PIP_BREAK_SYSTEM_PACKAGES: "1",
         ...(context ? {
           ARKE_INVOCATION_ID: String(context.invocationId),
           ARKE_INVOCATION_DEPTH: String(context.depth),

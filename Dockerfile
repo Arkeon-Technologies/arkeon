@@ -4,6 +4,7 @@ WORKDIR /app
 # Pre-install tools for worker sandboxes (bwrap sandbox bind-mounts host root read-only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bubblewrap curl jq python3 python3-pip ca-certificates \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 # Build CLI + TS SDK in a separate stage (needs dev deps for tsup)
@@ -52,12 +53,20 @@ COPY packages/schema packages/schema
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
 RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
-# Install TS SDK globally for worker sandboxes (import * as arke from 'arkeon-sdk')
-COPY --from=cli-build /sdk-standalone /usr/local/lib/node_modules/arkeon-sdk
+# Install TS SDK for worker sandboxes.
+# Placed in /node_modules so Node's ESM resolver finds it from any working directory
+# (ESM traverses up to root; /usr/local/lib/node_modules only works for CJS with NODE_PATH).
+# Symlinked under both the npm package name and the bare alias used in the worker prompt.
+COPY --from=cli-build /sdk-standalone /node_modules/@arkeon-technologies/sdk
+RUN ln -s /node_modules/@arkeon-technologies/sdk /node_modules/arkeon-sdk
 
-# Install Python SDK for worker sandboxes (import arkeon_sdk as arkeon)
+# Install Python SDK and common document-processing packages for worker sandboxes
 COPY packages/sdk-python /tmp/sdk-python
-RUN pip install --break-system-packages --no-cache-dir /tmp/sdk-python \
+RUN pip install --break-system-packages --no-cache-dir \
+    /tmp/sdk-python \
+    reportlab pypdf python-docx openpyxl python-pptx \
+    ebooklib beautifulsoup4 lxml \
+    Pillow pandas markdown chardet \
     && rm -rf /tmp/sdk-python
 
 FROM app AS api

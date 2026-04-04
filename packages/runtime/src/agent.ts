@@ -1,5 +1,5 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { dirname, extname, isAbsolute, join } from "node:path";
 
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { APIError, AuthenticationError, BadRequestError, PermissionDeniedError } from "openai/error";
@@ -228,6 +228,8 @@ export class Agent {
         });
 
         let result: string;
+        // If a tool needs to inject extra messages (e.g. image content), they go here
+        let followUpMessage: ChatCompletionMessageParam | null = null;
 
         switch (fnName) {
           case "shell":
@@ -245,6 +247,12 @@ export class Agent {
               args.content as string,
             );
             break;
+          case "view_image": {
+            const imageResult = await this.handleViewImage(args.path as string);
+            result = imageResult.text;
+            followUpMessage = imageResult.imageMessage;
+            break;
+          }
           case "done": {
             // Accept args.result if provided, otherwise treat all args as the result
             // (LLMs sometimes pass fields directly instead of wrapping in { result: ... })
@@ -286,6 +294,12 @@ export class Agent {
           tool_call_id: toolCall.id,
           content: truncate(result),
         });
+
+        // Inject image content as a follow-up user message (Chat Completions API
+        // doesn't support images in tool results, so we append a user message)
+        if (followUpMessage) {
+          messages.push(followUpMessage);
+        }
       }
     }
 
@@ -341,6 +355,57 @@ export class Agent {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return `Error writing file: ${msg}`;
+    }
+  }
+
+  private async handleViewImage(
+    path: string,
+  ): Promise<{ text: string; imageMessage: ChatCompletionMessageParam | null }> {
+    const resolved = this.resolvePath(path);
+    try {
+      const ext = extname(resolved).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+      };
+      const mime = mimeMap[ext];
+      if (!mime) {
+        return {
+          text: `Unsupported image format: ${ext}. Supported: png, jpg, gif, webp`,
+          imageMessage: null,
+        };
+      }
+
+      const info = await stat(resolved);
+      const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+      if (info.size > MAX_IMAGE_SIZE) {
+        return {
+          text: `Image too large: ${(info.size / 1024 / 1024).toFixed(1)}MB (max 10MB). Use Pillow to resize first.`,
+          imageMessage: null,
+        };
+      }
+
+      const buffer = await readFile(resolved);
+      const base64 = buffer.toString("base64");
+      const dataUrl = `data:${mime};base64,${base64}`;
+      const sizeKB = (info.size / 1024).toFixed(1);
+
+      return {
+        text: `Image loaded: ${path} (${sizeKB}KB, ${mime}). The image is shown below.`,
+        imageMessage: {
+          role: "user",
+          content: [
+            { type: "text", text: `[view_image result for ${path}]` },
+            { type: "image_url", image_url: { url: dataUrl, detail: "auto" } },
+          ],
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { text: `Error reading image: ${msg}`, imageMessage: null };
     }
   }
 

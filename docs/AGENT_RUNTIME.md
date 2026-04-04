@@ -1,14 +1,16 @@
 # Agent Runtime
 
-Sandboxed runtime for AI workers. Each worker gets an isolated environment with the Arke CLI, a shell, and access to an LLM provider (BYOK).
+Sandboxed runtime for AI workers. Each worker gets an isolated Linux environment with pre-installed tools, SDKs, and access to an LLM provider (BYOK).
 
 ## Design Philosophy
 
-**Shell-first tools**: Workers get `shell`, `read_file`, `write_file`, and a `done` signal. No pre-built tool library — if a worker needs to parse a PDF, it writes a script. The LLM figures out how.
+**Shell-first tools**: Workers get `shell`, `read_file`, `write_file`, `view_image`, and a `done` signal. No pre-built tool library — if a worker needs to parse a PDF, it writes a script. The LLM figures out how. Common packages are pre-installed so it doesn't need to figure out how to install them.
+
+**Self-sufficient agents**: Workers receive a comprehensive system prompt with the full CLI reference, SDK cheat sheets, API response patterns, and filter syntax — everything needed to use the platform correctly without discovery calls. The prompt is generated from the OpenAPI spec at startup so it's always current.
 
 **Two actor kinds**: Agents are service accounts (get API key, not invokable). Workers are runtime agents (system-managed encrypted keys, invokable via `/workers/:id/invoke`).
 
-**BYOK LLM**: Any OpenAI-compatible provider works (OpenAI, Gemini, Groq, Together, DeepSeek, Mistral, Ollama, OpenRouter). Config is `base_url + api_key + model`.
+**BYOK LLM**: Any OpenAI-compatible provider works (OpenAI, Gemini, Groq, Together, DeepSeek, Mistral, Ollama, OpenRouter). Config is `base_url + api_key + model`. Multimodal models can use `view_image` to see images.
 
 ## Key Storage
 
@@ -20,9 +22,21 @@ Both decrypted only at invocation time, injected into sandbox, cleaned up after.
 
 ## Sandboxing
 
-Uses bubblewrap (bwrap) with PID/UTS/IPC namespace isolation, read-only root, writable workspace, and cgroup limits. ~8ms boot overhead. On macOS, falls back to direct execution for development.
+Uses bubblewrap (bwrap) with PID/UTS/IPC namespace isolation, read-only root, writable workspace, and cgroup limits. ~8ms boot overhead. On macOS, falls back to direct execution for development (use Docker for full sandbox fidelity — see below).
 
-Pre-installed in sandbox: curl, jq, python3, arkeon (Arkeon CLI at `/usr/local/bin/arkeon`).
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| `shell` | Execute bash commands in the sandbox workspace |
+| `read_file` | Read a text file from the workspace |
+| `write_file` | Write content to a file (creates directories) |
+| `view_image` | View an image file — sent to the model as visual content (multimodal models only) |
+| `done` | Signal task completion with structured JSON result |
+
+## Pre-installed Software
+
+See [RUNTIME_ENVIRONMENT.md](./RUNTIME_ENVIRONMENT.md) for the complete list of pre-installed packages, the self-install capability, and Docker vs. local development differences.
 
 ## Scheduling
 
@@ -39,13 +53,6 @@ Docker compose includes Redis under `profiles: ["workers"]`.
 
 All invocations (HTTP and scheduled) recorded to `worker_invocations` with 30-day retention. Optional full log via `store_log` parameter.
 
-## Permissions (MVP)
+## Permissions
 
-Owner-only. Only `owner_id` can invoke, view, or update. System admins bypass. Future: `worker_permissions` table with operator/admin roles.
-
-## Open Questions
-
-- **Worker-to-worker communication**: can a worker invoke another worker?
-- **Ollama / local models**: zero-cost local inference at `localhost:11434`
-- **Persistent workspaces**: currently ephemeral per invocation
-- **Arke SDK**: pre-install Python/TypeScript SDK for cleaner programmatic access (see [SDK doc](./future/SDK.md))
+Owner-based with explicit grants. Workers support `operator` and `admin` roles via `worker_permissions` table. System admins bypass.

@@ -4,16 +4,17 @@ import { serve } from "@hono/node-server";
 import { createApp, openApiConfig } from "./app";
 import { ensureBootstrap } from "./lib/bootstrap";
 import { ensureMeiliIndex, isMeilisearchConfigured } from "./lib/meilisearch";
-import { renderIndexFromSpec } from "./lib/openapi-help";
+import { type OpenAPISpec } from "arkeon-shared";
+import { renderFullReferenceFromSpec } from "./lib/openapi-help";
 import { startScheduler, stopScheduler } from "./lib/scheduler";
 import { initQueue, drainQueue } from "./lib/invocation-queue";
-import { setWorkerRouteIndex } from "./lib/worker-prompt";
+import { setWorkerCliReference } from "./lib/worker-prompt";
 
 const app = createApp();
 
-// Generate the API route index once at startup for worker system prompts
-const spec = app.getOpenAPI31Document(openApiConfig);
-setWorkerRouteIndex(renderIndexFromSpec(spec));
+// Generate the full CLI reference once at startup for worker system prompts
+const spec = app.getOpenAPI31Document(openApiConfig) as unknown as OpenAPISpec;
+setWorkerCliReference(renderFullReferenceFromSpec(spec));
 
 await ensureBootstrap();
 await initQueue();

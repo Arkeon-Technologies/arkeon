@@ -2,8 +2,8 @@
  * Builds the full system prompt for worker invocations.
  *
  * Concept text comes from arkeon-shared (single source of truth).
- * The route index is generated once at server startup (via setWorkerRouteIndex)
- * and injected so workers have a complete picture of the API from the first tool call.
+ * The CLI reference is generated once at server startup from the OpenAPI spec
+ * and injected so workers have complete tool knowledge from the first call.
  */
 
 import {
@@ -17,14 +17,17 @@ import {
 import type { InvocationContext } from "./worker-invoke.js";
 
 // ---------------------------------------------------------------------------
-// Route index — set once at startup from the OpenAPI spec
+// CLI reference — set once at startup from the OpenAPI spec
 // ---------------------------------------------------------------------------
 
-let routeIndex: string | null = null;
+let cliReference: string | null = null;
 
-export function setWorkerRouteIndex(index: string): void {
-  routeIndex = index;
+export function setWorkerCliReference(reference: string): void {
+  cliReference = reference;
 }
+
+// Keep backward-compat alias for existing callers
+export const setWorkerRouteIndex = setWorkerCliReference;
 
 // ---------------------------------------------------------------------------
 // Prompt assembly
@@ -52,40 +55,119 @@ export function buildWorkerSystemPrompt(
     BEST_PRACTICES,
     "",
 
-    // ----- Tools: CLI -----
+    // ----- Tools overview -----
     "## Tools",
     "",
     "### Arkeon CLI (recommended for most tasks)",
-    "The `arkeon` CLI is pre-installed and pre-authenticated. Use it for one-off commands.",
+    "The `arkeon` CLI is pre-installed and pre-authenticated.",
     "",
-    "Examples:",
-    "  arkeon entities list                                        # list entities",
-    "  arkeon entities create --type note --body-field properties.label 'My note'",
-    "  arkeon entities get <id>                                    # fetch by ID",
-    "  arkeon search query --q 'search terms'                     # full-text search",
-    "  arkeon relationships list --source-id <id>                  # outgoing edges",
-    "  arkeon workers invoke <id> --body-field prompt 'do something'",
+    "Flag syntax:",
+    "  - String/number flags: --flag-name <value>",
+    "  - JSON object/array flags: --flag-name '{\"key\":\"value\"}' or --flag-name @file.json",
+    "  - Required flags are marked with * in the reference below",
+    "  - You can also pass the entire request body with: --data '{...}' or --data @file.json",
+    "  - Do NOT combine individual flags with --data for the same fields (double-submit)",
     "",
-    "IMPORTANT — Discovering commands:",
-    "  arkeon --help                        # list ALL command groups",
-    "  arkeon <group> --help                # list commands in a group",
-    "  arkeon <group> <command> --help      # full usage, params, and route info",
+    "Output format:",
+    "  Default output wraps the API response: { ok, operation, method, path, data: <api_response> }",
+    "  Use --raw to get the bare API response (recommended when piping to jq).",
+    "  Example: arkeon entities create --type note --properties '{...}' --raw | jq '.entity.id'",
     "",
-    "If a command fails or you're unsure of the syntax, ALWAYS run --help for that",
-    "command before retrying. The help output shows every parameter, its type, and",
-    "whether it's required. This is faster and more reliable than guessing.",
+    "If a command fails, run `arkeon <group> <command> --help` for the full usage.",
+    "",
+    "IMPORTANT — Avoiding duplicates:",
+    "  API creates are NOT idempotent. If you create entities in a script and the script",
+    "  fails partway through, do NOT re-run the entire script. Instead:",
+    "  1. Save created IDs to a file (e.g. echo $id >> ids.txt) as you go",
+    "  2. On retry, read the file to see what was already created",
+    "  3. Only create what's missing",
+    "  Or: create each entity in a separate shell command so you can retry individually.",
     "",
 
     // ----- Tools: SDK -----
     "### TypeScript SDK (for bulk or scripted operations)",
     "Write a short Node.js script. The SDK (@arkeon-technologies/sdk) is pre-installed with zero config.",
+    "Auth is automatic from $ARKE_API_URL and $ARKE_API_KEY env vars.",
     "",
-    "  import { ArkeonClient } from '@arkeon-technologies/sdk';",
-    "  const client = new ArkeonClient();",
-    "  const items = await client.get('/entities', { params: { type: 'note' } });",
-    "  await client.post('/entities', { type: 'note', properties: { label: 'Hello' } });",
+    "  import * as arkeon from '@arkeon-technologies/sdk';",
+    "",
+    "  // HTTP methods — paths match the API reference below",
+    "  await arkeon.get('/entities', { params: { filter: 'type:note' } });",
+    "  await arkeon.post('/entities', { type: 'note', properties: { label: 'Hello' } });",
+    "  await arkeon.put(`/entities/${id}`, { ver: 1, properties: { label: 'Updated' } });",
+    "  await arkeon.del(`/entities/${id}`);",
+    "",
+    "  // Pagination — async generator, yields individual items across all pages",
+    "  for await (const entity of arkeon.paginate('/entities', { limit: '50' })) {",
+    "    console.log(entity.id);",
+    "  }",
+    "",
+    "  // Relationships — source entity in path, target in body",
+    "  await arkeon.post(`/entities/${sourceId}/relationships`, {",
+    "    predicate: 'references',",
+    "    target_id: targetId,",
+    "  });",
+    "",
+    "  // Error handling",
+    "  import { ArkeError } from '@arkeon-technologies/sdk';",
+    "  try { ... } catch (e) {",
+    "    if (e instanceof ArkeError) console.log(e.status, e.code, e.requestId);",
+    "  }",
+    "",
+    "Notes:",
+    "  - get(path, { params }) / post(path, body) / put(path, body) / del(path)  [del, not delete]",
+    "  - put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
+    "  - arke_id auto-injected from $ARKE_ID env; admins: setArkeId(id)",
+    "  - space_id auto-injected from $ARKE_SPACE_ID env; or setSpaceId(id)",
+    "  - All paths match the API reference in this document",
+    "",
+    "### Python SDK (alternative for Python scripts)",
+    "The Python SDK (arkeon-sdk) is pre-installed. Same paths and fields as the API reference.",
+    "",
+    "  import arkeon_sdk as arkeon",
+    "",
+    "  arkeon.get('/entities', {'limit': 3, 'filter': 'type:note'})",
+    "  arkeon.post('/entities', {'type': 'note', 'properties': {'label': 'Hello'}})",
+    "  arkeon.put(f'/entities/{id}', {'ver': 1, 'properties': {'label': 'Updated'}})",
+    "  arkeon.delete(f'/entities/{id}')",
+    "",
+    "  # Pagination — yields individual items",
+    "  for entity in arkeon.paginate('/entities', {'limit': 50}):",
+    "      print(entity['id'])",
+    "",
+    "Notes:",
+    "  - get(path, params_dict) / post(path, body) / put(path, body) / delete(path)",
+    "  - params are a flat dict (not nested like TS SDK)",
+    "  - put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
+    "  - arke_id auto-injected from $ARKE_ID env; admins: arkeon.set_arke_id(id)",
+    "  - space_id auto-injected from $ARKE_SPACE_ID env; or arkeon.set_space_id(id)",
+    "  - Error handling: except arkeon.ArkeError as e: e.status, e.code, e.request_id",
     "",
     "As a last resort, use curl + jq — but prefer the CLI or SDK as they handle auth and errors automatically.",
+    "",
+
+    // ----- Response patterns -----
+    "### API Response Patterns",
+    "IMPORTANT: API responses wrap objects in a named key. Never access `.id` directly.",
+    "",
+    "  Single entity:       { entity: { id, kind, type, ver, properties, ... } }",
+    "  Entity list:         { entities: [{ ... }], cursor: string|null }",
+    "  Single space:        { space: { id, name, ... } }",
+    "  Space list:          { spaces: [{ ... }], cursor: string|null }",
+    "  Relationship create: { relationship: { id, ... }, edge: { id, source_id, target_id, predicate } }",
+    "  Relationship list:   { relationships: [{ id, predicate, source_id, target_id, direction, ... }], cursor }",
+    "  Actor create:        { actor: { id, ... }, api_key: string }",
+    "",
+    "  Examples:",
+    "    const resp = await arkeon.post('/entities', { type: 'note', properties: { label: 'Hi' } });",
+    "    const id = resp.entity.id;  // NOT resp.id",
+    "",
+    "    const resp = await arkeon.get('/entities');",
+    "    for (const e of resp.entities) { console.log(e.id); }",
+    "",
+    "    const resp = await arkeon.post(`/entities/${srcId}/relationships`, { predicate: 'refs', target_id: tgtId });",
+    "    const relId = resp.relationship.id;  // relationship entity",
+    "    const edge = resp.edge;              // { source_id, target_id, predicate }",
     "",
 
     // ----- Filtering -----
@@ -93,20 +175,18 @@ export function buildWorkerSystemPrompt(
     FILTERING_HINT,
     "",
 
-    // ----- Route index -----
-    "## API Route Index",
-    "Below is the complete list of API routes. Use this to know what's available.",
-    "For detailed docs on any route, run: arkeon <group> <command> --help",
-    "Or fetch: curl -s -H \"X-API-Key: $ARKE_API_KEY\" $ARKE_API_URL/help/GET/entities/{id}",
+    // ----- Full CLI reference -----
+    "## CLI Command Reference",
+    "Complete reference for every CLI command with all parameters, types, and rules.",
     "",
   ];
 
-  // Inject route index if available (generated at startup from OpenAPI spec)
-  if (routeIndex) {
-    sections.push(routeIndex);
+  if (cliReference) {
+    sections.push(cliReference);
   } else {
     sections.push(
-      "Route index not available. Run `arkeon --help` to discover all commands.",
+      "CLI reference not available. Run `arkeon --help` to discover all commands,",
+      "and `arkeon <group> <command> --help` for detailed usage.",
     );
   }
 
@@ -115,6 +195,16 @@ export function buildWorkerSystemPrompt(
     "## Environment",
     "You are running in an isolated sandbox with a writable workspace directory.",
     "$ARKE_API_URL and $ARKE_API_KEY are pre-configured for the CLI and SDKs.",
+    "",
+    "Pre-installed Python packages:",
+    "  reportlab, pypdf, python-docx, openpyxl, python-pptx (Office docs)",
+    "  ebooklib, beautifulsoup4, lxml (EPUB, HTML, XML)",
+    "  Pillow (images), pandas (data), markdown, chardet",
+    "",
+    "Need something else? `pip install <package>` works — packages install to your workspace.",
+    "No --target or --break-system-packages flags needed (pre-configured).",
+    "",
+    "System tools: python/python3, node, curl, jq, bash",
   );
 
   // Invocation nesting context
