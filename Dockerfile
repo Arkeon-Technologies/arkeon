@@ -7,16 +7,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Build CLI + TS SDK in a separate stage (needs dev deps for tsup)
+# CLI codegen imports the API app to generate OpenAPI spec, so we need the full repo.
 FROM base AS cli-build
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/cli/package.json packages/cli/
 COPY packages/sdk-ts/package.json packages/sdk-ts/
-RUN npm ci -w packages/cli -w packages/sdk-ts -w packages/shared
+COPY packages/api/package.json packages/api/
+COPY packages/runtime/package.json packages/runtime/
+RUN npm ci -w packages/cli -w packages/sdk-ts -w packages/shared -w packages/api -w packages/runtime
 COPY packages/shared packages/shared
 COPY packages/cli packages/cli
 COPY packages/sdk-ts packages/sdk-ts
-RUN cd packages/cli && npx tsup --no-dts
+COPY packages/api packages/api
+COPY packages/runtime packages/runtime
+RUN cd packages/cli && npm run fetch-spec && npm run generate && npx tsup --no-dts
 RUN cd packages/sdk-ts && npx tsup
 # Re-install production-only deps in an isolated directory for the final image.
 # Remove arkeon-shared from deps — it's already bundled into dist by tsup (noExternal).
