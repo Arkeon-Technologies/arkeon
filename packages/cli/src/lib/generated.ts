@@ -167,6 +167,10 @@ export function registerGeneratedGroup(group: Command, operations: GeneratedOper
           if (hasBodySpaceId && body && body.space_id === undefined) {
             body.space_id = defaultSpaceId;
           }
+          const hasQuerySpaceId = operation.queryParams.some((f) => f.name === "space_id");
+          if (hasQuerySpaceId && !query.has("space_id")) {
+            query.set("space_id", defaultSpaceId);
+          }
         }
 
         const response = await apiRequest<unknown>(applyQuery(builtPath, query), {
