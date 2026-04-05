@@ -17,7 +17,7 @@ import {
 import type { InvocationContext } from "./worker-invoke.js";
 
 // ---------------------------------------------------------------------------
-// CLI reference — set once at startup from the OpenAPI spec
+// Generated at startup from the OpenAPI spec
 // ---------------------------------------------------------------------------
 
 let cliReference: string | null = null;
@@ -146,28 +146,10 @@ export function buildWorkerSystemPrompt(
     "As a last resort, use curl + jq — but prefer the CLI or SDK as they handle auth and errors automatically.",
     "",
 
-    // ----- Response patterns -----
-    "### API Response Patterns",
-    "IMPORTANT: API responses wrap objects in a named key. Never access `.id` directly.",
-    "",
-    "  Single entity:       { entity: { id, kind, type, ver, properties, ... } }",
-    "  Entity list:         { entities: [{ ... }], cursor: string|null }",
-    "  Single space:        { space: { id, name, ... } }",
-    "  Space list:          { spaces: [{ ... }], cursor: string|null }",
-    "  Relationship create: { relationship: { id, ... }, edge: { id, source_id, target_id, predicate } }",
-    "  Relationship list:   { relationships: [{ id, predicate, source_id, target_id, direction, ... }], cursor }",
-    "  Actor create:        { actor: { id, ... }, api_key: string }",
-    "",
-    "  Examples:",
-    "    const resp = await arkeon.post('/entities', { type: 'note', properties: { label: 'Hi' } });",
-    "    const id = resp.entity.id;  // NOT resp.id",
-    "",
-    "    const resp = await arkeon.get('/entities');",
-    "    for (const e of resp.entities) { console.log(e.id); }",
-    "",
-    "    const resp = await arkeon.post(`/entities/${srcId}/relationships`, { predicate: 'refs', target_id: tgtId });",
-    "    const relId = resp.relationship.id;  // relationship entity",
-    "    const edge = resp.edge;              // { source_id, target_id, predicate }",
+    // ----- Response note -----
+    "### API Responses",
+    "IMPORTANT: API responses wrap objects in a named key — see the Response section on each command below.",
+    "  Never access .id directly on the response; always use the wrapper key first (e.g., resp.entity.id, resp.results).",
     "",
 
     // ----- Filtering -----

@@ -36,7 +36,9 @@ export function renderPreamble(actor: Actor | null): string {
   return lines.join("\n");
 }
 
-const FILTER_SYNTAX_BLOCK = [
+// SDK docs + filter syntax preamble for /llms.txt
+// Response patterns are injected dynamically from the OpenAPI spec
+const LLMS_PREAMBLE = [
   "# Arkeon API — Route Index",
   "# Auth: X-API-Key: <key> (preferred) or Authorization: ApiKey <key> — prefixes uk_ (user) or kk_ (klados)",
   "# Detail: GET /help/<METHOD>/<path> for full docs on any route",
@@ -105,23 +107,9 @@ const FILTER_SYNTAX_BLOCK = [
   "Notes: get(path, params_dict) / post(path, body) / put(path, body) / delete(path)",
   "put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
   "",
-  "## Response Patterns",
-  "",
-  "IMPORTANT: API responses wrap objects in a named key. Never access .id directly.",
-  "",
-  "  Single entity:       { entity: { id, kind, type, ver, properties, ... } }",
-  "  Entity list:         { entities: [{ ... }], cursor: string|null }",
-  "  Single space:        { space: { id, name, ... } }",
-  "  Space list:          { spaces: [{ ... }], cursor: string|null }",
-  "  Relationship create: { relationship: { id, ... }, edge: { id, source_id, target_id, predicate } }",
-  "  Relationship list:   { relationships: [{ direction, predicate, source_id, target_id, ... }], cursor }",
-  "  Actor create:        { actor: { id, ... }, api_key: string }",
-  "",
-  "  Examples:",
-  "    resp = arkeon.post('/entities', { type: 'note', properties: { label: 'Hi' } })",
-  "    entity_id = resp['entity']['id']     # Python",
-  "    const id = resp.entity.id;           // TypeScript",
-  "",
+];
+
+const LLMS_FILTER_SYNTAX = [
   "## Filter Syntax",
   "# Use the `filter` query param on any listing endpoint.",
   "# Format: filter=field<op>value,field<op>value (comma-separated, AND'd)",
@@ -274,8 +262,21 @@ function findRelatedSummary(spec: OpenAPISpec, value: string): string | undefine
   return typeof match?.operation.summary === "string" ? match.operation.summary : undefined;
 }
 
+function buildLlmsPreamble(): string[] {
+  return [
+    ...LLMS_PREAMBLE,
+    "## Responses",
+    "",
+    "IMPORTANT: API responses wrap objects in a named key. Never access .id directly.",
+    "Each endpoint below includes a Response section showing the exact field names and types.",
+    "  Example: resp.entity.id (NOT resp.id) — always use the wrapper key first.",
+    "",
+    ...LLMS_FILTER_SYNTAX,
+  ];
+}
+
 export function renderIndexFromSpec(spec: OpenAPISpec): string {
-  const lines = [...FILTER_SYNTAX_BLOCK];
+  const lines = buildLlmsPreamble();
   const grouped = new Map<string, OperationMatch[]>();
 
   for (const match of listOperations(spec)) {
@@ -455,6 +456,16 @@ function renderOperationBlock(op: GeneratedOperation): string {
     lines.push(`  --data <json|@file|@->    (alternative: pass entire request body as JSON)`);
   }
 
+  if (op.responseFields.length) {
+    lines.push("");
+    lines.push("Response:");
+    for (const f of op.responseFields) {
+      const req = f.required ? "*" : "";
+      const desc = f.description || f.name;
+      lines.push(`  ${(f.name + req).padEnd(22)} ${f.type.padEnd(10)} ${desc}`);
+    }
+  }
+
   if (op.rules.length) {
     lines.push("");
     lines.push("Rules:");
@@ -578,7 +589,7 @@ export function renderFullApiReferenceFromSpec(spec: SharedOpenAPISpec): string 
     grouped.set(section, list);
   }
 
-  const sections: string[] = [...FILTER_SYNTAX_BLOCK];
+  const sections: string[] = buildLlmsPreamble();
 
   for (const [section, ops] of grouped) {
     sections.push(`## ${section}`);
