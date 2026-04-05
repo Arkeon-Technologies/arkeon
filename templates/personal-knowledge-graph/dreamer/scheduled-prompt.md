@@ -1,0 +1,1 @@
+Check for new entities in space {{SPACE_ID}} since your last run. Analyze any new content, extract themes and connections, and update the knowledge graph. If no new content exists, update your state and finish immediately.

@@ -1,0 +1,47 @@
+# Personal Knowledge Graph - Configuration
+# Copy this file to config.yaml and fill in your values.
+
+# ── Arkeon connection ───────────────────────────────────────────────
+arkeon:
+  api_url: "https://your-instance.arkeon.tech"   # Your Arkeon instance URL
+  api_key: "ak_..."                               # Your personal API key
+
+# ── Space settings ──────────────────────────────────────────────────
+space:
+  name: "My Knowledge Graph"
+  description: "Personal knowledge graph built by the dreamer worker"
+
+# ── LLM provider (any OpenAI-compatible API) ────────────────────────
+llm:
+  base_url: "https://api.anthropic.com/v1"
+  api_key: "sk-ant-..."
+  model: "claude-sonnet-4-20250514"
+
+# ── Worker settings ─────────────────────────────────────────────────
+worker:
+  name: "dreamer"                # Worker name (shown in API)
+  schedule: "*/5 * * * *"       # Cron expression: how often to run
+                                 #   "*/5 * * * *"  = every 5 minutes
+                                 #   "0 * * * *"    = every hour
+                                 #   "0 */6 * * *"  = every 6 hours
+  max_iterations: 30             # Max LLM turns per run (higher = more thorough)
+
+# ── Extraction priorities ───────────────────────────────────────────
+# Customize what the dreamer focuses on when analyzing your content.
+priorities:
+  # Themes to pay extra attention to (soft hints, not hard filters).
+  # The dreamer will still extract other themes it discovers.
+  themes:
+    - "theology"
+    - "philosophy"
+    - "distributed systems"
+
+  # How much detail to extract per piece of content:
+  #   low    = major themes only
+  #   medium = themes + key people + notable claims
+  #   high   = everything including fine-grained sub-concepts and temporal observations
+  detail_level: "medium"
+
+  # What entity types to extract
+  extract_people: true           # Extract person entities mentioned in content
+  extract_concepts: true         # Extract abstract concept/theme entities
