@@ -271,6 +271,15 @@ export function resolveSchema(spec: OpenAPISpec, schema: JsonSchema | undefined)
     }
     return merged;
   }
+  // For oneOf/anyOf (union types), resolve the first variant so we at least
+  // surface field names.  E.g., z.union([EntitySchema, ExpandedEntitySchema])
+  // produces oneOf — we pick the first to show the base shape.
+  if (schema.oneOf?.length) {
+    return resolveSchema(spec, schema.oneOf[0]);
+  }
+  if (schema.anyOf?.length) {
+    return resolveSchema(spec, schema.anyOf[0]);
+  }
   return schema;
 }
 
