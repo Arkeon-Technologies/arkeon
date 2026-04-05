@@ -180,8 +180,10 @@ const getEntityRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Entity details",
-      content: jsonContent(EntityResponse),
+      description: "Entity details. When view=expanded, includes _relationships and _relationships_truncated.",
+      content: jsonContent(z.object({
+        entity: z.union([EntitySchema, ExpandedEntitySchema]),
+      })),
     },
     304: { description: "Not modified" },
     ...errorResponses([400, 404]),
@@ -486,10 +488,10 @@ const bulkGetEntitiesRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Entities in requested order (missing/hidden entities omitted)",
+      description: "Entities in requested order (missing/hidden entities omitted). When view=expanded, each entity includes _relationships and _relationships_truncated.",
       content: jsonContent(
         z.object({
-          entities: z.array(EntitySchema),
+          entities: z.array(z.union([EntitySchema, ExpandedEntitySchema])),
         }),
       ),
     },

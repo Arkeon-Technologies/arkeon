@@ -13,6 +13,7 @@ import { createRouter } from "../lib/openapi";
 import { fetchRelationshipContext } from "../lib/relationship-context";
 import {
   EntitySchema,
+  ExpandedEntitySchema,
   ProjectionQuery,
   errorResponses,
   jsonContent,
@@ -79,10 +80,10 @@ const searchRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Search results ordered by relevance",
+      description: "Search results ordered by relevance. When view=expanded, each result includes _relationships and _relationships_truncated.",
       content: jsonContent(
         z.object({
-          results: z.array(EntitySchema),
+          results: z.array(z.union([EntitySchema, ExpandedEntitySchema])),
           estimatedTotalHits: z.number().int(),
           limit: z.number().int(),
           offset: z.number().int(),
@@ -136,13 +137,13 @@ const multiSearchRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Array of search result sets, one per query",
+      description: "Array of search result sets, one per query. When view=expanded, each result includes _relationships and _relationships_truncated.",
       content: jsonContent(
         z.object({
           results: z.array(
             z.object({
               q: z.string(),
-              results: z.array(EntitySchema),
+              results: z.array(z.union([EntitySchema, ExpandedEntitySchema])),
               estimatedTotalHits: z.number().int(),
               limit: z.number().int(),
               offset: z.number().int(),
