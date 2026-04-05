@@ -59,13 +59,27 @@ See `config.example.yaml` for all options. Key settings:
 
 ## Giving Access to Your AI Assistant
 
-Setup creates an **assistant agent** with editor access to your knowledge graph. The API key is saved to `.env.assistant`. Give it to any AI assistant with terminal access (Claude Code, Codex, etc.):
+After setup, create an API key for your AI assistant and give it the integration snippet:
+
+```bash
+# Create an assistant agent (run from the template directory)
+./create-assistant.sh https://your-instance.arkeon.tech ak_your_key SPACE_ID_FROM_SETUP
+
+# Or with a custom name
+./create-assistant.sh https://your-instance.arkeon.tech ak_your_key SPACE_ID "my-claude-code"
+```
+
+This creates an agent with editor access to the space and saves the key to `.env.assistant`. Then:
 
 1. Open `integration/claude-code-snippet.md`
-2. Fill in the values from `.env.assistant`
-3. Give the snippet to your assistant
+2. Fill in `{{API_URL}}`, `{{ASSISTANT_KEY}}`, and `{{SPACE_ID}}` from `.env.assistant`
+3. Give the snippet to Claude Code, Codex, or any assistant with terminal access
 
-The assistant can then add content, search the graph, and query relationships on your behalf. The dreamer and tidier workers handle all the analysis and maintenance automatically.
+The assistant can then add content, search the graph, and query relationships on your behalf. The dreamer and tidier workers handle analysis and maintenance automatically.
+
+You can run `create-assistant.sh` multiple times to create separate keys for different assistants.
+
+> **Note:** `setup.sh` also creates one assistant agent automatically. Use `create-assistant.sh` when you want additional keys or need to create one later.
 
 ### Adding content directly
 
@@ -119,7 +133,8 @@ The tidier only scans entities created since its last run, so it stays fast even
 ```
 personal-knowledge-graph/
   config.example.yaml          # Config template
-  setup.sh                     # Setup script
+  setup.sh                     # Full setup: space + workers + first assistant
+  create-assistant.sh          # Create additional assistant agent keys
   dreamer/
     system-prompt.md           # Dreamer's system prompt (editable)
     scheduled-prompt.md        # Prompt sent on each dreamer cron tick
@@ -127,7 +142,7 @@ personal-knowledge-graph/
     system-prompt.md           # Tidier's system prompt (editable)
     scheduled-prompt.md        # Prompt sent on each tidier cron tick
   integration/
-    claude-code-snippet.md     # Integration instructions for agents
+    claude-code-snippet.md     # Instructions to give your AI assistant
 ```
 
 ## Customizing the Workers

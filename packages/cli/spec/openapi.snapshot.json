@@ -275,6 +275,33 @@
         ],
         "type": "object"
       },
+      "ExpandedEntity": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Entity"
+          },
+          {
+            "properties": {
+              "_relationships": {
+                "description": "Relationship summaries with counterpart labels. Capped by rel_limit — use GET /entities/{id}/relationships for the full set.",
+                "items": {
+                  "$ref": "#/components/schemas/RelationshipSummary"
+                },
+                "type": "array"
+              },
+              "_relationships_truncated": {
+                "description": "True if more relationships exist than were returned. Use GET /entities/{id}/relationships to paginate through all.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "_relationships",
+              "_relationships_truncated"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "Group": {
         "properties": {
           "arke_id": {
@@ -329,6 +356,95 @@
       },
       "JsonObject": {
         "additionalProperties": {},
+        "type": "object"
+      },
+      "RelationshipSummary": {
+        "properties": {
+          "counterpart": {
+            "properties": {
+              "id": {
+                "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "entity",
+                  "relationship"
+                ],
+                "type": "string"
+              },
+              "properties": {
+                "properties": {
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "label",
+                  "description"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "type",
+              "properties"
+            ],
+            "type": "object"
+          },
+          "direction": {
+            "enum": [
+              "in",
+              "out"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "source_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "target_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "predicate",
+          "source_id",
+          "target_id",
+          "direction",
+          "properties",
+          "counterpart"
+        ],
         "type": "object"
       },
       "Space": {
@@ -2964,15 +3080,15 @@
             }
           },
           {
-            "description": "Projection: full | summary",
+            "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
             "in": "query",
             "name": "view",
             "required": false,
             "schema": {
-              "description": "Projection: full | summary",
+              "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
               "enum": [
-                "full",
-                "summary"
+                "summary",
+                "expanded"
               ],
               "type": "string"
             }
@@ -3297,6 +3413,7 @@
         ]
       },
       "get": {
+        "description": "Use view=expanded to include the entity's relationships with counterpart summaries. Control the number of relationships with rel_limit (default 20, max 100). Check _relationships_truncated to know if more exist; use GET /entities/{id}/relationships for the full paginated set.",
         "operationId": "getEntity",
         "parameters": [
           {
@@ -3312,15 +3429,15 @@
             }
           },
           {
-            "description": "Projection: full | summary",
+            "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
             "in": "query",
             "name": "view",
             "required": false,
             "schema": {
-              "description": "Projection: full | summary",
+              "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
               "enum": [
-                "full",
-                "summary"
+                "summary",
+                "expanded"
               ],
               "type": "string"
             }
@@ -3334,6 +3451,18 @@
               "description": "Comma-separated field list",
               "type": "string"
             }
+          },
+          {
+            "description": "Max relationships when view=expanded (default 20, max 100)",
+            "in": "query",
+            "name": "rel_limit",
+            "required": false,
+            "schema": {
+              "description": "Max relationships when view=expanded (default 20, max 100)",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -3341,11 +3470,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EntityResponse"
+                  "properties": {
+                    "entity": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/Entity"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ExpandedEntity"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "entity"
+                  ],
+                  "type": "object"
                 }
               }
             },
-            "description": "Entity details"
+            "description": "Entity details. When view=expanded, includes _relationships and _relationships_truncated."
           },
           "304": {
             "description": "Not modified"
@@ -3369,6 +3513,9 @@
               }
             },
             "description": "Not found"
+          },
+          "410": {
+            "description": "Entity was merged into another entity"
           }
         },
         "summary": "Fetch a single entity by ID",
@@ -4737,6 +4884,143 @@
         ]
       }
     },
+    "/entities/{id}/merge": {
+      "post": {
+        "operationId": "mergeEntity",
+        "parameters": [
+          {
+            "description": "Entity ULID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "description": "Entity ULID",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "note": {
+                    "description": "Optional version note for the merge",
+                    "type": "string"
+                  },
+                  "property_strategy": {
+                    "default": "keep_source",
+                    "description": "How to merge properties: keep_target, keep_source (default), or shallow_merge (source wins conflicts)",
+                    "enum": [
+                      "keep_target",
+                      "keep_source",
+                      "shallow_merge"
+                    ],
+                    "type": "string"
+                  },
+                  "source_id": {
+                    "description": "Entity ULID to merge FROM (will be deleted)",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                    "type": "string"
+                  },
+                  "ver": {
+                    "description": "Expected current version of the target entity (CAS token)",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "source_id",
+                  "ver"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResponse"
+                }
+              }
+            },
+            "description": "Entity merged successfully"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "summary": "Merge a source entity into this entity",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /entities/{id}",
+          "DELETE /entities/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires admin access on both source and target entities",
+          "Both entities must belong to the same arke",
+          "Both entities must have the same kind (entity or relationship)",
+          "If merging relationships, both must connect the same source and target entities",
+          "Source entity is deleted after merge; a redirect is created from source ID to target ID"
+        ]
+      }
+    },
     "/entities/{id}/owner": {
       "put": {
         "operationId": "transferEntityOwner",
@@ -5850,6 +6134,128 @@
         ]
       }
     },
+    "/entities/bulk": {
+      "post": {
+        "description": "Accepts up to 100 entity IDs and returns them in the requested order. Entities hidden by RLS are silently omitted. Use view=expanded to include relationships with counterpart summaries.",
+        "operationId": "bulkGetEntities",
+        "parameters": [
+          {
+            "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
+              "enum": [
+                "summary",
+                "expanded"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated field list",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated field list",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max relationships per entity when view=expanded (default 20, max 100)",
+            "in": "query",
+            "name": "rel_limit",
+            "required": false,
+            "schema": {
+              "description": "Max relationships per entity when view=expanded (default 20, max 100)",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "ids": {
+                    "description": "Entity ULIDs to fetch (max 100)",
+                    "items": {
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "ids"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "entities": {
+                      "items": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/Entity"
+                          },
+                          {
+                            "$ref": "#/components/schemas/ExpandedEntity"
+                          }
+                        ]
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "entities"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Entities in requested order (missing/hidden entities omitted). When view=expanded, each entity includes _relationships and _relationships_truncated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          }
+        },
+        "summary": "Fetch multiple entities by ID in one request",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /entities/{id}",
+          "GET /search"
+        ],
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
+        ]
+      }
+    },
     "/groups": {
       "get": {
         "operationId": "listGroups",
@@ -6870,19 +7276,19 @@
     },
     "/search": {
       "get": {
-        "description": "Keyword search with typo tolerance, prefix matching, and relevance ranking. Results are automatically filtered by the caller's read clearance level. Use the read_level parameter to restrict results below your clearance.",
+        "description": "Keyword search with typo tolerance, prefix matching, and relevance ranking. Results are automatically filtered by the caller's read clearance level. Use the read_level parameter to restrict results below your clearance. Use view=expanded to include each result's relationships with counterpart summaries.",
         "operationId": "searchEntities",
         "parameters": [
           {
-            "description": "Projection: full | summary",
+            "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
             "in": "query",
             "name": "view",
             "required": false,
             "schema": {
-              "description": "Projection: full | summary",
+              "description": "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
               "enum": [
-                "full",
-                "summary"
+                "summary",
+                "expanded"
               ],
               "type": "string"
             }
@@ -6989,6 +7395,18 @@
                 "null"
               ]
             }
+          },
+          {
+            "description": "Max relationships per result when view=expanded (default 5, max 100)",
+            "in": "query",
+            "name": "rel_limit",
+            "required": false,
+            "schema": {
+              "description": "Max relationships per result when view=expanded (default 5, max 100)",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -7008,7 +7426,14 @@
                     },
                     "results": {
                       "items": {
-                        "$ref": "#/components/schemas/Entity"
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/Entity"
+                          },
+                          {
+                            "$ref": "#/components/schemas/ExpandedEntity"
+                          }
+                        ]
                       },
                       "type": "array"
                     }
@@ -7023,7 +7448,7 @@
                 }
               }
             },
-            "description": "Search results ordered by relevance"
+            "description": "Search results ordered by relevance. When view=expanded, each result includes _relationships and _relationships_truncated."
           },
           "400": {
             "content": {
@@ -7051,6 +7476,185 @@
           "Search"
         ],
         "x-arke-auth": "optional",
+        "x-arke-rules": [
+          "Results filtered by your classification clearance"
+        ]
+      }
+    },
+    "/search/multi": {
+      "post": {
+        "description": "Batch up to 10 independent search queries. Each query runs against Meilisearch with its own filters. All results are enriched from Postgres in a single transaction. Shared view/fields params apply to all results.",
+        "operationId": "multiSearch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "fields": {
+                    "description": "Comma-separated field list applied to all results",
+                    "type": "string"
+                  },
+                  "queries": {
+                    "description": "Search queries (max 10)",
+                    "items": {
+                      "properties": {
+                        "arke_id": {
+                          "description": "Scope to an arke ULID",
+                          "type": "string"
+                        },
+                        "kind": {
+                          "description": "Filter by kind (entity or relationship)",
+                          "type": "string"
+                        },
+                        "limit": {
+                          "description": "Per-query limit (default 20, max 50)",
+                          "maximum": 50,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "description": "Per-query offset (default 0)",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "q": {
+                          "description": "Search query string",
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "read_level": {
+                          "description": "Max read level for results",
+                          "maximum": 4,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "space_id": {
+                          "description": "Scope to a space ULID",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Filter by entity type",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "q"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 10,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "rel_limit": {
+                    "description": "Max relationships per result when view=expanded (default 5, max 100)",
+                    "maximum": 100,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "view": {
+                    "description": "Projection applied to all results",
+                    "enum": [
+                      "summary",
+                      "expanded"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "queries"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "results": {
+                      "items": {
+                        "properties": {
+                          "estimatedTotalHits": {
+                            "type": "integer"
+                          },
+                          "limit": {
+                            "type": "integer"
+                          },
+                          "offset": {
+                            "type": "integer"
+                          },
+                          "q": {
+                            "type": "string"
+                          },
+                          "results": {
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "$ref": "#/components/schemas/Entity"
+                                },
+                                {
+                                  "$ref": "#/components/schemas/ExpandedEntity"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "q",
+                          "results",
+                          "estimatedTotalHits",
+                          "limit",
+                          "offset"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "results"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Array of search result sets, one per query. When view=expanded, each result includes _relationships and _relationships_truncated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable"
+          }
+        },
+        "summary": "Execute multiple search queries in one request",
+        "tags": [
+          "Search"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /search"
+        ],
         "x-arke-rules": [
           "Results filtered by your classification clearance"
         ]
@@ -9312,6 +9916,18 @@
                     "invocations": {
                       "items": {
                         "properties": {
+                          "batch_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "batch_seq": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "completed_at": {
                             "example": "2026-01-01T00:00:00.000Z",
                             "format": "date-time",
@@ -9447,6 +10063,8 @@
                           "tool_calls_count",
                           "parent_invocation_id",
                           "depth",
+                          "batch_id",
+                          "batch_seq",
                           "queued_at",
                           "started_at",
                           "completed_at",
@@ -9538,6 +10156,18 @@
                   "properties": {
                     "invocation": {
                       "properties": {
+                        "batch_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "batch_seq": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "completed_at": {
                           "example": "2026-01-01T00:00:00.000Z",
                           "format": "date-time",
@@ -9673,6 +10303,8 @@
                         "tool_calls_count",
                         "parent_invocation_id",
                         "depth",
+                        "batch_id",
+                        "batch_seq",
                         "queued_at",
                         "started_at",
                         "completed_at",
@@ -9740,7 +10372,7 @@
     },
     "/workers/{id}/invoke": {
       "post": {
-        "description": "Queues a worker invocation. Returns 202 with an invocation ID by default. Pass ?wait=true to block until the invocation completes (returns 200 with full result).",
+        "description": "Queues a worker invocation. Returns 202 with an invocation ID by default. Pass ?wait=true to block until the invocation completes (returns 200 with full result). Use the 'then' array to chain sequential follow-up invocations — each step runs only after the previous one completes. With 'then', the response includes a batch_id for polling via GET /workers/batch/{batchId}.",
         "operationId": "invokeWorker",
         "parameters": [
           {
@@ -9756,12 +10388,12 @@
             }
           },
           {
-            "description": "If 'true', block until invocation completes and return the full result",
+            "description": "If 'true', block until invocation completes and return the full result. With 'then', waits for the entire pipeline.",
             "in": "query",
             "name": "wait",
             "required": false,
             "schema": {
-              "description": "If 'true', block until invocation completes and return the full result",
+              "description": "If 'true', block until invocation completes and return the full result. With 'then', waits for the entire pipeline.",
               "type": "string"
             }
           }
@@ -9771,6 +10403,15 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "on_fail": {
+                    "default": "continue",
+                    "description": "When a step fails: 'continue' runs the next step, 'cancel' cancels remaining. Only applies with 'then'.",
+                    "enum": [
+                      "continue",
+                      "cancel"
+                    ],
+                    "type": "string"
+                  },
                   "prompt": {
                     "description": "The task prompt for the worker",
                     "maxLength": 100000,
@@ -9780,6 +10421,37 @@
                   "store_log": {
                     "description": "Override log storage (default: true, respects worker's log_level setting)",
                     "type": "boolean"
+                  },
+                  "then": {
+                    "description": "Follow-up steps executed sequentially after the initial invocation completes",
+                    "items": {
+                      "properties": {
+                        "prompt": {
+                          "description": "Task prompt for this step",
+                          "maxLength": 100000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "store_log": {
+                          "description": "Override log storage for this step",
+                          "type": "boolean"
+                        },
+                        "worker_id": {
+                          "description": "Worker actor ULID for this step",
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "worker_id",
+                        "prompt"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 49,
+                    "minItems": 1,
+                    "type": "array"
                   }
                 },
                 "required": [
@@ -9797,6 +10469,10 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "batch_id": {
+                      "description": "Batch ID (present when 'then' was used)",
+                      "type": "string"
+                    },
                     "invocation_id": {
                       "type": "integer"
                     },
@@ -9805,6 +10481,41 @@
                     },
                     "result": {
                       "description": "Structured result output from the worker"
+                    },
+                    "steps": {
+                      "description": "Per-step results (present when 'then' was used)",
+                      "items": {
+                        "properties": {
+                          "batch_seq": {
+                            "type": "integer"
+                          },
+                          "invocation_id": {
+                            "type": "integer"
+                          },
+                          "result": {},
+                          "status": {
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "worker_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "invocation_id",
+                          "worker_id",
+                          "batch_seq",
+                          "status",
+                          "success"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
                     },
                     "success": {
                       "type": "boolean"
@@ -9854,8 +10565,44 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "batch_id": {
+                      "description": "Batch ID (present when 'then' was used)",
+                      "type": "string"
+                    },
                     "invocation_id": {
                       "type": "integer"
+                    },
+                    "invocations": {
+                      "description": "All pipeline steps (present when 'then' was used)",
+                      "items": {
+                        "properties": {
+                          "batch_seq": {
+                            "type": "integer"
+                          },
+                          "invocation_id": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "enum": [
+                              "queued"
+                            ],
+                            "type": "string"
+                          },
+                          "worker_id": {
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "invocation_id",
+                          "worker_id",
+                          "batch_seq",
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
                     },
                     "status": {
                       "enum": [
@@ -9925,7 +10672,7 @@
             "description": "Service unavailable"
           }
         },
-        "summary": "Invoke a worker with a prompt",
+        "summary": "Invoke a worker, optionally chaining follow-up steps",
         "tags": [
           "Workers"
         ],
@@ -9933,10 +10680,12 @@
         "x-arke-related": [
           "GET /actors/{id}",
           "GET /workers/{id}",
-          "GET /workers/invocations/{invocationId}"
+          "GET /workers/invocations/{invocationId}",
+          "GET /workers/batch/{batchId}"
         ],
         "x-arke-rules": [
-          "Requires owner, system admin, or invoker permission grant"
+          "Requires owner, system admin, or invoker permission grant",
+          "If 'then' is provided, requires invoke permission on every worker in the chain"
         ]
       }
     },
@@ -10312,6 +11061,289 @@
         ]
       }
     },
+    "/workers/batch/{batchId}": {
+      "get": {
+        "description": "Returns all invocations in the batch ordered by sequence, with aggregate progress.",
+        "operationId": "getBatch",
+        "parameters": [
+          {
+            "description": "Batch ID returned from invoke-batch",
+            "in": "path",
+            "name": "batchId",
+            "required": true,
+            "schema": {
+              "description": "Batch ID returned from invoke-batch",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "batch_id": {
+                      "type": "string"
+                    },
+                    "invocations": {
+                      "items": {
+                        "properties": {
+                          "batch_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "batch_seq": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "completed_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "depth": {
+                            "type": "integer"
+                          },
+                          "duration_ms": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "error_message": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "input_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "invoker_id": {
+                            "type": "string"
+                          },
+                          "iterations": {
+                            "type": "integer"
+                          },
+                          "llm_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "log": {},
+                          "output_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "parent_invocation_id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "queued_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "result": {},
+                          "source": {
+                            "enum": [
+                              "http",
+                              "scheduler"
+                            ],
+                            "type": "string"
+                          },
+                          "started_at": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "queued",
+                              "running",
+                              "completed",
+                              "failed",
+                              "cancelled"
+                            ],
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "tool_calls_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "total_tokens": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "ts": {
+                            "example": "2026-01-01T00:00:00.000Z",
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "worker_id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "worker_id",
+                          "invoker_id",
+                          "source",
+                          "status",
+                          "prompt",
+                          "success",
+                          "iterations",
+                          "error_message",
+                          "input_tokens",
+                          "output_tokens",
+                          "total_tokens",
+                          "llm_calls_count",
+                          "tool_calls_count",
+                          "parent_invocation_id",
+                          "depth",
+                          "batch_id",
+                          "batch_seq",
+                          "queued_at",
+                          "started_at",
+                          "completed_at",
+                          "duration_ms",
+                          "ts"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "on_fail": {
+                      "enum": [
+                        "continue",
+                        "cancel"
+                      ],
+                      "type": "string"
+                    },
+                    "progress": {
+                      "properties": {
+                        "cancelled": {
+                          "type": "integer"
+                        },
+                        "completed": {
+                          "type": "integer"
+                        },
+                        "failed": {
+                          "type": "integer"
+                        },
+                        "queued": {
+                          "type": "integer"
+                        },
+                        "running": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "completed",
+                        "failed",
+                        "cancelled",
+                        "running",
+                        "queued"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "enum": [
+                        "queued",
+                        "running",
+                        "completed",
+                        "failed"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "batch_id",
+                    "on_fail",
+                    "status",
+                    "progress",
+                    "invocations"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Batch status"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get the status of a sequential batch",
+        "tags": [
+          "Workers"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /workers/{id}/invoke",
+          "GET /workers/invocations/{invocationId}"
+        ],
+        "x-arke-rules": [
+          "Visibility filtered by RLS — only the batch creator, worker owners, or system admins can see invocations"
+        ]
+      }
+    },
     "/workers/invocations/{invocationId}": {
       "get": {
         "description": "Retrieve the current state of a worker invocation. Use this to poll for completion after a 202 response from the invoke endpoint. Includes queue_position when status is 'queued'.",
@@ -10335,6 +11367,18 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "batch_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "batch_seq": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "completed_at": {
                       "example": "2026-01-01T00:00:00.000Z",
                       "format": "date-time",
@@ -10477,6 +11521,8 @@
                     "tool_calls_count",
                     "parent_invocation_id",
                     "depth",
+                    "batch_id",
+                    "batch_seq",
                     "queued_at",
                     "started_at",
                     "completed_at",
@@ -10550,6 +11596,18 @@
                     "invocations": {
                       "items": {
                         "properties": {
+                          "batch_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "batch_seq": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "completed_at": {
                             "example": "2026-01-01T00:00:00.000Z",
                             "format": "date-time",
@@ -10685,6 +11743,8 @@
                           "tool_calls_count",
                           "parent_invocation_id",
                           "depth",
+                          "batch_id",
+                          "batch_seq",
                           "queued_at",
                           "started_at",
                           "completed_at",
