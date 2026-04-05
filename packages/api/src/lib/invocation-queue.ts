@@ -288,7 +288,11 @@ export async function enqueueInvocation(
 export interface EnqueueBatchResult {
   batchId: string;
   invocations: Array<{ invocationId: number; batchSeq: number }>;
+  batchPromise: Promise<void>;
 }
+
+// Deferreds for waiting on entire batch completion (?wait=true with then)
+const batchDeferreds = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
 
 /**
  * Enqueue a sequential batch. Creates all DB records in one transaction,
@@ -332,9 +336,14 @@ export async function enqueueBatch(
     pending.push(item);
   }
 
+  // Create a promise that resolves when the entire batch finishes
+  const { resolve: batchResolve, reject: batchReject, promise: batchPromise } = createDeferred<void>();
+  batchDeferreds.set(batchId, { resolve: () => batchResolve(undefined as unknown as void), reject: batchReject });
+
   return {
     batchId,
     invocations: ids.map((id, seq) => ({ invocationId: id, batchSeq: seq })),
+    batchPromise,
   };
 }
 
@@ -380,6 +389,12 @@ export async function drainQueue(): Promise<void> {
     const item = pending.shift()!;
     item.reject(new Error("Server shutting down"));
   }
+
+  // Reject all batch deferreds so ?wait=true callers get unblocked
+  for (const [, bd] of batchDeferreds) {
+    bd.reject(new Error("Server shutting down"));
+  }
+  batchDeferreds.clear();
 
   // Wait for all running invocations to finish
   if (activePromises.size > 0) {
@@ -491,6 +506,8 @@ async function advanceBatch(
   if (!result.success && onFail === "cancel") {
     await cancelBatchRemaining(batchId, completedSeq, invokerId);
     console.log(`[queue] batch ${batchId}: cancelled remaining after seq ${completedSeq} failed`);
+    const bd = batchDeferreds.get(batchId);
+    if (bd) { bd.resolve(); batchDeferreds.delete(batchId); }
     return;
   }
 
@@ -515,7 +532,12 @@ async function advanceBatch(
     batch_seq: number;
   }>)[0];
 
-  if (!next) return; // No more items in batch (or already claimed)
+  if (!next) {
+    // Batch complete — resolve the batch promise
+    const bd = batchDeferreds.get(batchId);
+    if (bd) { bd.resolve(); batchDeferreds.delete(batchId); }
+    return;
+  }
 
   const { resolve, reject } = createDeferred<InvokeResult>();
   const item: QueueItem = {
