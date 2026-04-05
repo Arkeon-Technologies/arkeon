@@ -217,8 +217,8 @@ export const PaginationQuery = z.object({
 export const ProjectionQuery = z.object({
   view: queryParam(
     "view",
-    z.enum(["full", "summary"]).optional(),
-    "Projection: full | summary",
+    z.enum(["summary", "expanded"]).optional(),
+    "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
   ),
   fields: queryParam(
     "fields",
@@ -226,6 +226,32 @@ export const ProjectionQuery = z.object({
     "Comma-separated field list",
   ),
 });
+
+// --- Relationship expansion (used by view=expanded) ---
+
+export const RelationshipSummarySchema = z
+  .object({
+    id: UlidSchema,
+    predicate: z.string(),
+    source_id: UlidSchema,
+    target_id: UlidSchema,
+    direction: z.enum(["in", "out"]),
+    properties: JsonObjectSchema,
+    counterpart: z.object({
+      id: UlidSchema,
+      kind: z.enum(["entity", "relationship"]),
+      type: z.string(),
+      properties: z.object({ label: z.string().nullable(), description: z.string().nullable() }),
+    }),
+  })
+  .openapi("RelationshipSummary");
+
+export const ExpandedEntitySchema = EntitySchema.extend({
+  _relationships: z.array(RelationshipSummarySchema)
+    .describe("Relationship summaries with counterpart labels. Capped by rel_limit — use GET /entities/{id}/relationships for the full set."),
+  _relationships_truncated: z.boolean()
+    .describe("True if more relationships exist than were returned. Use GET /entities/{id}/relationships to paginate through all."),
+}).openapi("ExpandedEntity");
 
 export const FilterQuery = z.object({
   filter: queryParam(

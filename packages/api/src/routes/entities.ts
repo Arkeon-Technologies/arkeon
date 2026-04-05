@@ -23,14 +23,17 @@ import {
 import { generateUlid } from "../lib/ids";
 import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
 import { indexEntity, indexEntityById, removeEntity } from "../lib/meilisearch";
+import { fetchRelationshipContext } from "../lib/relationship-context";
 import { createRouter } from "../lib/openapi";
 import {
   ClassificationLevel,
+  ExpandedEntitySchema,
   DateTimeSchema,
   EntityIdParam,
   EntityResponse,
   EntitySchema,
   ProjectionQuery,
+  UlidSchema,
   cursorResponseSchema,
   entityIdParams,
   errorResponses,
@@ -149,6 +152,10 @@ const getEntityRoute = createRoute({
   operationId: "getEntity",
   tags: ["Entities"],
   summary: "Fetch a single entity by ID",
+  description:
+    "Use view=expanded to include the entity's relationships with counterpart summaries. " +
+    "Control the number of relationships with rel_limit (default 20, max 100). " +
+    "Check _relationships_truncated to know if more exist; use GET /entities/{id}/relationships for the full paginated set.",
   "x-arke-auth": "optional",
   "x-arke-related": [
     "PUT /entities/{id}",
@@ -160,10 +167,15 @@ const getEntityRoute = createRoute({
     query: z.object({
       view: queryParam(
         "view",
-        z.enum(["full", "summary"]).optional(),
-        "Projection: full | summary",
+        z.enum(["summary", "expanded"]).optional(),
+        "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
       ),
       fields: queryParam("fields", z.string().optional(), "Comma-separated field list"),
+      rel_limit: queryParam(
+        "rel_limit",
+        z.coerce.number().int().min(1).max(100).optional(),
+        "Max relationships when view=expanded (default 20, max 100)",
+      ),
     }),
   },
   responses: {
@@ -436,6 +448,55 @@ const getVersionRoute = createRoute({
   },
 });
 
+const bulkGetEntitiesRoute = createRoute({
+  method: "post",
+  path: "/bulk",
+  operationId: "bulkGetEntities",
+  tags: ["Entities"],
+  summary: "Fetch multiple entities by ID in one request",
+  description:
+    "Accepts up to 100 entity IDs and returns them in the requested order. " +
+    "Entities hidden by RLS are silently omitted. " +
+    "Use view=expanded to include relationships with counterpart summaries.",
+  "x-arke-auth": "optional",
+  "x-arke-related": ["GET /entities/{id}", "GET /search"],
+  "x-arke-rules": ["Results filtered by your classification clearance"],
+  request: {
+    body: {
+      required: true,
+      content: jsonContent(
+        z.object({
+          ids: z.array(UlidSchema).min(1).max(100).describe("Entity ULIDs to fetch (max 100)"),
+        }),
+      ),
+    },
+    query: z.object({
+      view: queryParam(
+        "view",
+        z.enum(["summary", "expanded"]).optional(),
+        "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.",
+      ),
+      fields: queryParam("fields", z.string().optional(), "Comma-separated field list"),
+      rel_limit: queryParam(
+        "rel_limit",
+        z.coerce.number().int().min(1).max(100).optional(),
+        "Max relationships per entity when view=expanded (default 20, max 100)",
+      ),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Entities in requested order (missing/hidden entities omitted)",
+      content: jsonContent(
+        z.object({
+          entities: z.array(EntitySchema),
+        }),
+      ),
+    },
+    ...errorResponses([400]),
+  },
+});
+
 // --- Handlers ---
 
 export const entitiesRouter = createRouter();
@@ -576,6 +637,20 @@ entitiesRouter.openapi(getEntityRoute, async (c) => {
   }
 
   c.header("etag", `"${entity.ver}"`);
+
+  if (projection.view === "expanded") {
+    const relLimit = Math.min(Number(c.req.query("rel_limit")) || 20, 100);
+    const relMap = await fetchRelationshipContext(sql, actor, [entityId], relLimit);
+    const ctx = relMap.get(entityId);
+    return c.json({
+      entity: {
+        ...projectEntity(entity, { view: "full", fields: null }),
+        _relationships: ctx?.items ?? [],
+        _relationships_truncated: ctx?.truncated ?? false,
+      },
+    }, 200);
+  }
+
   return c.json({ entity: projectEntity(entity, projection) }, 200);
 });
 
@@ -1079,4 +1154,58 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
   backgroundTask(indexEntity(updated, sql));
 
   return c.json({ entity: updated }, 200);
+});
+
+entitiesRouter.openapi(bulkGetEntitiesRoute, async (c) => {
+  const actor = c.get("actor");
+  const body = await parseJsonBody<{ ids: string[] }>(c);
+
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    throw new ApiError(400, "invalid_body", "ids must be a non-empty array");
+  }
+  if (body.ids.length > 100) {
+    throw new ApiError(400, "invalid_body", "Maximum 100 IDs per request");
+  }
+
+  const projection = parseProjection(c.req.query("view"), c.req.query("fields"));
+  const sql = createSql();
+
+  const txResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM entities WHERE id = ANY($1::text[])`,
+      [body.ids],
+    ),
+  ]);
+
+  const rowMap = new Map<string, Record<string, unknown>>();
+  for (const row of txResults[txResults.length - 1] as Array<Record<string, unknown>>) {
+    rowMap.set(String(row.id), row);
+  }
+
+  // Preserve requested order, omit missing/hidden
+  const entities = body.ids
+    .map((id: string) => rowMap.get(id))
+    .filter((row): row is Record<string, unknown> => row !== undefined);
+
+  if (projection.view === "expanded") {
+    const relLimit = Math.min(Number(c.req.query("rel_limit")) || 20, 100);
+    const visibleIds = entities.map((e) => String(e.id));
+    const relMap = await fetchRelationshipContext(sql, actor, visibleIds, relLimit);
+
+    return c.json({
+      entities: entities.map((row) => {
+        const ctx = relMap.get(String(row.id));
+        return {
+          ...projectEntity(row, { view: "full", fields: null }),
+          _relationships: ctx?.items ?? [],
+          _relationships_truncated: ctx?.truncated ?? false,
+        };
+      }),
+    }, 200);
+  }
+
+  return c.json({
+    entities: entities.map((row) => projectEntity(row, projection)),
+  }, 200);
 });
