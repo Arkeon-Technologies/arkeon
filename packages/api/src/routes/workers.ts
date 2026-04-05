@@ -4,7 +4,7 @@ import { ApiError } from "../lib/errors";
 import { requireActor, parseJsonBody } from "../lib/http";
 import { createRouter } from "../lib/openapi";
 import { encrypt, keyHint } from "../lib/crypto";
-import { enqueueInvocation, getQueuePosition, getQueueStats } from "../lib/invocation-queue";
+import { enqueueInvocation, enqueueBatch, getQueuePosition, getQueueStats } from "../lib/invocation-queue";
 import { syncWorkerSchedule, isSchedulerAvailable } from "../lib/scheduler";
 import { encodeCursor } from "../lib/cursor";
 import { parseLimit, parseCursorParam } from "../lib/http";
@@ -461,6 +461,8 @@ const InvocationSchema = z.object({
   tool_calls_count: z.number().int().nullable(),
   parent_invocation_id: z.number().int().nullable(),
   depth: z.number().int(),
+  batch_id: z.string().nullable(),
+  batch_seq: z.number().int().nullable(),
   queued_at: DateTimeSchema,
   started_at: DateTimeSchema.nullable(),
   completed_at: DateTimeSchema.nullable(),
@@ -678,6 +680,216 @@ workersRouter.openapi(getInvocationTreeRoute, async (c) => {
   }
 
   return c.json({ invocations }, 200);
+});
+
+// --- Batch invocation routes ---
+
+const BatchItemSchema = z.object({
+  worker_id: UlidSchema.describe("Worker actor ULID to invoke"),
+  prompt: z.string().min(1).max(100000).describe("Task prompt for this step"),
+  store_log: z.boolean().optional().describe("Override log storage (default: true)"),
+});
+
+const invokeBatchRoute = createRoute({
+  method: "post",
+  path: "/invoke-batch",
+  operationId: "invokeBatch",
+  tags: ["Workers"],
+  summary: "Submit a sequential batch of worker invocations",
+  description:
+    "Creates a batch of invocations that execute sequentially — each item starts only after " +
+    "the previous one completes. Returns immediately with the batch ID and all invocation IDs. " +
+    "Poll GET /workers/batch/{batchId} to track progress.",
+  "x-arke-auth": "required",
+  "x-arke-related": [
+    "GET /workers/batch/{batchId}",
+    "GET /workers/invocations/{invocationId}",
+    "POST /workers/{id}/invoke",
+  ],
+  "x-arke-rules": [
+    "Requires invoke permission on every worker in the batch",
+  ],
+  request: {
+    body: {
+      required: true,
+      content: jsonContent(
+        z.object({
+          items: z.array(BatchItemSchema).min(1).max(50).describe("Ordered list of invocations to execute sequentially"),
+          on_fail: z.enum(["continue", "cancel"]).default("continue").describe("What to do when an item fails: 'continue' runs the next item, 'cancel' cancels all remaining"),
+        }),
+      ),
+    },
+  },
+  responses: {
+    202: {
+      description: "Batch queued",
+      content: jsonContent(
+        z.object({
+          batch_id: z.string(),
+          on_fail: z.enum(["continue", "cancel"]),
+          invocations: z.array(
+            z.object({
+              invocation_id: z.number().int(),
+              worker_id: UlidSchema,
+              batch_seq: z.number().int(),
+              status: z.literal("queued"),
+            }),
+          ),
+        }),
+      ),
+    },
+    ...errorResponses([400, 401, 403, 404, 503]),
+  },
+});
+
+const getBatchRoute = createRoute({
+  method: "get",
+  path: "/batch/{batchId}",
+  operationId: "getBatch",
+  tags: ["Workers"],
+  summary: "Get the status of a sequential batch",
+  description:
+    "Returns all invocations in the batch ordered by sequence, with aggregate progress.",
+  "x-arke-auth": "required",
+  "x-arke-related": [
+    "POST /workers/invoke-batch",
+    "GET /workers/invocations/{invocationId}",
+  ],
+  "x-arke-rules": [],
+  request: {
+    params: z.object({
+      batchId: z.string().describe("Batch ID returned from invoke-batch"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Batch status",
+      content: jsonContent(
+        z.object({
+          batch_id: z.string(),
+          on_fail: z.enum(["continue", "cancel"]),
+          status: z.enum(["queued", "running", "completed", "failed"]),
+          progress: z.object({
+            total: z.number().int(),
+            completed: z.number().int(),
+            failed: z.number().int(),
+            cancelled: z.number().int(),
+            running: z.number().int(),
+            queued: z.number().int(),
+          }),
+          invocations: z.array(InvocationSchema),
+        }),
+      ),
+    },
+    ...errorResponses([401, 404]),
+  },
+});
+
+workersRouter.openapi(invokeBatchRoute, async (c) => {
+  const actor = requireActor(c);
+  const body = await parseJsonBody<{
+    items: Array<{ worker_id: string; prompt: string; store_log?: boolean }>;
+    on_fail?: "continue" | "cancel";
+  }>(c);
+  const sql = createSql();
+
+  if (!Array.isArray(body.items) || body.items.length === 0) {
+    throw new ApiError(400, "invalid_body", "items must be a non-empty array");
+  }
+  if (body.items.length > 50) {
+    throw new ApiError(400, "invalid_body", "Maximum 50 items per batch");
+  }
+
+  const onFail = body.on_fail === "cancel" ? "cancel" as const : "continue" as const;
+
+  // Validate invoke permission for all workers before creating any records
+  const uniqueWorkerIds = [...new Set(body.items.map((i) => i.worker_id))];
+  await Promise.all(
+    uniqueWorkerIds.map((wid) => requireWorkerInvoke(sql, actor, wid)),
+  );
+
+  const result = await enqueueBatch(
+    body.items.map((i) => ({
+      workerId: i.worker_id,
+      prompt: i.prompt,
+      storeLogs: i.store_log,
+    })),
+    actor.id,
+    "http",
+    onFail,
+  );
+
+  return c.json(
+    {
+      batch_id: result.batchId,
+      on_fail: onFail,
+      invocations: result.invocations.map((inv, idx) => ({
+        invocation_id: inv.invocationId,
+        worker_id: body.items[idx].worker_id,
+        batch_seq: inv.batchSeq,
+        status: "queued" as const,
+      })),
+    },
+    202,
+  );
+});
+
+workersRouter.openapi(getBatchRoute, async (c) => {
+  const actor = requireActor(c);
+  const batchId = c.req.param("batchId");
+  const sql = createSql();
+
+  const [,,,,, rows] = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM worker_invocations
+       WHERE batch_id = $1
+       ORDER BY batch_seq`,
+      [batchId],
+    ),
+  ]);
+
+  const invocations = rows as Array<Record<string, unknown>>;
+  if (invocations.length === 0) {
+    throw new ApiError(404, "not_found", "Batch not found");
+  }
+
+  const onFail = (invocations[0].batch_on_fail as string) === "cancel" ? "cancel" as const : "continue" as const;
+
+  // Compute aggregate progress
+  const progress = { total: 0, completed: 0, failed: 0, cancelled: 0, running: 0, queued: 0 };
+  for (const inv of invocations) {
+    progress.total++;
+    const s = inv.status as string;
+    if (s === "completed") progress.completed++;
+    else if (s === "failed") progress.failed++;
+    else if (s === "cancelled") progress.cancelled++;
+    else if (s === "running") progress.running++;
+    else progress.queued++;
+  }
+
+  // Derive batch-level status
+  let batchStatus: "queued" | "running" | "completed" | "failed";
+  if (progress.running > 0 || (progress.queued > 0 && progress.completed + progress.failed > 0)) {
+    batchStatus = "running";
+  } else if (progress.queued === progress.total) {
+    batchStatus = "queued";
+  } else if (progress.failed > 0) {
+    batchStatus = "failed";
+  } else {
+    batchStatus = "completed";
+  }
+
+  return c.json(
+    {
+      batch_id: batchId,
+      on_fail: onFail,
+      status: batchStatus,
+      progress,
+      invocations,
+    },
+    200,
+  );
 });
 
 // --- Permission management routes ---

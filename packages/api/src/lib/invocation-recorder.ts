@@ -149,6 +149,64 @@ export async function resetInvocationForRetry(id: number): Promise<void> {
 }
 
 /**
+ * Create all invocation records for a batch in a single transaction.
+ * Returns the invocation IDs in order (matching the input array).
+ */
+export async function createBatchInvocationRecords(
+  items: Array<{ workerId: string; prompt: string; storeLogs?: boolean }>,
+  invokerId: string,
+  source: "http" | "scheduler",
+  batchId: string,
+  onFail: "continue" | "cancel",
+): Promise<number[]> {
+  const sql = createSql();
+  const queries = [
+    sql.query(`SELECT set_config('app.actor_id', $1, true)`, [invokerId]),
+    sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
+    ...items.map((item, seq) =>
+      sql.query(
+        `INSERT INTO worker_invocations
+          (worker_id, invoker_id, source, prompt, status, depth, batch_id, batch_seq, batch_on_fail)
+         VALUES ($1, $2, $3, $4, 'queued', 0, $5, $6, $7)
+         RETURNING id`,
+        [item.workerId, invokerId, source, item.prompt, batchId, seq, onFail],
+      ),
+    ),
+  ];
+  const results = await sql.transaction(queries);
+  // First 2 results are set_config calls; the rest are INSERT RETURNING rows
+  return results.slice(2).map((rows) => {
+    const row = (rows as Array<{ id: number }>)[0];
+    if (!row) throw new Error("Failed to create batch invocation record");
+    return row.id;
+  });
+}
+
+/**
+ * Cancel all remaining batch items after a failure. Fire-and-forget.
+ */
+export function cancelBatchRemaining(
+  batchId: string,
+  afterSeq: number,
+  invokerId: string,
+): void {
+  const sql = createSql();
+  sql.transaction([
+    sql.query(`SELECT set_config('app.actor_id', $1, true)`, [invokerId]),
+    sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
+    sql.query(
+      `UPDATE worker_invocations
+       SET status = 'cancelled', error_message = 'Batch cancelled due to prior failure'
+       WHERE batch_id = $1 AND batch_seq > $2 AND status = 'queued'`,
+      [batchId, afterSeq],
+    ),
+  ]).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[invocation-recorder] failed to cancel batch remaining (${batchId}): ${msg}`);
+  });
+}
+
+/**
  * Cancel a queued invocation. Fire-and-forget.
  */
 export function cancelInvocation(id: number, invokerId: string): void {
