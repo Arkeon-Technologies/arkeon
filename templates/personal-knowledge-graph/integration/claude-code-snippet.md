@@ -76,7 +76,8 @@ arkeon relationships list <ENTITY_ID>
 
 ## Notes
 
-- A dreamer worker automatically processes new content every few minutes and builds connections in the graph.
+- A **dreamer** worker automatically processes new content and builds connections in the graph.
+- A **tidier** worker periodically merges duplicates and removes low-quality entities.
 - You do not need to create relationships manually — the dreamer handles that.
 - Use descriptive labels and include as much content as useful. The dreamer works better with more context.
 - Everything you add goes into a dedicated space and is organized automatically.

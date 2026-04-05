@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # ── Personal Knowledge Graph Setup ──────────────────────────────────
-# Creates a space, dreamer worker, and integration agent for your
-# personal knowledge graph on an Arkeon instance.
+# Creates a space, dreamer worker, tidier worker, and integration
+# agent for your personal knowledge graph on an Arkeon instance.
 #
 # Requirements: curl, jq, python3
 # Usage: ./setup.sh [path/to/config.yaml]
@@ -39,7 +39,9 @@ def q(v):
 a = c.get("arkeon", {})
 s = c.get("space", {})
 l = c.get("llm", {})
-w = c.get("worker", {})
+# Support both "dreamer" key and legacy "worker" key
+d = c.get("dreamer", c.get("worker", {}))
+t = c.get("tidier", {})
 p = c.get("priorities", {})
 
 lines = []
@@ -50,9 +52,16 @@ lines.append(f'SPACE_DESC="{q(s.get("description", ""))}"')
 lines.append(f'LLM_BASE_URL="{q(l.get("base_url", ""))}"')
 lines.append(f'LLM_API_KEY="{q(l.get("api_key", ""))}"')
 lines.append(f'LLM_MODEL="{q(l.get("model", ""))}"')
-lines.append(f'WORKER_NAME="{q(w.get("name", "dreamer"))}"')
-lines.append(f'WORKER_SCHEDULE="{q(w.get("schedule", "*/5 * * * *"))}"')
-lines.append(f'WORKER_MAX_ITER={w.get("max_iterations", 30)}')
+
+# Dreamer config
+lines.append(f'DREAMER_NAME="{q(d.get("name", "dreamer"))}"')
+lines.append(f'DREAMER_SCHEDULE="{q(d.get("schedule", "0 */4 * * *"))}"')
+lines.append(f'DREAMER_MAX_ITER={d.get("max_iterations", 30)}')
+
+# Tidier config
+lines.append(f'TIDIER_NAME="{q(t.get("name", "tidier"))}"')
+lines.append(f'TIDIER_SCHEDULE="{q(t.get("schedule", "0 2-22/4 * * *"))}"')
+lines.append(f'TIDIER_MAX_ITER={t.get("max_iterations", 15)}')
 
 themes = p.get("themes", [])
 lines.append(f'PRIORITIES_THEMES={json.dumps(json.dumps(themes))}')
@@ -122,11 +131,12 @@ SPACE_RESP=$(api POST /spaces -d "$SPACE_BODY") || { echo "Error: Failed to crea
 SPACE_ID=$(echo "$SPACE_RESP" | jq -r '.space.id')
 echo "  Space created: ${SPACE_ID}"
 
-# ── Step 3: Create dreamer state entity ─────────────────────────────
+# ── Step 3: Create state entities ───────────────────────────────────
 echo ""
-echo "Creating dreamer state entity..."
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-STATE_BODY=$(jq -n \
+
+echo "Creating dreamer state entity..."
+DREAMER_STATE_BODY=$(jq -n \
   --arg now "$NOW" \
   --arg space "$SPACE_ID" \
   --arg arke "$ARKE_ID" \
@@ -141,12 +151,31 @@ STATE_BODY=$(jq -n \
     }
   }')
 
-STATE_RESP=$(api POST /entities -d "$STATE_BODY") || { echo "Error: Failed to create state entity."; exit 1; }
-STATE_ENTITY_ID=$(echo "$STATE_RESP" | jq -r '.entity.id')
-STATE_VER=$(echo "$STATE_RESP" | jq -r '.entity.ver')
-echo "  State entity: ${STATE_ENTITY_ID} (ver ${STATE_VER})"
+DREAMER_STATE_RESP=$(api POST /entities -d "$DREAMER_STATE_BODY") || { echo "Error: Failed to create dreamer state entity."; exit 1; }
+DREAMER_STATE_ID=$(echo "$DREAMER_STATE_RESP" | jq -r '.entity.id')
+echo "  Dreamer state: ${DREAMER_STATE_ID}"
 
-# ── Step 4: Build system prompt ─────────────────────────────────────
+echo "Creating tidier state entity..."
+TIDIER_STATE_BODY=$(jq -n \
+  --arg now "$NOW" \
+  --arg space "$SPACE_ID" \
+  --arg arke "$ARKE_ID" \
+  '{
+    type: "tidier_state",
+    arke_id: $arke,
+    space_id: $space,
+    properties: {
+      label: "Tidier State",
+      last_processed_at: $now,
+      run_count: 0
+    }
+  }')
+
+TIDIER_STATE_RESP=$(api POST /entities -d "$TIDIER_STATE_BODY") || { echo "Error: Failed to create tidier state entity."; exit 1; }
+TIDIER_STATE_ID=$(echo "$TIDIER_STATE_RESP" | jq -r '.entity.id')
+echo "  Tidier state:  ${TIDIER_STATE_ID}"
+
+# ── Step 4: Build system prompts ────────────────────────────────────
 echo ""
 echo "Building dreamer system prompt..."
 
@@ -193,71 +222,100 @@ else
 - Do NOT extract concept entities. Focus on observations and direct relationships only."
 fi
 
-# Read and interpolate system prompt template
-SYSTEM_PROMPT=$(cat "${SCRIPT_DIR}/dreamer/system-prompt.md")
-SYSTEM_PROMPT="${SYSTEM_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
-SYSTEM_PROMPT="${SYSTEM_PROMPT//\{\{STATE_ENTITY_ID\}\}/${STATE_ENTITY_ID}}"
-SYSTEM_PROMPT="${SYSTEM_PROMPT//\{\{PRIORITIES_BLOCK\}\}/${PRIORITIES_BLOCK}}"
+# Read and interpolate dreamer system prompt
+DREAMER_SYSTEM_PROMPT=$(cat "${SCRIPT_DIR}/dreamer/system-prompt.md")
+DREAMER_SYSTEM_PROMPT="${DREAMER_SYSTEM_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
+DREAMER_SYSTEM_PROMPT="${DREAMER_SYSTEM_PROMPT//\{\{STATE_ENTITY_ID\}\}/${DREAMER_STATE_ID}}"
+DREAMER_SYSTEM_PROMPT="${DREAMER_SYSTEM_PROMPT//\{\{PRIORITIES_BLOCK\}\}/${PRIORITIES_BLOCK}}"
 
-# Read and interpolate scheduled prompt
-SCHEDULED_PROMPT=$(cat "${SCRIPT_DIR}/dreamer/scheduled-prompt.md")
-SCHEDULED_PROMPT="${SCHEDULED_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
+DREAMER_SCHEDULED_PROMPT=$(cat "${SCRIPT_DIR}/dreamer/scheduled-prompt.md")
+DREAMER_SCHEDULED_PROMPT="${DREAMER_SCHEDULED_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
 
-# ── Step 5: Create dreamer worker ───────────────────────────────────
-echo "Creating dreamer worker: ${WORKER_NAME}..."
-WORKER_BODY=$(jq -n \
-  --arg name "$WORKER_NAME" \
-  --arg prompt "$SYSTEM_PROMPT" \
-  --arg sched "$WORKER_SCHEDULE" \
-  --arg sched_prompt "$SCHEDULED_PROMPT" \
-  --arg base_url "$LLM_BASE_URL" \
-  --arg api_key "$LLM_API_KEY" \
-  --arg model "$LLM_MODEL" \
-  --arg arke "$ARKE_ID" \
-  --argjson max_iter "$WORKER_MAX_ITER" \
-  '{
-    kind: "worker",
-    arke_id: $arke,
-    name: $name,
-    system_prompt: $prompt,
-    schedule: $sched,
-    scheduled_prompt: $sched_prompt,
-    max_iterations: $max_iter,
-    llm: {
-      base_url: $base_url,
-      api_key: $api_key,
-      model: $model
-    }
-  }')
+echo "Building tidier system prompt..."
 
-# Try with schedule first; if Redis is unavailable, retry without schedule
-WORKER_RESP=$(api POST /actors -d "$WORKER_BODY" 2>/dev/null)
-if [ $? -ne 0 ]; then
-  echo "  Schedule failed (Redis may not be configured). Creating worker without schedule..."
-  WORKER_BODY=$(echo "$WORKER_BODY" | jq 'del(.schedule, .scheduled_prompt)')
-  WORKER_RESP=$(api POST /actors -d "$WORKER_BODY") || {
-    echo "Error: Failed to create dreamer worker."
-    exit 1
-  }
-  echo "  Worker created without schedule — invoke manually or add schedule later."
-  HAS_SCHEDULE=false
-else
-  HAS_SCHEDULE=true
-fi
+# Read and interpolate tidier system prompt
+TIDIER_SYSTEM_PROMPT=$(cat "${SCRIPT_DIR}/tidier/system-prompt.md")
+TIDIER_SYSTEM_PROMPT="${TIDIER_SYSTEM_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
+TIDIER_SYSTEM_PROMPT="${TIDIER_SYSTEM_PROMPT//\{\{TIDIER_STATE_ENTITY_ID\}\}/${TIDIER_STATE_ID}}"
 
-WORKER_ID=$(echo "$WORKER_RESP" | jq -r '.actor.id')
-echo "  Worker created: ${WORKER_ID}"
+TIDIER_SCHEDULED_PROMPT=$(cat "${SCRIPT_DIR}/tidier/scheduled-prompt.md")
+TIDIER_SCHEDULED_PROMPT="${TIDIER_SCHEDULED_PROMPT//\{\{SPACE_ID\}\}/${SPACE_ID}}"
 
-# Grant worker admin + full clearance so it can create relationships from any entity in the space
-api PUT "/actors/${WORKER_ID}" -d '{"max_read_level":4,"max_write_level":4,"is_admin":true}' > /dev/null 2>&1 || true
+# ── Step 5: Create workers ──────────────────────────────────────────
 
-WPERM_BODY=$(jq -n --arg id "$WORKER_ID" '{grantee_type: "actor", grantee_id: $id, role: "editor"}')
-api POST "/spaces/${SPACE_ID}/permissions" -d "$WPERM_BODY" > /dev/null 2>&1 || true
+# Helper to create a worker with schedule fallback
+create_worker() {
+  local name="$1" system_prompt="$2" schedule="$3" scheduled_prompt="$4" max_iter="$5"
 
-# Grant worker edit access to the state entity so it can update its checkpoint
-SPENT_BODY=$(jq -n --arg id "$WORKER_ID" '{grantee_type: "actor", grantee_id: $id, role: "editor"}')
-api POST "/entities/${STATE_ENTITY_ID}/permissions" -d "$SPENT_BODY" > /dev/null 2>&1 || true
-echo "  Granted worker space editor + state entity access"
+  local body
+  body=$(jq -n \
+    --arg name "$name" \
+    --arg prompt "$system_prompt" \
+    --arg sched "$schedule" \
+    --arg sched_prompt "$scheduled_prompt" \
+    --arg base_url "$LLM_BASE_URL" \
+    --arg api_key "$LLM_API_KEY" \
+    --arg model "$LLM_MODEL" \
+    --arg arke "$ARKE_ID" \
+    --argjson max_iter "$max_iter" \
+    '{
+      kind: "worker",
+      arke_id: $arke,
+      name: $name,
+      system_prompt: $prompt,
+      schedule: $sched,
+      scheduled_prompt: $sched_prompt,
+      max_iterations: $max_iter,
+      llm: {
+        base_url: $base_url,
+        api_key: $api_key,
+        model: $model
+      }
+    }')
+
+  local resp
+  resp=$(api POST /actors -d "$body" 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "  Schedule failed (Redis may not be configured). Creating without schedule..."
+    body=$(echo "$body" | jq 'del(.schedule, .scheduled_prompt)')
+    resp=$(api POST /actors -d "$body") || { echo "Error: Failed to create worker ${name}."; exit 1; }
+    echo "  Created without schedule — invoke manually or add schedule later."
+  fi
+
+  echo "$resp"
+}
+
+# Helper to grant worker permissions
+grant_worker_perms() {
+  local worker_id="$1" state_entity_id="$2"
+
+  # Admin + full clearance so it can create/modify relationships across the space
+  api PUT "/actors/${worker_id}" -d '{"max_read_level":4,"max_write_level":4,"is_admin":true}' > /dev/null 2>&1 || true
+
+  # Editor on space
+  local perm_body
+  perm_body=$(jq -n --arg id "$worker_id" '{grantee_type: "actor", grantee_id: $id, role: "editor"}')
+  api POST "/spaces/${SPACE_ID}/permissions" -d "$perm_body" > /dev/null 2>&1 || true
+
+  # Editor on its state entity
+  api POST "/entities/${state_entity_id}/permissions" -d "$perm_body" > /dev/null 2>&1 || true
+}
+
+echo ""
+echo "Creating dreamer worker: ${DREAMER_NAME}..."
+DREAMER_RESP=$(create_worker "$DREAMER_NAME" "$DREAMER_SYSTEM_PROMPT" "$DREAMER_SCHEDULE" "$DREAMER_SCHEDULED_PROMPT" "$DREAMER_MAX_ITER")
+DREAMER_WORKER_ID=$(echo "$DREAMER_RESP" | jq -r '.actor.id')
+echo "  Dreamer worker: ${DREAMER_WORKER_ID}"
+grant_worker_perms "$DREAMER_WORKER_ID" "$DREAMER_STATE_ID"
+echo "  Granted dreamer space editor + state entity access"
+
+echo ""
+echo "Creating tidier worker: ${TIDIER_NAME}..."
+TIDIER_RESP=$(create_worker "$TIDIER_NAME" "$TIDIER_SYSTEM_PROMPT" "$TIDIER_SCHEDULE" "$TIDIER_SCHEDULED_PROMPT" "$TIDIER_MAX_ITER")
+TIDIER_WORKER_ID=$(echo "$TIDIER_RESP" | jq -r '.actor.id')
+echo "  Tidier worker:  ${TIDIER_WORKER_ID}"
+grant_worker_perms "$TIDIER_WORKER_ID" "$TIDIER_STATE_ID"
+echo "  Granted tidier space editor + state entity access"
 
 # ── Step 6: Create integration agent ────────────────────────────────
 echo ""
@@ -293,13 +351,18 @@ echo "=========================================="
 echo "  Knowledge Graph Setup Complete"
 echo "=========================================="
 echo ""
-echo "  Space ID:         ${SPACE_ID}"
-echo "  Space Name:       ${SPACE_NAME}"
-echo "  Worker ID:        ${WORKER_ID}"
-echo "  Worker Schedule:  ${WORKER_SCHEDULE}"
-echo "  State Entity:     ${STATE_ENTITY_ID}"
+echo "  Space ID:           ${SPACE_ID}"
+echo "  Space Name:         ${SPACE_NAME}"
 echo ""
-echo "  Integration Key:  ${INTEGRATION_KEY}"
+echo "  Dreamer Worker ID:  ${DREAMER_WORKER_ID}"
+echo "  Dreamer Schedule:   ${DREAMER_SCHEDULE}"
+echo "  Dreamer State:      ${DREAMER_STATE_ID}"
+echo ""
+echo "  Tidier Worker ID:   ${TIDIER_WORKER_ID}"
+echo "  Tidier Schedule:    ${TIDIER_SCHEDULE}"
+echo "  Tidier State:       ${TIDIER_STATE_ID}"
+echo ""
+echo "  Integration Key:    ${INTEGRATION_KEY}"
 echo "  (Save this key — it will not be shown again)"
 echo ""
 echo "=========================================="
@@ -313,7 +376,8 @@ cat > "$ENV_FILE" <<EOF
 ARKE_API_URL=${API_URL}
 ARKE_API_KEY=${INTEGRATION_KEY}
 ARKE_SPACE_ID=${SPACE_ID}
-ARKE_WORKER_ID=${WORKER_ID}
+ARKE_DREAMER_WORKER_ID=${DREAMER_WORKER_ID}
+ARKE_TIDIER_WORKER_ID=${TIDIER_WORKER_ID}
 EOF
 echo "Integration env written to: ${ENV_FILE}"
 
@@ -331,8 +395,14 @@ echo "Give an agent access (copy the integration snippet):"
 echo "  cat ${SCRIPT_DIR}/integration/claude-code-snippet.md"
 echo ""
 echo "Manually trigger the dreamer:"
-echo "  curl -X POST \"${API_URL}/workers/${WORKER_ID}/invoke\" \\"
+echo "  curl -X POST \"${API_URL}/workers/${DREAMER_WORKER_ID}/invoke\" \\"
 echo "    -H \"Authorization: ApiKey ${API_KEY}\" \\"
 echo "    -H \"Content-Type: application/json\" \\"
-echo "    -d '{\"prompt\":\"${SCHEDULED_PROMPT}\"}'"
+echo "    -d '{\"prompt\":\"$(echo "$DREAMER_SCHEDULED_PROMPT" | head -1)\"}'"
+echo ""
+echo "Manually trigger the tidier:"
+echo "  curl -X POST \"${API_URL}/workers/${TIDIER_WORKER_ID}/invoke\" \\"
+echo "    -H \"Authorization: ApiKey ${API_KEY}\" \\"
+echo "    -H \"Content-Type: application/json\" \\"
+echo "    -d '{\"prompt\":\"$(echo "$TIDIER_SCHEDULED_PROMPT" | head -1)\"}'"
 echo ""

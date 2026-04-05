@@ -27,55 +27,34 @@ List entities created after your last checkpoint:
 arkeon entities list --space-id {{SPACE_ID}} --filter "created_at>{{LAST_TS}}" --sort created_at --order asc --limit 200
 ```
 
-Skip entities with type `concept`, `person`, `observation`, or `dreamer_state` — those are your own outputs.
+Skip entities with type `concept`, `person`, `observation`, `dreamer_state`, or `tidier_state` — those are worker outputs or state.
 
 If there are no new content entities, enter **reflection mode** (see below).
 
 ## Reflection Mode
 
-When there is no new content, revisit what is already in the graph. Reflection has two phases: **tidy**, then **deepen**. Use your judgment on what the graph needs most — sometimes it needs cleanup, sometimes it needs new connections, sometimes both.
+When there is no new content, revisit what is already in the graph to deepen it.
 
-### Phase 1: Tidy
-
-Survey the graph for anything that needs organizing:
-
+1. **List existing content and concepts:**
 ```bash
+arkeon entities list --space-id {{SPACE_ID}} --filter "type:document" --limit 200
+arkeon entities list --space-id {{SPACE_ID}} --filter "type:note" --limit 200
 arkeon entities list --space-id {{SPACE_ID}} --filter "type:concept" --limit 200
-arkeon entities list --space-id {{SPACE_ID}} --filter "type:observation" --limit 200
-arkeon entities list --space-id {{SPACE_ID}} --filter "type:person" --limit 200
 ```
 
-Scan the lists carefully for problems. You MUST act on any issues you find — do not just survey and leave:
+2. **Re-read one or two source documents** and ask:
+   - Are there themes in this document that the existing concepts don't capture?
+   - Are there cross-document patterns that no observation has noted?
+   - Are there concept pairs that should be related but aren't connected?
 
-- **Exact duplicates** — two entities with the same or nearly identical labels (e.g., "Leap of faith" appearing twice, or "Cheap grace" listed twice). These are always merge candidates. Merge the newer into the older:
-  ```bash
-  arkeon entities merge <OLDER_ID> --source-id <NEWER_ID> --property-strategy shallow_merge
-  ```
-  The source entity is deleted and its relationships are transferred to the target.
-
-- **Near-duplicates** — entities that clearly refer to the same idea under different wording (e.g., "Reason and morality" vs "Faith and reason," or "Catholic moral theology" appearing twice). Merge the less specific into the more specific.
-
-- **Stale or low-quality entities** — observations that are trivially obvious, or concepts that are too vague to be useful. Delete them:
-  ```bash
-  arkeon entities delete <ENTITY_ID>
-  ```
-
-- **Missing relationships** — concept pairs that clearly relate but have no edge between them. Add the relationship.
-
-### Phase 2: Deepen
-
-Re-read one or two source documents and ask:
-- Are there themes in this document that the existing concepts don't capture?
-- Are there cross-document patterns that no observation has noted?
-- Are there concept pairs that should be related but aren't connected?
-
-Create new concepts, observations, or relationships for things you find. The same deduplication and quality rules apply.
+3. **Create new concepts, observations, or relationships** for genuine gaps you find. The same deduplication and quality rules apply — check what exists before creating.
 
 ### Reflection rules
 
-- **Keep it bounded.** In reflection mode, make at most 5-8 changes per run (merges, deletes, and creates combined). Quality over quantity.
-- **Don't create then immediately merge.** If you're about to create something similar to what exists, just add a relationship instead.
-- **Report results.** Use `done()` with the same summary format, adding `"mode": "reflection"`, `"merged": N`, `"deleted": N` to indicate what you did.
+- **Keep it bounded.** Make at most 5-8 new entities/relationships per reflection run. Quality over quantity.
+- **Check for duplicates first.** List existing concepts before creating anything new.
+- **NEVER merge or delete entities.** A separate tidier worker handles graph maintenance.
+- **Report results.** Use `done()` with the same summary format, adding `"mode": "reflection"` to indicate this was a reflection run.
 
 ## What You Extract
 
@@ -137,5 +116,6 @@ If a matching entity already exists, create a relationship to it instead of a du
 4. **Meaningful labels.** Use specific, descriptive labels — not generic ones like "Technology" or "Ideas." Prefer "Distributed consensus algorithms" over "Algorithms."
 5. **Describe everything.** Every concept and person entity must have a description explaining what it means in the context of the content it was extracted from.
 6. **Connect everything.** Every new concept should have a `derived_from` relationship back to the content it came from. Every person should have `mentioned_in`. Every observation should have `observed_in`. Always create relationships FROM your own entities (concepts, people, observations) TO existing content.
-7. **Update state last.** Only update your state entity after all other work is complete.
-8. **Report results with done().** Call done with a summary object: `done({"processed": N, "concepts_created": N, "people_created": N, "observations_created": N, "relationships_created": N})`
+7. **NEVER merge or delete entities.** A separate tidier worker handles graph maintenance. You only create and connect.
+8. **Update state last.** Only update your state entity after all other work is complete.
+9. **Report results with done().** Call done with a summary object: `done({"processed": N, "concepts_created": N, "people_created": N, "observations_created": N, "relationships_created": N})`

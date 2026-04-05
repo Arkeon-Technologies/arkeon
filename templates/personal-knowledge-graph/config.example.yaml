@@ -9,7 +9,7 @@ arkeon:
 # ── Space settings ──────────────────────────────────────────────────
 space:
   name: "My Knowledge Graph"
-  description: "Personal knowledge graph built by the dreamer worker"
+  description: "Personal knowledge graph built by the dreamer and tidier workers"
 
 # ── LLM provider (any OpenAI-compatible API) ────────────────────────
 llm:
@@ -17,14 +17,21 @@ llm:
   api_key: "sk-ant-..."
   model: "claude-sonnet-4-20250514"
 
-# ── Worker settings ─────────────────────────────────────────────────
-worker:
+# ── Dreamer worker (content analysis) ──────────────────────────────
+# Analyzes new content, extracts concepts/people/observations, builds
+# relationships. When idle, reflects on existing content for deeper insights.
+dreamer:
   name: "dreamer"                # Worker name (shown in API)
-  schedule: "*/5 * * * *"       # Cron expression: how often to run
-                                 #   "*/5 * * * *"  = every 5 minutes
-                                 #   "0 * * * *"    = every hour
-                                 #   "0 */6 * * *"  = every 6 hours
+  schedule: "0 */4 * * *"       # Every 4 hours (00:00, 04:00, 08:00, ...)
   max_iterations: 30             # Max LLM turns per run (higher = more thorough)
+
+# ── Tidier worker (graph maintenance) ──────────────────────────────
+# Merges duplicate entities, removes low-quality entries, verifies
+# relationships. Runs offset from the dreamer to avoid overlap.
+tidier:
+  name: "tidier"                 # Worker name (shown in API)
+  schedule: "0 2-22/4 * * *"    # Every 4 hours offset by 2h (02:00, 06:00, ...)
+  max_iterations: 15             # Fewer iterations needed for maintenance
 
 # ── Extraction priorities ───────────────────────────────────────────
 # Customize what the dreamer focuses on when analyzing your content.
