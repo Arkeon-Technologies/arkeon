@@ -107,6 +107,22 @@ const LLMS_PREAMBLE = [
   "Notes: get(path, params_dict) / post(path, body) / put(path, body) / delete(path)",
   "put/patch require `ver` in body (optimistic concurrency — 409 if stale)",
   "",
+  "## Graph Explorer",
+  "",
+  "Open entities in the visual graph explorer:",
+  "  https://app.arkeon.tech/explore?instance=<hostname>&entity=<entityId>",
+  "",
+  "Parameters:",
+  "  instance*   Hostname (e.g. my-network.arkeon.tech)",
+  "  key         API key (omit for public access)",
+  "  entity      Single entity ID to view",
+  "  entities    Comma-separated entity IDs to seed into graph",
+  "  select      Entity ID to focus initially",
+  "  mode        'graph' (default) or 'feed'",
+  "",
+  "This URL is for human browsers. Workers cannot open browsers —",
+  "return the URL in your done() result for the caller to open.",
+  "",
 ];
 
 const LLMS_FILTER_SYNTAX = [

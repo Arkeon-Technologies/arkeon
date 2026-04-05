@@ -189,6 +189,15 @@ export function buildWorkerSystemPrompt(
     "System tools: python/python3, node, curl, jq, bash",
   );
 
+  sections.push(
+    "",
+    "## Important: No Browser Access",
+    "You do NOT have a browser and CANNOT open URLs or display web pages.",
+    "To show the user entities visually, construct an explore URL and include it in your done() result:",
+    "  https://app.arkeon.tech/explore?instance=$ARKE_API_URL&entity=<entityId>",
+    "The calling agent or user can open this URL in their browser.",
+  );
+
   // Invocation nesting context
   if (context) {
     sections.push(
