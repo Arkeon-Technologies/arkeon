@@ -13,11 +13,14 @@ import { cpus, totalmem, freemem, platform } from "node:os";
 import { invokeWorker, type InvokeResult } from "./worker-invoke.js";
 import {
   createInvocationRecord,
+  createBatchInvocationRecords,
   markInvocationRunning,
   completeInvocation,
   cancelInvocation,
+  cancelBatchRemaining,
   resetInvocationForRetry,
 } from "./invocation-recorder.js";
+import { generateUlid } from "./ids.js";
 import { ApiError } from "./errors.js";
 import { createSql } from "./sql.js";
 
@@ -30,6 +33,8 @@ interface QueueItem {
   depth: number;
   resolve: (result: InvokeResult) => void;
   reject: (err: Error) => void;
+  batchId?: string;
+  batchSeq?: number;
 }
 
 // Memory budget constants
@@ -155,14 +160,29 @@ export async function initQueue(): Promise<void> {
       );
     }
 
-    // Pick up all queued invocations (including just-reset ones) into the in-memory queue
+    // Pick up all queued invocations (including just-reset ones) into the in-memory queue.
+    // For batch items, only pick up items that are ready to run:
+    //   - Non-batch items (batch_id IS NULL) are always ready
+    //   - batch_seq=0 items are always ready (they start the chain)
+    //   - batch_seq>0 items are ready only if their predecessor completed/failed
     const [, queuedRows] = await sql.transaction([
       sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
       sql.query(
-        `SELECT id, worker_id, invoker_id, prompt, depth
-         FROM worker_invocations
-         WHERE status = 'queued'
-         ORDER BY id`,
+        `SELECT w.id, w.worker_id, w.invoker_id, w.prompt, w.depth,
+                w.batch_id, w.batch_seq
+         FROM worker_invocations w
+         WHERE w.status = 'queued'
+           AND (
+             w.batch_id IS NULL
+             OR w.batch_seq = 0
+             OR EXISTS (
+               SELECT 1 FROM worker_invocations prev
+               WHERE prev.batch_id = w.batch_id
+                 AND prev.batch_seq = w.batch_seq - 1
+                 AND prev.status IN ('completed', 'failed')
+             )
+           )
+         ORDER BY w.id`,
       ),
     ]);
 
@@ -172,10 +192,15 @@ export async function initQueue(): Promise<void> {
       invoker_id: string;
       prompt: string;
       depth: number;
+      batch_id: string | null;
+      batch_seq: number | null;
     }>;
 
     for (const row of queued) {
-      requeueInvocation(row.id, row.worker_id, row.invoker_id, row.prompt, row.depth);
+      requeueInvocation(
+        row.id, row.worker_id, row.invoker_id, row.prompt, row.depth,
+        row.batch_id ?? undefined, row.batch_seq ?? undefined,
+      );
     }
 
     if (queued.length > 0) {
@@ -260,6 +285,59 @@ export async function enqueueInvocation(
   return { invocationId, promise };
 }
 
+export interface EnqueueBatchResult {
+  batchId: string;
+  invocations: Array<{ invocationId: number; batchSeq: number }>;
+}
+
+/**
+ * Enqueue a sequential batch. Creates all DB records in one transaction,
+ * then enqueues only the first item (batch_seq=0). Each completion chains the next.
+ */
+export async function enqueueBatch(
+  items: Array<{ workerId: string; prompt: string; storeLogs?: boolean }>,
+  invokerId: string,
+  source: "http" | "scheduler",
+  onFail: "continue" | "cancel",
+): Promise<EnqueueBatchResult> {
+  if (draining) {
+    throw new ApiError(503, "server_shutting_down", "Server is shutting down");
+  }
+  if (pending.length >= maxQueueDepth) {
+    throw new ApiError(503, "queue_full", "Invocation queue is full — try again later");
+  }
+
+  const batchId = generateUlid();
+  const ids = await createBatchInvocationRecords(items, invokerId, source, batchId, onFail);
+
+  // Only enqueue the first item into the in-memory queue
+  const first = items[0];
+  const { resolve, reject } = createDeferred<InvokeResult>();
+  const item: QueueItem = {
+    invocationId: ids[0],
+    workerId: first.workerId,
+    invokerId,
+    prompt: first.prompt,
+    storeLogs: first.storeLogs !== false,
+    depth: 0,
+    resolve,
+    reject,
+    batchId,
+    batchSeq: 0,
+  };
+
+  if (canStartNow()) {
+    startItem(item);
+  } else {
+    pending.push(item);
+  }
+
+  return {
+    batchId,
+    invocations: ids.map((id, seq) => ({ invocationId: id, batchSeq: seq })),
+  };
+}
+
 /**
  * Get the queue position for a given invocation ID.
  * Returns null if not in the pending queue.
@@ -341,8 +419,9 @@ function startItem(item: QueueItem): void {
 }
 
 async function executeItem(item: QueueItem): Promise<void> {
+  let result: InvokeResult | undefined;
   try {
-    const result = await invokeWorker(item.workerId, item.prompt, {
+    result = await invokeWorker(item.workerId, item.prompt, {
       invocationId: item.invocationId,
       depth: item.depth,
     });
@@ -350,7 +429,7 @@ async function executeItem(item: QueueItem): Promise<void> {
     item.resolve(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const failResult: InvokeResult = {
+    result = {
       success: false,
       result: { error: msg },
       iterations: 0,
@@ -361,9 +440,14 @@ async function executeItem(item: QueueItem): Promise<void> {
       completedAt: new Date(),
       errorMessage: msg,
     };
-    completeInvocation(item.invocationId, item.invokerId, failResult, false);
-    item.resolve(failResult);
+    completeInvocation(item.invocationId, item.invokerId, result, false);
+    item.resolve(result);
   } finally {
+    // Chain next batch item before decrementing — advanceBatch enqueues
+    // into pending[], so tryRunNext() will pick it up below.
+    if (item.batchId != null && item.batchSeq != null) {
+      await advanceBatch(item.batchId, item.batchSeq, item.invokerId, result!);
+    }
     running--;
     tryRunNext();
   }
@@ -377,6 +461,84 @@ function tryRunNext(): void {
 }
 
 /**
+ * Advance a sequential batch after an item completes.
+ * If on_fail='cancel' and the item failed, cancels all remaining items.
+ * Otherwise, atomically claims the next item and enqueues it.
+ *
+ * Race safety: the next item is claimed via UPDATE ... WHERE status = 'queued'
+ * RETURNING. Only one concurrent caller can match the status — the first to
+ * update it wins, subsequent callers get zero rows back.
+ */
+async function advanceBatch(
+  batchId: string,
+  completedSeq: number,
+  invokerId: string,
+  result: InvokeResult,
+): Promise<void> {
+  const sql = createSql();
+
+  // Check on_fail policy from the completed item
+  const [, policyRows] = await sql.transaction([
+    sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
+    sql.query(
+      `SELECT batch_on_fail FROM worker_invocations
+       WHERE batch_id = $1 AND batch_seq = $2`,
+      [batchId, completedSeq],
+    ),
+  ]);
+  const onFail = (policyRows as Array<{ batch_on_fail: string }>)[0]?.batch_on_fail ?? "continue";
+
+  if (!result.success && onFail === "cancel") {
+    await cancelBatchRemaining(batchId, completedSeq, invokerId);
+    console.log(`[queue] batch ${batchId}: cancelled remaining after seq ${completedSeq} failed`);
+    return;
+  }
+
+  // Atomically claim the next item by transitioning it from 'queued' to 'running'.
+  // Only one caller can win this race — concurrent callers get zero rows back.
+  const [, nextRows] = await sql.transaction([
+    sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
+    sql.query(
+      `UPDATE worker_invocations
+       SET status = 'running', started_at = NOW()
+       WHERE batch_id = $1 AND batch_seq = $2 AND status = 'queued'
+       RETURNING id, worker_id, invoker_id, prompt, batch_seq`,
+      [batchId, completedSeq + 1],
+    ),
+  ]);
+
+  const next = (nextRows as Array<{
+    id: number;
+    worker_id: string;
+    invoker_id: string;
+    prompt: string;
+    batch_seq: number;
+  }>)[0];
+
+  if (!next) return; // No more items in batch (or already claimed)
+
+  const { resolve, reject } = createDeferred<InvokeResult>();
+  const item: QueueItem = {
+    invocationId: next.id,
+    workerId: next.worker_id,
+    invokerId: next.invoker_id,
+    prompt: next.prompt,
+    storeLogs: true,
+    depth: 0,
+    resolve,
+    reject,
+    batchId,
+    batchSeq: next.batch_seq,
+  };
+
+  // Push to pending — tryRunNext() in the caller's finally block will start it.
+  // Note: the item is already marked 'running' in DB, so startItem() will call
+  // markInvocationRunning() again (idempotent — just re-sets started_at).
+  pending.push(item);
+  console.log(`[queue] batch ${batchId}: enqueued seq ${next.batch_seq}`);
+}
+
+/**
  * Re-queue an existing invocation from DB into the in-memory queue.
  * Used at startup to pick up orphaned invocations.
  * Does NOT create a new DB record — reuses the existing one.
@@ -387,6 +549,8 @@ function requeueInvocation(
   invokerId: string,
   prompt: string,
   depth: number,
+  batchId?: string,
+  batchSeq?: number,
 ): void {
   const { resolve, reject } = createDeferred<InvokeResult>();
 
@@ -399,6 +563,8 @@ function requeueInvocation(
     depth,
     resolve,
     reject,
+    batchId,
+    batchSeq,
   };
 
   if (canStartNow()) {
