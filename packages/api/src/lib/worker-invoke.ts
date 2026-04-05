@@ -144,7 +144,7 @@ export async function invokeWorker(
       success: false,
       result: { error: msg },
       iterations: 0,
-      log: [],
+      log: agent.getLog(),
       usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, llmCalls: 0, toolCalls: 0 },
       logLevel,
       startedAt,

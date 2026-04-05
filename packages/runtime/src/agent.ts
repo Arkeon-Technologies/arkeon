@@ -82,6 +82,11 @@ export class Agent {
     this.onLog = config.onLog;
   }
 
+  /** Return a snapshot of the log accumulated so far (useful after timeout). */
+  getLog(): LogEntry[] {
+    return [...this.log];
+  }
+
   private emit(entry: Omit<LogEntry, "timestamp">): void {
     const full: LogEntry = { ...entry, timestamp: new Date().toISOString() };
     this.log.push(full);
