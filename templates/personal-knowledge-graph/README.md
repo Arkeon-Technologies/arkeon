@@ -12,10 +12,12 @@ A template that turns an Arkeon instance into a personal knowledge graph. You ad
 
 ## Prerequisites
 
-- A running Arkeon instance (with Redis if you want scheduled runs)
+- A running Arkeon instance with Redis (all deployed instances include Redis by default)
 - An API key for your instance
 - An LLM API key (any OpenAI-compatible provider)
 - `curl`, `jq`, `python3` (with PyYAML: `pip3 install pyyaml`)
+
+The dreamer runs automatically on a cron schedule via the built-in BullMQ scheduler. This requires Redis, which is included in the standard docker-compose stack. No external cron or manual invocation needed — once setup completes, the dreamer starts running on its configured schedule.
 
 ## Setup
 
