@@ -1,6 +1,6 @@
 import { ApiError } from "./errors";
 
-export type EntityView = "full" | "summary";
+export type EntityView = "full" | "summary" | "expanded";
 
 export interface Projection {
   view: EntityView;
@@ -24,12 +24,16 @@ export function parseProjection(viewRaw: string | undefined, fieldsRaw: string |
     };
   }
 
-  if (!viewRaw || viewRaw === "full") {
+  if (!viewRaw) {
     return { view: "full", fields: null };
   }
 
   if (viewRaw === "summary") {
     return { view: "summary", fields: null };
+  }
+
+  if (viewRaw === "expanded") {
+    return { view: "expanded", fields: null };
   }
 
   throw new ApiError(400, "invalid_query", "Invalid view", {

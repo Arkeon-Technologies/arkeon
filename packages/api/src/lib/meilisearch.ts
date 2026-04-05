@@ -261,3 +261,33 @@ export async function searchEntities(
       : result.hits.length,
   };
 }
+
+/**
+ * Execute multiple search queries in a single Meilisearch call.
+ * Returns one MeiliSearchResult per input query.
+ */
+export async function multiSearchEntities(
+  queries: Array<{
+    query: string;
+    filter?: string[];
+    limit?: number;
+    offset?: number;
+  }>,
+): Promise<MeiliSearchResult[]> {
+  const c = getClient();
+  const result = await c.multiSearch({
+    queries: queries.map((q) => ({
+      indexUid: ENTITIES_INDEX,
+      q: q.query,
+      filter: q.filter,
+      limit: q.limit ?? 20,
+      offset: q.offset ?? 0,
+    })),
+  });
+  return result.results.map((r) => ({
+    ids: r.hits.map((hit) => String(hit.id)),
+    estimatedTotalHits: typeof r.estimatedTotalHits === "number"
+      ? r.estimatedTotalHits
+      : r.hits.length,
+  }));
+}
