@@ -295,7 +295,7 @@ const updateWorkerRoute = createRoute({
               memory_mb: z.number().int().min(64).max(2048).optional(),
               cpu_percent: z.number().int().min(10).max(100).optional(),
               max_pids: z.number().int().min(16).max(512).optional(),
-              timeout_ms: z.number().int().min(1000).max(600000).optional(),
+              timeout_ms: z.number().int().min(1000).max(1800000).optional(),
             })
             .optional(),
         }),

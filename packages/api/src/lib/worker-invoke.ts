@@ -116,7 +116,7 @@ export async function invokeWorker(
     maxIterations: props.max_iterations ?? 50,
   });
 
-  const timeoutMs = props.resource_limits?.timeout_ms ?? 300_000;
+  const timeoutMs = props.resource_limits?.timeout_ms ?? 600_000;
   const logLevel = props.log_level ?? "full";
   const startedAt = new Date();
 
