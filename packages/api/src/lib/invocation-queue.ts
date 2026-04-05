@@ -463,7 +463,11 @@ function tryRunNext(): void {
 /**
  * Advance a sequential batch after an item completes.
  * If on_fail='cancel' and the item failed, cancels all remaining items.
- * Otherwise, enqueues the next item (batch_seq + 1) into the in-memory queue.
+ * Otherwise, atomically claims the next item and enqueues it.
+ *
+ * Race safety: the next item is claimed via UPDATE ... WHERE status = 'queued'
+ * RETURNING. Only one concurrent caller can match the status — the first to
+ * update it wins, subsequent callers get zero rows back.
  */
 async function advanceBatch(
   batchId: string,
@@ -485,18 +489,20 @@ async function advanceBatch(
   const onFail = (policyRows as Array<{ batch_on_fail: string }>)[0]?.batch_on_fail ?? "continue";
 
   if (!result.success && onFail === "cancel") {
-    cancelBatchRemaining(batchId, completedSeq, invokerId);
+    await cancelBatchRemaining(batchId, completedSeq, invokerId);
     console.log(`[queue] batch ${batchId}: cancelled remaining after seq ${completedSeq} failed`);
     return;
   }
 
-  // Find and enqueue the next item
+  // Atomically claim the next item by transitioning it from 'queued' to 'running'.
+  // Only one caller can win this race — concurrent callers get zero rows back.
   const [, nextRows] = await sql.transaction([
     sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
     sql.query(
-      `SELECT id, worker_id, invoker_id, prompt, batch_seq
-       FROM worker_invocations
-       WHERE batch_id = $1 AND batch_seq = $2 AND status = 'queued'`,
+      `UPDATE worker_invocations
+       SET status = 'running', started_at = NOW()
+       WHERE batch_id = $1 AND batch_seq = $2 AND status = 'queued'
+       RETURNING id, worker_id, invoker_id, prompt, batch_seq`,
       [batchId, completedSeq + 1],
     ),
   ]);
@@ -509,7 +515,7 @@ async function advanceBatch(
     batch_seq: number;
   }>)[0];
 
-  if (!next) return; // No more items in batch
+  if (!next) return; // No more items in batch (or already claimed)
 
   const { resolve, reject } = createDeferred<InvokeResult>();
   const item: QueueItem = {
@@ -525,7 +531,9 @@ async function advanceBatch(
     batchSeq: next.batch_seq,
   };
 
-  // Push to pending — tryRunNext() in the caller's finally block will start it
+  // Push to pending — tryRunNext() in the caller's finally block will start it.
+  // Note: the item is already marked 'running' in DB, so startItem() will call
+  // markInvocationRunning() again (idempotent — just re-sets started_at).
   pending.push(item);
   console.log(`[queue] batch ${batchId}: enqueued seq ${next.batch_seq}`);
 }

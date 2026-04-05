@@ -183,15 +183,16 @@ export async function createBatchInvocationRecords(
 }
 
 /**
- * Cancel all remaining batch items after a failure. Fire-and-forget.
+ * Cancel all remaining batch items after a failure.
+ * Awaited by advanceBatch() to ensure cancellation completes before proceeding.
  */
-export function cancelBatchRemaining(
+export async function cancelBatchRemaining(
   batchId: string,
   afterSeq: number,
   invokerId: string,
-): void {
+): Promise<void> {
   const sql = createSql();
-  sql.transaction([
+  await sql.transaction([
     sql.query(`SELECT set_config('app.actor_id', $1, true)`, [invokerId]),
     sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
     sql.query(
@@ -200,10 +201,7 @@ export function cancelBatchRemaining(
        WHERE batch_id = $1 AND batch_seq > $2 AND status = 'queued'`,
       [batchId, afterSeq],
     ),
-  ]).catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[invocation-recorder] failed to cancel batch remaining (${batchId}): ${msg}`);
-  });
+  ]);
 }
 
 /**

@@ -755,7 +755,9 @@ const getBatchRoute = createRoute({
     "POST /workers/invoke-batch",
     "GET /workers/invocations/{invocationId}",
   ],
-  "x-arke-rules": [],
+  "x-arke-rules": [
+    "Visibility filtered by RLS — only the batch creator, worker owners, or system admins can see invocations",
+  ],
   request: {
     params: z.object({
       batchId: z.string().describe("Batch ID returned from invoke-batch"),
