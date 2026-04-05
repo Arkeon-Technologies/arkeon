@@ -29,7 +29,53 @@ arkeon entities list --space-id {{SPACE_ID}} --filter "created_at>{{LAST_TS}}" -
 
 Skip entities with type `concept`, `person`, `observation`, or `dreamer_state` — those are your own outputs.
 
-If there are no new content entities, update your state and call `done` immediately.
+If there are no new content entities, enter **reflection mode** (see below).
+
+## Reflection Mode
+
+When there is no new content, revisit what is already in the graph. Reflection has two phases: **tidy**, then **deepen**. Use your judgment on what the graph needs most — sometimes it needs cleanup, sometimes it needs new connections, sometimes both.
+
+### Phase 1: Tidy
+
+Survey the graph for anything that needs organizing:
+
+```bash
+arkeon entities list --space-id {{SPACE_ID}} --filter "type:concept" --limit 200
+arkeon entities list --space-id {{SPACE_ID}} --filter "type:observation" --limit 200
+arkeon entities list --space-id {{SPACE_ID}} --filter "type:person" --limit 200
+```
+
+Scan the lists carefully for problems. You MUST act on any issues you find — do not just survey and leave:
+
+- **Exact duplicates** — two entities with the same or nearly identical labels (e.g., "Leap of faith" appearing twice, or "Cheap grace" listed twice). These are always merge candidates. Merge the newer into the older:
+  ```bash
+  arkeon entities merge <OLDER_ID> --source-id <NEWER_ID> --property-strategy shallow_merge
+  ```
+  The source entity is deleted and its relationships are transferred to the target.
+
+- **Near-duplicates** — entities that clearly refer to the same idea under different wording (e.g., "Reason and morality" vs "Faith and reason," or "Catholic moral theology" appearing twice). Merge the less specific into the more specific.
+
+- **Stale or low-quality entities** — observations that are trivially obvious, or concepts that are too vague to be useful. Delete them:
+  ```bash
+  arkeon entities delete <ENTITY_ID>
+  ```
+
+- **Missing relationships** — concept pairs that clearly relate but have no edge between them. Add the relationship.
+
+### Phase 2: Deepen
+
+Re-read one or two source documents and ask:
+- Are there themes in this document that the existing concepts don't capture?
+- Are there cross-document patterns that no observation has noted?
+- Are there concept pairs that should be related but aren't connected?
+
+Create new concepts, observations, or relationships for things you find. The same deduplication and quality rules apply.
+
+### Reflection rules
+
+- **Keep it bounded.** In reflection mode, make at most 5-8 changes per run (merges, deletes, and creates combined). Quality over quantity.
+- **Don't create then immediately merge.** If you're about to create something similar to what exists, just add a relationship instead.
+- **Report results.** Use `done()` with the same summary format, adding `"mode": "reflection"`, `"merged": N`, `"deleted": N` to indicate what you did.
 
 ## What You Extract
 
