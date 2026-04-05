@@ -138,24 +138,31 @@ const invokeWorkerRoute = createRoute({
   path: "/{id}/invoke",
   operationId: "invokeWorker",
   tags: ["Workers"],
-  summary: "Invoke a worker with a prompt",
+  summary: "Invoke a worker, optionally chaining follow-up steps",
   description:
     "Queues a worker invocation. Returns 202 with an invocation ID by default. " +
-    "Pass ?wait=true to block until the invocation completes (returns 200 with full result).",
+    "Pass ?wait=true to block until the invocation completes (returns 200 with full result). " +
+    "Use the 'then' array to chain sequential follow-up invocations — each step runs only after " +
+    "the previous one completes. With 'then', the response includes a batch_id for polling via " +
+    "GET /workers/batch/{batchId}.",
   "x-arke-auth": "required",
   "x-arke-related": [
     "GET /actors/{id}",
     "GET /workers/{id}",
     "GET /workers/invocations/{invocationId}",
+    "GET /workers/batch/{batchId}",
   ],
-  "x-arke-rules": ["Requires owner, system admin, or invoker permission grant"],
+  "x-arke-rules": [
+    "Requires owner, system admin, or invoker permission grant",
+    "If 'then' is provided, requires invoke permission on every worker in the chain",
+  ],
   request: {
     params: entityIdParams("Worker actor ULID"),
     query: z.object({
       wait: z
         .string()
         .optional()
-        .describe("If 'true', block until invocation completes and return the full result"),
+        .describe("If 'true', block until invocation completes and return the full result. With 'then', waits for the entire pipeline."),
     }),
     body: {
       required: true,
@@ -163,6 +170,18 @@ const invokeWorkerRoute = createRoute({
         z.object({
           prompt: z.string().min(1).max(100000).describe("The task prompt for the worker"),
           store_log: z.boolean().optional().describe("Override log storage (default: true, respects worker's log_level setting)"),
+          then: z.array(
+            z.object({
+              worker_id: UlidSchema.describe("Worker actor ULID for this step"),
+              prompt: z.string().min(1).max(100000).describe("Task prompt for this step"),
+              store_log: z.boolean().optional().describe("Override log storage for this step"),
+            }),
+          ).min(1).max(49).optional().describe(
+            "Follow-up steps executed sequentially after the initial invocation completes",
+          ),
+          on_fail: z.enum(["continue", "cancel"]).default("continue").describe(
+            "When a step fails: 'continue' runs the next step, 'cancel' cancels remaining. Only applies with 'then'.",
+          ),
         }),
       ),
     },
@@ -183,6 +202,15 @@ const invokeWorkerRoute = createRoute({
             llm_calls: z.number().int(),
             tool_calls: z.number().int(),
           }),
+          batch_id: z.string().optional().describe("Batch ID (present when 'then' was used)"),
+          steps: z.array(z.object({
+            invocation_id: z.number().int(),
+            worker_id: z.string(),
+            batch_seq: z.number().int(),
+            status: z.string(),
+            success: z.boolean().nullable(),
+            result: z.any().nullable(),
+          })).optional().describe("Per-step results (present when 'then' was used)"),
         }),
       ),
     },
@@ -192,6 +220,15 @@ const invokeWorkerRoute = createRoute({
         z.object({
           invocation_id: z.number().int(),
           status: z.literal("queued"),
+          batch_id: z.string().optional().describe("Batch ID (present when 'then' was used)"),
+          invocations: z.array(
+            z.object({
+              invocation_id: z.number().int(),
+              worker_id: UlidSchema,
+              batch_seq: z.number().int(),
+              status: z.literal("queued"),
+            }),
+          ).optional().describe("All pipeline steps (present when 'then' was used)"),
         }),
       ),
     },
@@ -286,7 +323,12 @@ export const workersRouter = createRouter();
 workersRouter.openapi(invokeWorkerRoute, async (c) => {
   const actor = requireActor(c);
   const workerId = c.req.param("id");
-  const body = await parseJsonBody<{ prompt: string; store_log?: boolean }>(c);
+  const body = await parseJsonBody<{
+    prompt: string;
+    store_log?: boolean;
+    then?: Array<{ worker_id: string; prompt: string; store_log?: boolean }>;
+    on_fail?: "continue" | "cancel";
+  }>(c);
   const sql = createSql();
   const wait = c.req.query("wait") === "true";
 
@@ -294,10 +336,83 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "prompt is required");
   }
 
-  // Owner or invoker permission check
+  // Owner or invoker permission check for the primary worker
   await requireWorkerInvoke(sql, actor, workerId);
 
-  // Read nesting context from headers (set by parent sandbox env vars)
+  const thenSteps = Array.isArray(body.then) && body.then.length > 0 ? body.then : null;
+
+  // --- Pipeline path (with `then`) ---
+  if (thenSteps) {
+    const onFail = body.on_fail === "cancel" ? "cancel" as const : "continue" as const;
+
+    // Permission check for all workers in then[]
+    const thenWorkerIds = [...new Set(thenSteps.map((t) => t.worker_id))].filter((id) => id !== workerId);
+    await Promise.all(thenWorkerIds.map((wid) => requireWorkerInvoke(sql, actor, wid)));
+
+    const items = [
+      { workerId, prompt: body.prompt, storeLogs: body.store_log },
+      ...thenSteps.map((t) => ({ workerId: t.worker_id, prompt: t.prompt, storeLogs: t.store_log })),
+    ];
+
+    const result = await enqueueBatch(items, actor.id, "http", onFail);
+
+    if (wait) {
+      await result.batchPromise;
+      // Fetch all invocations from DB for the response
+      const [,,,,, rows] = await sql.transaction([
+        ...setActorContext(sql, actor),
+        sql.query(
+          `SELECT * FROM worker_invocations WHERE batch_id = $1 ORDER BY batch_seq`,
+          [result.batchId],
+        ),
+      ]);
+      const invocations = rows as Array<Record<string, unknown>>;
+      const lastItem = invocations[invocations.length - 1];
+      const allSuccess = invocations.every((i) => i.status === "completed");
+      return c.json(
+        {
+          invocation_id: result.invocations[0].invocationId,
+          success: allSuccess,
+          result: lastItem?.result ?? null,
+          iterations: invocations.reduce((sum, i) => sum + ((i.iterations as number) || 0), 0),
+          usage: {
+            input_tokens: invocations.reduce((sum, i) => sum + ((i.input_tokens as number) || 0), 0),
+            output_tokens: invocations.reduce((sum, i) => sum + ((i.output_tokens as number) || 0), 0),
+            total_tokens: invocations.reduce((sum, i) => sum + (((i.input_tokens as number) || 0) + ((i.output_tokens as number) || 0)), 0),
+            llm_calls: invocations.reduce((sum, i) => sum + ((i.llm_calls as number) || 0), 0),
+            tool_calls: invocations.reduce((sum, i) => sum + ((i.tool_calls as number) || 0), 0),
+          },
+          batch_id: result.batchId,
+          steps: invocations.map((i) => ({
+            invocation_id: i.id as number,
+            worker_id: i.worker_id as string,
+            batch_seq: i.batch_seq as number,
+            status: i.status as string,
+            success: i.status === "completed" ? true : i.status === "failed" ? false : null,
+            result: i.result ?? null,
+          })),
+        },
+        200,
+      );
+    }
+
+    return c.json(
+      {
+        invocation_id: result.invocations[0].invocationId,
+        status: "queued" as const,
+        batch_id: result.batchId,
+        invocations: result.invocations.map((inv, idx) => ({
+          invocation_id: inv.invocationId,
+          worker_id: items[idx].workerId,
+          batch_seq: inv.batchSeq,
+          status: "queued" as const,
+        })),
+      },
+      202,
+    );
+  }
+
+  // --- Single invocation path (no `then`) ---
   const parentInvocationId = c.req.header("x-arke-parent-invocation")
     ? Number(c.req.header("x-arke-parent-invocation"))
     : null;
@@ -684,64 +799,6 @@ workersRouter.openapi(getInvocationTreeRoute, async (c) => {
 
 // --- Batch invocation routes ---
 
-const BatchItemSchema = z.object({
-  worker_id: UlidSchema.describe("Worker actor ULID to invoke"),
-  prompt: z.string().min(1).max(100000).describe("Task prompt for this step"),
-  store_log: z.boolean().optional().describe("Override log storage (default: true)"),
-});
-
-const invokeBatchRoute = createRoute({
-  method: "post",
-  path: "/invoke-batch",
-  operationId: "invokeBatch",
-  tags: ["Workers"],
-  summary: "Submit a sequential batch of worker invocations",
-  description:
-    "Creates a batch of invocations that execute sequentially — each item starts only after " +
-    "the previous one completes. Returns immediately with the batch ID and all invocation IDs. " +
-    "Poll GET /workers/batch/{batchId} to track progress.",
-  "x-arke-auth": "required",
-  "x-arke-related": [
-    "GET /workers/batch/{batchId}",
-    "GET /workers/invocations/{invocationId}",
-    "POST /workers/{id}/invoke",
-  ],
-  "x-arke-rules": [
-    "Requires invoke permission on every worker in the batch",
-  ],
-  request: {
-    body: {
-      required: true,
-      content: jsonContent(
-        z.object({
-          items: z.array(BatchItemSchema).min(1).max(50).describe("Ordered list of invocations to execute sequentially"),
-          on_fail: z.enum(["continue", "cancel"]).default("continue").describe("What to do when an item fails: 'continue' runs the next item, 'cancel' cancels all remaining"),
-        }),
-      ),
-    },
-  },
-  responses: {
-    202: {
-      description: "Batch queued",
-      content: jsonContent(
-        z.object({
-          batch_id: z.string(),
-          on_fail: z.enum(["continue", "cancel"]),
-          invocations: z.array(
-            z.object({
-              invocation_id: z.number().int(),
-              worker_id: UlidSchema,
-              batch_seq: z.number().int(),
-              status: z.literal("queued"),
-            }),
-          ),
-        }),
-      ),
-    },
-    ...errorResponses([400, 401, 403, 404, 503]),
-  },
-});
-
 const getBatchRoute = createRoute({
   method: "get",
   path: "/batch/{batchId}",
@@ -752,7 +809,7 @@ const getBatchRoute = createRoute({
     "Returns all invocations in the batch ordered by sequence, with aggregate progress.",
   "x-arke-auth": "required",
   "x-arke-related": [
-    "POST /workers/invoke-batch",
+    "POST /workers/{id}/invoke",
     "GET /workers/invocations/{invocationId}",
   ],
   "x-arke-rules": [
@@ -785,55 +842,6 @@ const getBatchRoute = createRoute({
     },
     ...errorResponses([401, 404]),
   },
-});
-
-workersRouter.openapi(invokeBatchRoute, async (c) => {
-  const actor = requireActor(c);
-  const body = await parseJsonBody<{
-    items: Array<{ worker_id: string; prompt: string; store_log?: boolean }>;
-    on_fail?: "continue" | "cancel";
-  }>(c);
-  const sql = createSql();
-
-  if (!Array.isArray(body.items) || body.items.length === 0) {
-    throw new ApiError(400, "invalid_body", "items must be a non-empty array");
-  }
-  if (body.items.length > 50) {
-    throw new ApiError(400, "invalid_body", "Maximum 50 items per batch");
-  }
-
-  const onFail = body.on_fail === "cancel" ? "cancel" as const : "continue" as const;
-
-  // Validate invoke permission for all workers before creating any records
-  const uniqueWorkerIds = [...new Set(body.items.map((i) => i.worker_id))];
-  await Promise.all(
-    uniqueWorkerIds.map((wid) => requireWorkerInvoke(sql, actor, wid)),
-  );
-
-  const result = await enqueueBatch(
-    body.items.map((i) => ({
-      workerId: i.worker_id,
-      prompt: i.prompt,
-      storeLogs: i.store_log,
-    })),
-    actor.id,
-    "http",
-    onFail,
-  );
-
-  return c.json(
-    {
-      batch_id: result.batchId,
-      on_fail: onFail,
-      invocations: result.invocations.map((inv, idx) => ({
-        invocation_id: inv.invocationId,
-        worker_id: body.items[idx].worker_id,
-        batch_seq: inv.batchSeq,
-        status: "queued" as const,
-      })),
-    },
-    202,
-  );
 });
 
 workersRouter.openapi(getBatchRoute, async (c) => {
