@@ -1,6 +1,6 @@
-# Arkeon Knowledge Graph Integration
+# Arkeon Knowledge Graph — Assistant Integration
 
-Give these instructions to Claude Code, Claude Co-work, or any agent with shell access.
+Give these instructions to Claude Code, Codex, or any AI assistant with terminal access.
 
 ---
 
@@ -10,9 +10,9 @@ Give these instructions to Claude Code, Claude Co-work, or any agent with shell 
 # Install the Arkeon CLI
 npm install -g @arkeon-technologies/cli
 
-# Configure connection (values from setup.sh output)
+# Configure connection (values from .env.assistant)
 export ARKE_API_URL="{{API_URL}}"
-export ARKE_API_KEY="{{INTEGRATION_KEY}}"
+export ARKE_API_KEY="{{ASSISTANT_KEY}}"
 export ARKE_SPACE_ID="{{SPACE_ID}}"
 
 arkeon config set-url "$ARKE_API_URL"
@@ -66,18 +66,33 @@ arkeon entities list --space-id "$ARKE_SPACE_ID" --sort created_at --order desc 
 
 ### List concepts the dreamer has extracted
 ```bash
-arkeon entities list --space-id "$ARKE_SPACE_ID" --filter "type=concept" --sort created_at --order desc
+arkeon entities list --space-id "$ARKE_SPACE_ID" --filter "type:concept" --sort created_at --order desc
 ```
 
 ### See how an entity connects to others
 ```bash
+arkeon entities get <ENTITY_ID> --view expanded --rel-limit 20
+```
+
+### List relationships
+```bash
 arkeon relationships list <ENTITY_ID>
 ```
 
-## Notes
+## What You Can Do
 
-- A **dreamer** worker automatically processes new content and builds connections in the graph.
-- A **tidier** worker periodically merges duplicates and removes low-quality entities.
-- You do not need to create relationships manually — the dreamer handles that.
+You have **editor** access to the knowledge graph space. This means you can:
+
+- **Add content** — notes, documents, conversations, references
+- **Read everything** — all entities, concepts, observations, relationships
+- **Search** — full-text and semantic search across the graph
+- **Query relationships** — see how entities connect to each other
+
+You do **not** need to create relationships manually — a dreamer worker automatically analyzes new content and builds connections. A tidier worker periodically merges duplicates and cleans up the graph.
+
+## Tips
+
 - Use descriptive labels and include as much content as useful. The dreamer works better with more context.
 - Everything you add goes into a dedicated space and is organized automatically.
+- When the user asks "what do I know about X?", search the graph first before answering.
+- When the user shares something interesting, offer to add it to the knowledge graph.

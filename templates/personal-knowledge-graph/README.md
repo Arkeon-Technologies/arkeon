@@ -39,8 +39,8 @@ The setup script will:
 - Create a space for your knowledge graph
 - Create the dreamer worker (content analysis) with its state entity
 - Create the tidier worker (graph maintenance) with its state entity
-- Create a scoped integration agent for external access
-- Output API keys and quick-start commands
+- Create an assistant agent with an API key you give to your AI assistant
+- Output the API key and quick-start commands
 
 ## Configuration
 
@@ -57,13 +57,22 @@ See `config.example.yaml` for all options. Key settings:
 | `priorities.extract_people` | Whether to extract person entities |
 | `priorities.extract_concepts` | Whether to extract concept entities |
 
-## Adding Content
+## Giving Access to Your AI Assistant
 
-After setup, add content using the integration API key:
+Setup creates an **assistant agent** with editor access to your knowledge graph. The API key is saved to `.env.assistant`. Give it to any AI assistant with terminal access (Claude Code, Codex, etc.):
+
+1. Open `integration/claude-code-snippet.md`
+2. Fill in the values from `.env.assistant`
+3. Give the snippet to your assistant
+
+The assistant can then add content, search the graph, and query relationships on your behalf. The dreamer and tidier workers handle all the analysis and maintenance automatically.
+
+### Adding content directly
+
+You can also add content yourself via the CLI:
 
 ```bash
-# Source the generated env file
-source .env.integration
+source .env.assistant
 
 # Add a note
 arkeon entities create --type note --space-id "$ARKE_SPACE_ID" \
@@ -73,16 +82,6 @@ arkeon entities create --type note --space-id "$ARKE_SPACE_ID" \
 arkeon entities create --type document --space-id "$ARKE_SPACE_ID" \
   --properties '{"label":"Paper title","content":"Full text...","source":"arxiv"}'
 ```
-
-## Integrating with Agents
-
-The setup generates an integration API key scoped to the knowledge graph space. Give it to any agent with shell access:
-
-1. Open `integration/claude-code-snippet.md`
-2. Replace the placeholder values with those from `.env.integration`
-3. Give the snippet to Claude Code, Claude Co-work, or any other agent
-
-The agent can then add content and query the knowledge graph on your behalf.
 
 ## What the Workers Do
 

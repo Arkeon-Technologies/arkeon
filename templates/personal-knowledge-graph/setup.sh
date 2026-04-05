@@ -317,33 +317,36 @@ echo "  Tidier worker:  ${TIDIER_WORKER_ID}"
 grant_worker_perms "$TIDIER_WORKER_ID" "$TIDIER_STATE_ID"
 echo "  Granted tidier space editor + state entity access"
 
-# ── Step 6: Create integration agent ────────────────────────────────
+# ── Step 6: Create assistant agent ──────────────────────────────────
+# This agent gets an API key the user gives to their AI assistant
+# (Claude Code, Codex, etc.) for full access to the knowledge graph.
 echo ""
-echo "Creating integration agent..."
+echo "Creating assistant agent..."
 AGENT_BODY=$(jq -n \
   --arg arke "$ARKE_ID" \
   '{
     kind: "agent",
     arke_id: $arke,
-    max_read_level: 1,
-    max_write_level: 1,
-    properties: { name: "knowledge-graph-ingest" }
+    max_read_level: 4,
+    max_write_level: 2,
+    properties: { name: "knowledge-graph-assistant" }
   }')
 
-AGENT_RESP=$(api POST /actors -d "$AGENT_BODY") || { echo "Error: Failed to create integration agent."; exit 1; }
-INTEGRATION_KEY=$(echo "$AGENT_RESP" | jq -r '.api_key')
+AGENT_RESP=$(api POST /actors -d "$AGENT_BODY") || { echo "Error: Failed to create assistant agent."; exit 1; }
+ASSISTANT_KEY=$(echo "$AGENT_RESP" | jq -r '.api_key')
 AGENT_ID=$(echo "$AGENT_RESP" | jq -r '.actor.id')
 echo "  Agent created: ${AGENT_ID}"
 
-# Grant contributor access to the space
+# Grant editor access to the space — can read everything, add content,
+# search, query relationships
 PERM_BODY=$(jq -n \
   --arg id "$AGENT_ID" \
-  '{grantee_type: "actor", grantee_id: $id, role: "contributor"}')
+  '{grantee_type: "actor", grantee_id: $id, role: "editor"}')
 
 api POST "/spaces/${SPACE_ID}/permissions" -d "$PERM_BODY" > /dev/null || {
-  echo "Warning: Failed to grant space permissions to integration agent."
+  echo "Warning: Failed to grant space permissions to assistant agent."
 }
-echo "  Granted contributor access to space"
+echo "  Granted editor access to space"
 
 # ── Step 7: Output summary ──────────────────────────────────────────
 echo ""
@@ -362,24 +365,26 @@ echo "  Tidier Worker ID:   ${TIDIER_WORKER_ID}"
 echo "  Tidier Schedule:    ${TIDIER_SCHEDULE}"
 echo "  Tidier State:       ${TIDIER_STATE_ID}"
 echo ""
-echo "  Integration Key:    ${INTEGRATION_KEY}"
+echo "  Assistant Key:      ${ASSISTANT_KEY}"
 echo "  (Save this key — it will not be shown again)"
+echo ""
+echo "  Give this key to your AI assistant (Claude Code, Codex, etc.)"
+echo "  along with the integration snippet for full graph access."
 echo ""
 echo "=========================================="
 echo ""
 
-# Write .env.integration file
-ENV_FILE="${SCRIPT_DIR}/.env.integration"
+# Write .env.assistant file
+ENV_FILE="${SCRIPT_DIR}/.env.assistant"
 cat > "$ENV_FILE" <<EOF
-# Arkeon Knowledge Graph Integration
+# Arkeon Knowledge Graph - Assistant Agent
 # Generated $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Give these to your AI assistant (Claude Code, Codex, etc.)
 ARKE_API_URL=${API_URL}
-ARKE_API_KEY=${INTEGRATION_KEY}
+ARKE_API_KEY=${ASSISTANT_KEY}
 ARKE_SPACE_ID=${SPACE_ID}
-ARKE_DREAMER_WORKER_ID=${DREAMER_WORKER_ID}
-ARKE_TIDIER_WORKER_ID=${TIDIER_WORKER_ID}
 EOF
-echo "Integration env written to: ${ENV_FILE}"
+echo "Assistant env written to: ${ENV_FILE}"
 
 # Print quick-start commands
 echo ""
@@ -387,12 +392,13 @@ echo "-- Quick Start --"
 echo ""
 echo "Add a note:"
 echo "  export ARKE_API_URL=\"${API_URL}\""
-echo "  export ARKE_API_KEY=\"${INTEGRATION_KEY}\""
+echo "  export ARKE_API_KEY=\"${ASSISTANT_KEY}\""
 echo "  arkeon entities create --type note --space-id ${SPACE_ID} \\"
 echo "    --properties '{\"label\":\"My first note\",\"content\":\"Hello, knowledge graph!\"}'"
 echo ""
-echo "Give an agent access (copy the integration snippet):"
+echo "Give an AI assistant access:"
 echo "  cat ${SCRIPT_DIR}/integration/claude-code-snippet.md"
+echo "  # Fill in values from .env.assistant"
 echo ""
 echo "Manually trigger the dreamer:"
 echo "  curl -X POST \"${API_URL}/workers/${DREAMER_WORKER_ID}/invoke\" \\"
