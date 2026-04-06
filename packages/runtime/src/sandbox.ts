@@ -109,12 +109,18 @@ export class Sandbox {
     }
   }
 
+  private _killed = false;
+
   /**
    * Execute a command in the sandbox.
    * If bwrap is not available (e.g., macOS), falls back to direct execution
    * in the workspace directory with restricted env.
+   * Returns immediately with exit code 1 if the sandbox has been killed.
    */
   async exec(command: string, timeoutMs: number = 30_000): Promise<ExecResult> {
+    if (this._killed) {
+      return { stdout: "", stderr: "Sandbox killed", exitCode: 1 };
+    }
     if (this.useBwrap) {
       return this.execBwrap(command, timeoutMs);
     }
@@ -233,11 +239,12 @@ export class Sandbox {
   }
 
   /**
-   * Kill the currently running child process (if any).
+   * Kill the currently running child process (if any) and prevent future spawns.
    * Sends SIGKILL to ensure immediate termination — bwrap's --new-session
    * means the signal reaches the entire process group.
    */
   kill(): void {
+    this._killed = true;
     if (this.activeChild && !this.activeChild.killed) {
       this.activeChild.kill("SIGKILL");
       this.activeChild = null;

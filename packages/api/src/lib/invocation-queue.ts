@@ -508,19 +508,13 @@ function startItem(item: QueueItem): void {
 async function executeItem(item: QueueItem, signal: AbortSignal): Promise<void> {
   let result: InvokeResult | undefined;
   try {
-    result = await Promise.race([
-      invokeWorker(item.workerId, item.prompt, {
-        invocationId: item.invocationId,
-        depth: item.depth,
-      }, signal),
-      new Promise<never>((_, reject) => {
-        if (signal.aborted) reject(new Error("Invocation cancelled by queue reset"));
-        signal.addEventListener("abort", () =>
-          reject(new Error("Invocation cancelled by queue reset")),
-          { once: true },
-        );
-      }),
-    ]);
+    // invokeWorker now handles abort cooperatively via AbortSignal.any(),
+    // so no Promise.race needed — it returns a result on both
+    // normal completion and abort/timeout.
+    result = await invokeWorker(item.workerId, item.prompt, {
+      invocationId: item.invocationId,
+      depth: item.depth,
+    }, signal);
     completeInvocation(item.invocationId, item.invokerId, result, item.storeLogs);
     item.resolve(result);
   } catch (err) {
@@ -551,7 +545,7 @@ async function executeItem(item: QueueItem, signal: AbortSignal): Promise<void> 
         );
       }
     }
-    running--;
+    running = Math.max(0, running - 1);
     tryRunNext();
   }
 }
