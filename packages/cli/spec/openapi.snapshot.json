@@ -1805,6 +1805,166 @@
         ]
       }
     },
+    "/admin/queue": {
+      "get": {
+        "operationId": "getQueueStats",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "free_memory_mb": {
+                      "description": "Free system memory in MB",
+                      "type": "integer"
+                    },
+                    "max_concurrent": {
+                      "description": "Max concurrent worker slots",
+                      "type": "integer"
+                    },
+                    "max_queue_depth": {
+                      "description": "Max queue depth",
+                      "type": "integer"
+                    },
+                    "queued": {
+                      "description": "Invocations waiting in memory",
+                      "type": "integer"
+                    },
+                    "running": {
+                      "description": "Currently executing invocations",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "running",
+                    "queued",
+                    "max_concurrent",
+                    "max_queue_depth",
+                    "free_memory_mb"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Queue statistics"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Get worker invocation queue statistics",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
+      }
+    },
+    "/admin/queue/reset": {
+      "post": {
+        "operationId": "resetQueue",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "after": {
+                      "properties": {
+                        "queued": {
+                          "type": "integer"
+                        },
+                        "running": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "running",
+                        "queued"
+                      ],
+                      "type": "object"
+                    },
+                    "before": {
+                      "properties": {
+                        "queued": {
+                          "type": "integer"
+                        },
+                        "running": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "running",
+                        "queued"
+                      ],
+                      "type": "object"
+                    },
+                    "recovered": {
+                      "description": "Invocations re-queued from DB",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "before",
+                    "after",
+                    "recovered"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Queue reset result"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Force-reset the invocation queue (fixes stuck/leaked concurrency slots)",
+        "tags": [
+          "Admin"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-rules": [
+          "System admin only"
+        ]
+      }
+    },
     "/admin/reindex": {
       "post": {
         "operationId": "adminReindex",
@@ -9749,7 +9909,7 @@
                         "type": "integer"
                       },
                       "timeout_ms": {
-                        "maximum": 600000,
+                        "maximum": 1800000,
                         "minimum": 1000,
                         "type": "integer"
                       }
