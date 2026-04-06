@@ -1,5 +1,5 @@
 import { describe, test, expect } from "vitest";
-import { apiRequest, jsonRequest, adminApiKey, createActor } from "./helpers";
+import { apiRequest, jsonRequest, adminApiKey, createActor, createWorker } from "./helpers";
 
 describe("Admin queue endpoints", () => {
   test("GET /admin/queue returns queue stats", async () => {
@@ -60,6 +60,54 @@ describe("Admin queue endpoints", () => {
     });
     expect(response.status).toBe(403);
   });
+
+  test("reset aborts a running worker invocation", async () => {
+    // Create a worker pointing at a non-routable IP — the LLM call will
+    // hang on TCP connect, giving us a reliably "running" invocation.
+    const worker = await createWorker(adminApiKey, {
+      name: "slow-worker-reset-test",
+      llm: {
+        base_url: "http://10.255.255.1:1/v1",
+        api_key: "sk-fake",
+        model: "hang-model",
+      },
+    });
+
+    // Fire invocation without ?wait=true — returns 202 immediately
+    const { response: invokeResp, body: invokeBody } = await jsonRequest(
+      `/workers/${worker.id}/invoke`,
+      { method: "POST", apiKey: adminApiKey, json: { prompt: "this will hang" } },
+    );
+    expect(invokeResp.status).toBe(202);
+    const invocationId = (invokeBody as { invocation_id: number }).invocation_id;
+
+    // Wait a moment for it to transition to running
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Confirm it's running
+    const { body: statsBody } = await apiRequest("/admin/queue", { apiKey: adminApiKey });
+    expect((statsBody as any).running).toBeGreaterThanOrEqual(1);
+
+    // Reset the queue — should abort the hanging invocation
+    const { response: resetResp, body: resetBody } = await jsonRequest(
+      "/admin/queue/reset",
+      { method: "POST", apiKey: adminApiKey },
+    );
+    expect(resetResp.status).toBe(200);
+    const resetData = resetBody as Record<string, any>;
+    expect(resetData.before.running).toBeGreaterThanOrEqual(1);
+    expect(resetData.cancelled).toBeGreaterThanOrEqual(1);
+    expect(resetData.after.running).toBe(0);
+    expect(resetData.after.queued).toBe(0);
+
+    // Verify the invocation is now failed/cancelled in DB
+    const { body: pollBody } = await apiRequest(
+      `/workers/invocations/${invocationId}`,
+      { apiKey: adminApiKey },
+    );
+    const pollData = pollBody as Record<string, any>;
+    expect(["failed", "cancelled"]).toContain(pollData.status);
+  }, 15_000);
 
   test("queue stats reflect reset", async () => {
     // Reset first
