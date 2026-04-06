@@ -376,6 +376,75 @@ export function getQueueStats(): {
 }
 
 /**
+ * Force-reset the in-memory queue state.
+ * Zeroes the running counter and re-initializes from DB.
+ * Use when the running counter has leaked and invocations are stuck.
+ * Returns stats before and after the reset.
+ */
+export async function resetQueue(): Promise<{
+  before: { running: number; queued: number };
+  after: { running: number; queued: number };
+  recovered: number;
+}> {
+  const before = { running, queued: pending.length };
+
+  // Zero out in-memory state
+  running = 0;
+  pending.length = 0;
+
+  // Re-pick up all legitimately queued invocations from DB
+  const sql = createSql();
+  const [, queuedRows] = await sql.transaction([
+    sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
+    sql.query(
+      `SELECT w.id, w.worker_id, w.invoker_id, w.prompt, w.depth,
+              w.batch_id, w.batch_seq
+       FROM worker_invocations w
+       WHERE w.status = 'queued'
+         AND (
+           w.batch_id IS NULL
+           OR w.batch_seq = 0
+           OR EXISTS (
+             SELECT 1 FROM worker_invocations prev
+             WHERE prev.batch_id = w.batch_id
+               AND prev.batch_seq = w.batch_seq - 1
+               AND prev.status IN ('completed', 'failed')
+           )
+         )
+       ORDER BY w.id`,
+    ),
+  ]);
+
+  const queued = queuedRows as Array<{
+    id: number;
+    worker_id: string;
+    invoker_id: string;
+    prompt: string;
+    depth: number;
+    batch_id: string | null;
+    batch_seq: number | null;
+  }>;
+
+  for (const row of queued) {
+    requeueInvocation(
+      row.id, row.worker_id, row.invoker_id, row.prompt, row.depth,
+      row.batch_id ?? undefined, row.batch_seq ?? undefined,
+    );
+  }
+
+  console.log(
+    `[queue] force reset: running ${before.running}→${running}, ` +
+    `pending ${before.queued}→${pending.length}, recovered ${queued.length} from DB`,
+  );
+
+  return {
+    before,
+    after: { running, queued: pending.length },
+    recovered: queued.length,
+  };
+}
+
+/**
  * Drain the queue for graceful shutdown.
  * Cancels all pending items and waits for running invocations to finish.
  */
