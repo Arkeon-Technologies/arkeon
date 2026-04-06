@@ -55,7 +55,7 @@ async function updateContentMetadata(options: {
     sql.query(
       `
         UPDATE entities
-        SET properties = $1::jsonb,
+        SET properties = properties || $1::jsonb,
             ver = ver + 1,
             edited_by = $2,
             note = $3,

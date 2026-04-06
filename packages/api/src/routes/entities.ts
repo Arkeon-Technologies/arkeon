@@ -199,7 +199,7 @@ const updateEntityRoute = createRoute({
   summary: "Update entity properties",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "GET /entities/{id}/versions"],
-  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= entity's write_level", "Optimistic concurrency: must pass current ver to update"],
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= entity's write_level", "Optimistic concurrency: must pass current ver to update", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"],
   request: {
     params: entityIdParams(),
     body: {
@@ -682,7 +682,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql.query(
       `UPDATE entities
-       SET properties = $1::jsonb,
+       SET properties = properties || $1::jsonb,
            ver = ver + 1,
            edited_by = $2,
            note = $3,

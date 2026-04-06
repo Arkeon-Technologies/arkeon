@@ -172,7 +172,7 @@ const updateRelationshipRoute = createRoute({
   tags: ["Relationships"],
   summary: "Update relationship properties",
   "x-arke-auth": "required",
-  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= relationship's write_level", "Optimistic concurrency: must pass current ver to update"],
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= relationship's write_level", "Optimistic concurrency: must pass current ver to update", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"],
   request: {
     params: z.object({
       relId: pathParam("relId", EntityIdParam, "Relationship entity ULID"),
@@ -486,7 +486,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
     sql.query(
       `
         UPDATE entities
-        SET properties = $1::jsonb,
+        SET properties = properties || $1::jsonb,
             ver = ver + 1,
             edited_by = $2,
             note = $3,

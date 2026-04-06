@@ -270,7 +270,7 @@ const updateWorkerRoute = createRoute({
   summary: "Update worker configuration",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /workers/{id}"],
-  "x-arke-rules": ["Only the worker owner or a system admin may update"],
+  "x-arke-rules": ["Only the worker owner or a system admin may update", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"],
   request: {
     params: entityIdParams("Worker actor ULID"),
     body: {
@@ -531,7 +531,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
   const [,,,,, rows] = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
-      `UPDATE actors SET properties = $1::jsonb, updated_at = $2::timestamptz WHERE id = $3 RETURNING *`,
+      `UPDATE actors SET properties = properties || $1::jsonb, updated_at = $2::timestamptz WHERE id = $3 RETURNING *`,
       [JSON.stringify(props), now, workerId],
     ),
   ]);

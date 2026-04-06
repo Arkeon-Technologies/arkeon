@@ -44,7 +44,7 @@ const updateMeRoute = createRoute({
   tags: ["Auth"],
   summary: "Update the authenticated actor's properties",
   "x-arke-auth": "required",
-  "x-arke-rules": ["Operates on your own record only", "Can only update properties — admin fields require PUT /actors/{id}"],
+  "x-arke-rules": ["Operates on your own record only", "Can only update properties — admin fields require PUT /actors/{id}", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"],
   request: {
     body: {
       required: true,
@@ -192,7 +192,7 @@ authRouter.openapi(updateMeRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql`
       UPDATE actors
-      SET properties = ${JSON.stringify(body.properties)}::jsonb,
+      SET properties = properties || ${JSON.stringify(body.properties)}::jsonb,
           updated_at = NOW()
       WHERE id = ${actor.id}
       RETURNING *
