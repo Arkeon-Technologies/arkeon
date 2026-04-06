@@ -54,12 +54,15 @@ export interface AgentResult {
 
 const MAX_TOOL_OUTPUT_LENGTH = 20_000;
 
-function truncate(s: string, max: number = MAX_TOOL_OUTPUT_LENGTH): string {
+function truncate(s: string, max: number = MAX_TOOL_OUTPUT_LENGTH, logOnly: boolean = false): string {
   if (s.length <= max) return s;
   const half = Math.floor(max / 2) - 50;
+  const note = logOnly
+    ? `\n\n... [${s.length - max} characters hidden from log, full result sent to model] ...\n\n`
+    : `\n\n... [truncated ${s.length - max} characters] ...\n\n`;
   return (
     s.slice(0, half) +
-    `\n\n... [truncated ${s.length - max} characters] ...\n\n` +
+    note +
     s.slice(-half)
   );
 }
@@ -307,7 +310,7 @@ export class Agent {
 
         this.emit({
           type: "tool_result",
-          content: truncate(result, 500),
+          content: truncate(result, 500, true),
         });
 
         messages.push({
