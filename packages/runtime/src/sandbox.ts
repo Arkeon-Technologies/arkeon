@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -38,6 +38,7 @@ export class Sandbox {
   private config: Required<SandboxConfig>;
   private useBwrap: boolean;
   private sandboxTmpDir: string;
+  private activeChild: ChildProcess | null = null;
 
   constructor(config: SandboxConfig) {
     this.config = {
@@ -174,6 +175,8 @@ export class Sandbox {
         ...opts,
       });
 
+      this.activeChild = child;
+
       let stdout = "";
       let stderr = "";
 
@@ -185,13 +188,27 @@ export class Sandbox {
       });
 
       child.on("close", (code) => {
+        this.activeChild = null;
         resolve({ stdout, stderr, exitCode: code ?? 1 });
       });
 
       child.on("error", (err) => {
+        this.activeChild = null;
         resolve({ stdout, stderr: stderr + "\n" + err.message, exitCode: 1 });
       });
     });
+  }
+
+  /**
+   * Kill the currently running child process (if any).
+   * Sends SIGKILL to ensure immediate termination — bwrap's --new-session
+   * means the signal reaches the entire process group.
+   */
+  kill(): void {
+    if (this.activeChild && !this.activeChild.killed) {
+      this.activeChild.kill("SIGKILL");
+      this.activeChild = null;
+    }
   }
 
   get workspace(): string {

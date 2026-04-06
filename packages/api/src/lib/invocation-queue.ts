@@ -512,7 +512,7 @@ async function executeItem(item: QueueItem, signal: AbortSignal): Promise<void> 
       invokeWorker(item.workerId, item.prompt, {
         invocationId: item.invocationId,
         depth: item.depth,
-      }),
+      }, signal),
       new Promise<never>((_, reject) => {
         if (signal.aborted) reject(new Error("Invocation cancelled by queue reset"));
         signal.addEventListener("abort", () =>

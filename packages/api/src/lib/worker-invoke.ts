@@ -58,6 +58,7 @@ export async function invokeWorker(
   workerId: string,
   prompt: string,
   context?: InvocationContext,
+  signal?: AbortSignal,
 ): Promise<InvokeResult> {
   const sql = createSql();
 
@@ -122,7 +123,7 @@ export async function invokeWorker(
 
   try {
     const result = await Promise.race([
-      agent.run(prompt),
+      agent.run(prompt, signal),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Worker execution timed out")), timeoutMs),
       ),

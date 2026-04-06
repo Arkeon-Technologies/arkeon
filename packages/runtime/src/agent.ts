@@ -94,12 +94,17 @@ export class Agent {
   }
 
   /**
-   * Run the agent with a prompt. Returns when the agent calls `done`
-   * or hits the iteration limit.
+   * Run the agent with a prompt. Returns when the agent calls `done`,
+   * hits the iteration limit, or the abort signal fires.
    */
-  async run(prompt: string): Promise<AgentResult> {
+  async run(prompt: string, signal?: AbortSignal): Promise<AgentResult> {
     this.log = [];
     this.emit({ type: "system", content: `Agent "${this.name}" starting` });
+
+    // Kill the sandbox child process immediately when aborted
+    if (signal) {
+      signal.addEventListener("abort", () => this.sandbox.kill(), { once: true });
+    }
 
     const messages: ChatCompletionMessageParam[] = [
       { role: "system", content: this.systemPrompt },
@@ -116,6 +121,17 @@ export class Agent {
     };
 
     while (iterations < this.maxIterations) {
+      if (signal?.aborted) {
+        this.emit({ type: "error", content: "Aborted" });
+        return {
+          success: false,
+          result: { error: "Aborted" },
+          iterations,
+          log: this.log,
+          usage,
+        };
+      }
+
       iterations++;
       this.emit({
         type: "llm_request",
