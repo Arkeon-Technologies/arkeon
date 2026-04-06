@@ -237,6 +237,8 @@ export const RelationshipSummarySchema = z
     target_id: UlidSchema,
     direction: z.enum(["in", "out"]),
     properties: JsonObjectSchema,
+    read_level: ClassificationLevel,
+    write_level: ClassificationLevel,
     counterpart: z.object({
       id: UlidSchema,
       kind: z.enum(["entity", "relationship"]),

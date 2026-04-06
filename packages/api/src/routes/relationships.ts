@@ -39,6 +39,8 @@ type RelationshipRow = {
   target_id: string;
   ver: number;
   properties: Record<string, unknown>;
+  read_level: number;
+  write_level: number;
   created_at?: string;
   updated_at?: string;
 };
@@ -50,6 +52,8 @@ const RelationshipSummarySchema = z.object({
   target_id: EntityIdParam,
   direction: z.enum(["in", "out"]).describe("Whether this entity is the source (out) or target (in)"),
   properties: z.record(z.string(), z.any()),
+  read_level: ClassificationLevel,
+  write_level: ClassificationLevel,
   source: z.any().optional(),
   target: z.any().optional(),
 });
@@ -156,6 +160,8 @@ const getRelationshipRoute = createRoute({
           source_id: EntityIdParam,
           target_id: EntityIdParam,
           properties: z.record(z.string(), z.any()),
+          read_level: ClassificationLevel,
+          write_level: ClassificationLevel,
           source: z.any(),
           target: z.any(),
         }),
@@ -248,6 +254,8 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
           re.source_id,
           re.target_id,
           rel.properties,
+          rel.read_level,
+          rel.write_level,
           CASE WHEN re.source_id = $1 THEN 'out' ELSE 'in' END AS direction,
           json_build_object(
             'id', other.id,
@@ -283,6 +291,8 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
         target_id: row.target_id,
         direction: dir,
         properties: row.properties,
+        read_level: row.read_level,
+        write_level: row.write_level,
         [dir === "in" ? "source" : "target"]: row.counterpart,
       };
     }),
