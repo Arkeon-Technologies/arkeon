@@ -2950,7 +2950,8 @@
         "x-arke-auth": "required",
         "x-arke-rules": [
           "Operates on your own record only",
-          "Can only update properties — admin fields require PUT /actors/{id}"
+          "Can only update properties — admin fields require PUT /actors/{id}",
+          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"
         ]
       }
     },
@@ -3808,7 +3809,8 @@
         "x-arke-rules": [
           "Only the owner, an entity editor, or an entity admin may update",
           "Requires write_level clearance >= entity's write_level",
-          "Optimistic concurrency: must pass current ver to update"
+          "Optimistic concurrency: must pass current ver to update",
+          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"
         ]
       }
     },
@@ -7430,7 +7432,8 @@
         "x-arke-rules": [
           "Only the owner, an entity editor, or an entity admin may update",
           "Requires write_level clearance >= relationship's write_level",
-          "Optimistic concurrency: must pass current ver to update"
+          "Optimistic concurrency: must pass current ver to update",
+          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"
         ]
       }
     },
@@ -10016,7 +10019,8 @@
           "GET /workers/{id}"
         ],
         "x-arke-rules": [
-          "Only the worker owner or a system admin may update"
+          "Only the worker owner or a system admin may update",
+          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"
         ]
       }
     },
