@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 export interface SandboxConfig {
   /** Persistent workspace directory for this agent */
@@ -36,6 +37,7 @@ export interface ExecResult {
 export class Sandbox {
   private config: Required<SandboxConfig>;
   private useBwrap: boolean;
+  private sandboxTmpDir: string;
 
   constructor(config: SandboxConfig) {
     this.config = {
@@ -51,6 +53,13 @@ export class Sandbox {
     if (!existsSync(this.config.workspaceDir)) {
       mkdirSync(this.config.workspaceDir, { recursive: true });
     }
+
+    // Persistent /tmp for bwrap — survives across exec() calls within one invocation
+    const tmpDir = join(this.config.workspaceDir, ".sandbox-tmp");
+    if (!existsSync(tmpDir)) {
+      mkdirSync(tmpDir);
+    }
+    this.sandboxTmpDir = tmpDir;
 
     // Check if bwrap is available
     this.useBwrap = this.checkBwrap();
@@ -95,10 +104,11 @@ export class Sandbox {
       "--ro-bind",
       "/",
       "/",
-      // Fresh /tmp (must come BEFORE workspace bind so the bind overlays on top)
-      "--tmpfs",
+      // Persistent /tmp — bind workspace-local dir so state survives across tool calls
+      "--bind",
+      this.sandboxTmpDir,
       "/tmp",
-      // Writable workspace (inside the fresh /tmp)
+      // Writable workspace
       "--bind",
       this.config.workspaceDir,
       this.config.workspaceDir,
