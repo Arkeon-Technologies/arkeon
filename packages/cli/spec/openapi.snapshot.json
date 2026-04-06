@@ -1918,15 +1918,15 @@
                       ],
                       "type": "object"
                     },
-                    "recovered": {
-                      "description": "Invocations re-queued from DB",
+                    "cancelled": {
+                      "description": "Total invocations cancelled (running + pending)",
                       "type": "integer"
                     }
                   },
                   "required": [
                     "before",
                     "after",
-                    "recovered"
+                    "cancelled"
                   ],
                   "type": "object"
                 }
@@ -1955,7 +1955,7 @@
             "description": "Forbidden"
           }
         },
-        "summary": "Force-reset the invocation queue (fixes stuck/leaked concurrency slots)",
+        "summary": "Force-reset the invocation queue (aborts all running workers, cancels all pending)",
         "tags": [
           "Admin"
         ],
