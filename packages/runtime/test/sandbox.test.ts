@@ -108,38 +108,73 @@ async function runTests() {
     const errTest = await sandbox.exec("echo oops >&2");
     assert(errTest.stderr.includes("oops"), `stderr captured (got "${errTest.stderr.trim()}")`);
 
+    // --- Kill / abort tests use fresh sandboxes (kill() is permanent) ---
+
     // 12b. kill() terminates a running process
     console.log("\n12b. kill() terminates a running child process");
     {
-      // Start a long-running command
-      const execPromise = sandbox.exec("sleep 60", 60_000);
-      // Give it a moment to actually spawn
-      await new Promise((r) => setTimeout(r, 200));
-      // Kill it
-      sandbox.kill();
-      const killResult = await execPromise;
-      // Should have been killed (non-zero exit, or null → 1)
-      assert(killResult.exitCode !== 0, `kill() terminated process (exit ${killResult.exitCode})`);
+      const ws = mkdtempSync(join(tmpdir(), "arke-sandbox-kill-"));
+      const sb = new Sandbox({ workspaceDir: ws });
+      try {
+        const execPromise = sb.exec("sleep 60", 60_000);
+        await new Promise((r) => setTimeout(r, 200));
+        sb.kill();
+        const killResult = await execPromise;
+        assert(killResult.exitCode !== 0, `kill() terminated process (exit ${killResult.exitCode})`);
+      } finally { rmSync(ws, { recursive: true, force: true }); }
     }
 
     // 12c. AbortSignal integration — kill via signal listener
     console.log("\n12c. AbortSignal kills sandbox child process");
     {
-      const ac = new AbortController();
-      // Wire up abort → kill, same pattern as Agent.run()
-      ac.signal.addEventListener("abort", () => sandbox.kill(), { once: true });
-
-      const execPromise = sandbox.exec("sleep 60", 60_000);
-      await new Promise((r) => setTimeout(r, 200));
-      ac.abort();
-      const abortResult = await execPromise;
-      assert(abortResult.exitCode !== 0, `abort signal terminated process (exit ${abortResult.exitCode})`);
+      const ws = mkdtempSync(join(tmpdir(), "arke-sandbox-abort-"));
+      const sb = new Sandbox({ workspaceDir: ws });
+      try {
+        const ac = new AbortController();
+        ac.signal.addEventListener("abort", () => sb.kill(), { once: true });
+        const execPromise = sb.exec("sleep 60", 60_000);
+        await new Promise((r) => setTimeout(r, 200));
+        ac.abort();
+        const abortResult = await execPromise;
+        assert(abortResult.exitCode !== 0, `abort signal terminated process (exit ${abortResult.exitCode})`);
+      } finally { rmSync(ws, { recursive: true, force: true }); }
     }
 
-    // 12d. kill() is safe to call when no process is running
-    console.log("\n12d. kill() is safe when idle");
-    sandbox.kill(); // should not throw
-    assert(true, "kill() on idle sandbox does not throw");
+    // 12d. kill() prevents future exec() calls
+    console.log("\n12d. kill() prevents future spawns");
+    {
+      const ws = mkdtempSync(join(tmpdir(), "arke-sandbox-killed-"));
+      const sb = new Sandbox({ workspaceDir: ws });
+      try {
+        sb.kill();
+        const blocked = await sb.exec("echo should-not-run");
+        assert(blocked.exitCode !== 0, `exec() after kill returns error`);
+        assert(blocked.stderr.includes("killed"), `exec() after kill says sandbox killed`);
+      } finally { rmSync(ws, { recursive: true, force: true }); }
+    }
+
+    // 12e. Stress test: rapid spawn-kill cycles don't leak processes
+    console.log("\n12e. Stress: 10 rapid spawn-kill cycles");
+    {
+      const ws = mkdtempSync(join(tmpdir(), "arke-sandbox-stress-"));
+      let allOk = true;
+      try {
+        for (let i = 0; i < 10; i++) {
+          const sb = new Sandbox({ workspaceDir: ws });
+          const p = sb.exec("sleep 60", 60_000);
+          await new Promise((r) => setTimeout(r, 50));
+          sb.kill();
+          const r = await p;
+          if (r.exitCode === 0) { allOk = false; break; }
+        }
+        assert(allOk, `all 10 cycles killed successfully`);
+        // Verify we can still spawn after all the kills
+        const fresh = new Sandbox({ workspaceDir: ws });
+        const check = await fresh.exec("echo alive", 5_000);
+        assert(check.exitCode === 0 && check.stdout.trim() === "alive",
+          `fresh sandbox works after stress test`);
+      } finally { rmSync(ws, { recursive: true, force: true }); }
+    }
 
     // Linux/bwrap-specific tests
     if (isLinux) {

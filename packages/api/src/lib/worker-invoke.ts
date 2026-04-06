@@ -121,13 +121,16 @@ export async function invokeWorker(
   const logLevel = props.log_level ?? "full";
   const startedAt = new Date();
 
+  // Combine external abort signal and timeout into a single signal.
+  // This ensures agent.run() stops cooperatively on EITHER condition,
+  // preventing orphaned agent loops that keep spawning bwrap processes.
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
   try {
-    const result = await Promise.race([
-      agent.run(prompt, signal),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Worker execution timed out")), timeoutMs),
-      ),
-    ]);
+    const result = await agent.run(prompt, combinedSignal);
 
     return {
       success: result.success,
@@ -138,19 +141,7 @@ export async function invokeWorker(
       logLevel,
       startedAt,
       completedAt: new Date(),
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      result: { error: msg },
-      iterations: 0,
-      log: agent.getLog(),
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, llmCalls: 0, toolCalls: 0 },
-      logLevel,
-      startedAt,
-      completedAt: new Date(),
-      errorMessage: msg,
+      errorMessage: result.success ? undefined : (result.result as Record<string, unknown>)?.error as string | undefined,
     };
   } finally {
     try {
