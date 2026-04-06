@@ -38,6 +38,8 @@ if (!prompt) {
 
 // Create a temp workspace
 const workspace = mkdtempSync(join(tmpdir(), "arkeon-agent-"));
+const doneFilePath = join(workspace, ".arke-done.json");
+const doneSignalPath = join(workspace, ".arke-done.signal");
 console.log(`Workspace: ${workspace}\n`);
 
 // Test sandbox first
@@ -57,22 +59,28 @@ const agent = new Agent({
     "## Environment",
     "You are running in an isolated sandbox with a writable workspace directory.",
     "Pre-installed tools: curl, jq, python3, arkeon (Arkeon CLI).",
+    "$ARKE_DONE_FILE is where you must write the final JSON result.",
+    "Run the `arke-done` shell command after writing $ARKE_DONE_FILE.",
     ...(process.env.ARKE_API_URL
       ? [
           "$ARKE_API_URL and $ARKE_API_KEY are set and pre-configured for the arkeon CLI.",
           'For API reference: curl -H "X-API-Key: $ARKE_API_KEY" $ARKE_API_URL/llms.txt',
         ]
       : []),
-    "When done, call the done tool with a summary.",
+    "Write your final JSON result to $ARKE_DONE_FILE, then run `arke-done` to finish.",
   ].join("\n"),
   llm: { baseUrl, apiKey, model },
   sandbox: {
     workspaceDir: workspace,
     env: {
+      ARKE_DONE_FILE: doneFilePath,
+      ARKE_DONE_SIGNAL_FILE: doneSignalPath,
       ...(process.env.ARKE_API_URL ? { ARKE_API_URL: process.env.ARKE_API_URL } : {}),
       ...(process.env.ARKE_API_KEY ? { ARKE_API_KEY: process.env.ARKE_API_KEY } : {}),
     },
   },
+  doneFilePath,
+  doneSignalPath,
   onLog: (entry) => {
     const prefix = `[${entry.type}]`.padEnd(16);
     console.log(`  ${prefix} ${entry.content}`);

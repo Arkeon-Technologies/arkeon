@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface SandboxConfig {
@@ -38,6 +38,7 @@ export class Sandbox {
   private config: Required<SandboxConfig>;
   private useBwrap: boolean;
   private sandboxTmpDir: string;
+  private sandboxBinDir: string;
   private activeChild: ChildProcess | null = null;
 
   constructor(config: SandboxConfig) {
@@ -62,8 +63,34 @@ export class Sandbox {
     }
     this.sandboxTmpDir = tmpDir;
 
+    const binDir = join(this.config.workspaceDir, ".sandbox-bin");
+    if (!existsSync(binDir)) {
+      mkdirSync(binDir);
+    }
+    this.sandboxBinDir = binDir;
+    this.installHelpers();
+
     // Check if bwrap is available
     this.useBwrap = this.checkBwrap();
+  }
+
+  private installHelpers(): void {
+    const doneScript = [
+      "#!/bin/sh",
+      ": \"${ARKE_DONE_SIGNAL_FILE:?ARKE_DONE_SIGNAL_FILE is not set}\"",
+      ": > \"$ARKE_DONE_SIGNAL_FILE\"",
+      "printf '%s\\n' \"$ARKE_DONE_SIGNAL_FILE\"",
+    ].join("\n");
+
+    for (const name of ["arke-done", "done"]) {
+      const scriptPath = join(this.sandboxBinDir, name);
+      writeFileSync(
+        scriptPath,
+        doneScript,
+        "utf-8",
+      );
+      chmodSync(scriptPath, 0o755);
+    }
   }
 
   private checkBwrap(): boolean {
@@ -137,6 +164,11 @@ export class Sandbox {
     // Set workspace-related env
     args.push("--setenv", "HOME", this.config.workspaceDir);
     args.push("--setenv", "PWD", this.config.workspaceDir);
+    args.push(
+      "--setenv",
+      "PATH",
+      `${this.sandboxBinDir}:${this.config.env.PATH ?? process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
+    );
 
     // The command to run
     args.push("--", "/bin/bash", "-c", command);
@@ -154,6 +186,7 @@ export class Sandbox {
       ...this.config.env,
       HOME: this.config.workspaceDir,
       PWD: this.config.workspaceDir,
+      PATH: `${this.sandboxBinDir}:${this.config.env.PATH ?? process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
     };
 
     return this.spawnAndCollect("/bin/bash", ["-c", command], timeoutMs, {

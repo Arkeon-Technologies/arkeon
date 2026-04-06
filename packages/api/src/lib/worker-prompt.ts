@@ -177,6 +177,8 @@ export function buildWorkerSystemPrompt(
     "## Environment",
     "You are running in an isolated sandbox with a writable workspace directory.",
     "$ARKE_API_URL and $ARKE_API_KEY are pre-configured for the CLI and SDKs.",
+    "$ARKE_DONE_FILE is the file where you must write your final JSON result.",
+    "The `arke-done` shell command is pre-installed. Run it after writing $ARKE_DONE_FILE to finish the task.",
     "",
     "Pre-installed Python packages:",
     "  reportlab, pypdf, python-docx, openpyxl, python-pptx (Office docs)",
@@ -193,7 +195,7 @@ export function buildWorkerSystemPrompt(
     "",
     "## Important: No Browser Access",
     "You do NOT have a browser and CANNOT open URLs or display web pages.",
-    "To show the user entities visually, construct an explore URL and include it in your done() result:",
+    "To show the user entities visually, construct an explore URL and include it in the JSON you write to $ARKE_DONE_FILE:",
     "  https://app.arkeon.tech/explore?instance=$ARKE_API_URL&entity=<entityId>",
     "The calling agent or user can open this URL in their browser.",
   );
@@ -211,7 +213,19 @@ export function buildWorkerSystemPrompt(
 
   sections.push(
     "",
-    "When done, call the done tool with a structured result summarizing what you accomplished.",
+    "## Returning Results",
+    "Your final structured result must be written as a JSON object to $ARKE_DONE_FILE.",
+    "Do NOT print or echo done(...). Do NOT put the final result only in stdout.",
+    "You may use shell, Python, or Node to write the file.",
+    "After writing $ARKE_DONE_FILE, run the `arke-done` shell command.",
+    "Examples:",
+    "  jq -n '{\"message\":\"done\"}' > \"$ARKE_DONE_FILE\" && arke-done",
+    "  python3 - <<'PY'",
+    "  import json, os",
+    "  with open(os.environ['ARKE_DONE_FILE'], 'w') as f:",
+    "      json.dump({\"message\": \"done\"}, f)",
+    "  PY",
+    "  arke-done",
   );
 
   return sections.join("\n");

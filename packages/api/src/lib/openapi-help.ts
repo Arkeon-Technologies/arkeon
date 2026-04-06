@@ -121,7 +121,7 @@ const LLMS_PREAMBLE = [
   "  mode        'graph' (default) or 'feed'",
   "",
   "This URL is for human browsers. Workers cannot open browsers —",
-  "return the URL in your done() result for the caller to open.",
+  "write the URL into the JSON result file, then run the `arke-done` shell command so the caller can open it.",
   "",
 ];
 

@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat, access } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join } from "node:path";
 
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
@@ -20,6 +20,10 @@ export interface AgentConfig {
   maxIterations?: number;
   /** Callback for logging agent activity */
   onLog?: (entry: LogEntry) => void;
+  /** File path containing the final JSON result written by the worker */
+  doneFilePath?: string;
+  /** File path created by the shell `done` command to signal completion */
+  doneSignalPath?: string;
 }
 
 export interface LogEntry {
@@ -75,6 +79,8 @@ export class Agent {
   private maxIterations: number;
   private log: LogEntry[] = [];
   private onLog?: (entry: LogEntry) => void;
+  private doneFilePath: string;
+  private doneSignalPath: string;
 
   constructor(config: AgentConfig) {
     this.name = config.name;
@@ -83,6 +89,8 @@ export class Agent {
     this.sandbox = new Sandbox(config.sandbox);
     this.maxIterations = config.maxIterations ?? 50;
     this.onLog = config.onLog;
+    this.doneFilePath = config.doneFilePath ?? join(config.sandbox.workspaceDir, ".arke-done.json");
+    this.doneSignalPath = config.doneSignalPath ?? join(config.sandbox.workspaceDir, ".arke-done.signal");
   }
 
   /** Return a snapshot of the log accumulated so far (useful after timeout). */
@@ -97,8 +105,8 @@ export class Agent {
   }
 
   /**
-   * Run the agent with a prompt. Returns when the agent calls `done`,
-   * hits the iteration limit, or the abort signal fires.
+   * Run the agent with a prompt. Returns when the agent signals completion
+   * via the shell helper, hits the iteration limit, or the abort signal fires.
    */
   async run(prompt: string, signal?: AbortSignal): Promise<AgentResult> {
     this.log = [];
@@ -203,21 +211,23 @@ export class Agent {
       // Add assistant message to history
       messages.push(assistantMessage);
 
-      // If no tool calls, the agent is done (or stuck)
+      // Workers must explicitly signal completion via the shell `done` command.
+      // Plain text output alone is not considered a successful completion.
       if (
         !assistantMessage.tool_calls ||
         assistantMessage.tool_calls.length === 0
       ) {
+        const errMsg =
+          assistantMessage.content
+            ? `Agent stopped without calling done: ${assistantMessage.content}`
+            : "Agent stopped without calling done";
         this.emit({
-          type: "done",
-          content:
-            assistantMessage.content ?? "Agent stopped without calling done",
+          type: "error",
+          content: errMsg,
         });
         return {
-          success: true,
-          result: assistantMessage.content
-            ? { message: assistantMessage.content }
-            : null,
+          success: false,
+          result: { error: errMsg },
           iterations,
           log: this.log,
           usage,
@@ -261,6 +271,26 @@ export class Agent {
               args.command as string,
               args.timeout_ms as number | undefined,
             );
+            if (await this.doneSignalExists()) {
+              const doneFile = await this.readDoneFileResult();
+              if (!doneFile.ok) {
+                result += `\n[done error] ${doneFile.error}`;
+                break;
+              }
+
+              this.emit({
+                type: "done",
+                content: JSON.stringify(doneFile.result),
+                detail: doneFile.result,
+              });
+              return {
+                success: true,
+                result: doneFile.result,
+                iterations,
+                log: this.log,
+                usage,
+              };
+            }
             break;
           case "read_file":
             result = await this.handleReadFile(args.path as string);
@@ -276,33 +306,6 @@ export class Agent {
             result = imageResult.text;
             followUpMessage = imageResult.imageMessage;
             break;
-          }
-          case "done": {
-            // Accept args.result if provided, otherwise treat all args as the result
-            // (LLMs sometimes pass fields directly instead of wrapping in { result: ... })
-            const doneResult: Record<string, unknown> | null =
-              args.result != null
-                ? (args.result as Record<string, unknown>)
-                : Object.keys(args).length > 0
-                  ? args
-                  : null;
-            this.emit({
-              type: "done",
-              content: JSON.stringify(doneResult),
-              detail: doneResult,
-            });
-            messages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: "Task complete.",
-            });
-            return {
-              success: true,
-              result: doneResult,
-              iterations,
-              log: this.log,
-              usage,
-            };
           }
           default:
             result = `Unknown tool: ${fnName}`;
@@ -430,6 +433,40 @@ export class Agent {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { text: `Error reading image: ${msg}`, imageMessage: null };
+    }
+  }
+
+  private async readDoneFileResult(): Promise<
+    { ok: true; result: Record<string, unknown> } | { ok: false; error: string }
+  > {
+    try {
+      const raw = await readFile(this.doneFilePath, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {
+          ok: false,
+          error:
+            `Invalid $ARKE_DONE_FILE content at ${this.doneFilePath}: expected a JSON object.`,
+        };
+      }
+
+      return { ok: true, result: parsed as Record<string, unknown> };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        error: `Could not read final result from $ARKE_DONE_FILE at ${this.doneFilePath}: ${msg}`,
+      };
+    }
+  }
+
+  private async doneSignalExists(): Promise<boolean> {
+    try {
+      await access(this.doneSignalPath);
+      return true;
+    } catch {
+      return false;
     }
   }
 

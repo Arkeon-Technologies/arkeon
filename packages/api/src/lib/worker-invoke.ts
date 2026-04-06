@@ -85,6 +85,8 @@ export async function invokeWorker(
     `http://localhost:${process.env.PORT ?? 8000}`;
 
   const workspace = mkdtempSync(join(tmpdir(), `arke-worker-${workerId}-`));
+  const doneFilePath = join(workspace, ".arke-done.json");
+  const doneSignalPath = join(workspace, ".arke-done.signal");
 
   const fullSystemPrompt = buildWorkerSystemPrompt(props.system_prompt, context);
 
@@ -104,6 +106,8 @@ export async function invokeWorker(
       env: {
         ARKE_API_URL: apiBaseUrl,
         ARKE_API_KEY: arkeApiKey,
+        ARKE_DONE_FILE: doneFilePath,
+        ARKE_DONE_SIGNAL_FILE: doneSignalPath,
         // Allow pip install --target to work; packages land in workspace/pip-pkgs
         PYTHONPATH: `${workspace}/pip-pkgs`,
         PIP_TARGET: `${workspace}/pip-pkgs`,
@@ -114,6 +118,8 @@ export async function invokeWorker(
         } : {}),
       },
     },
+    doneFilePath,
+    doneSignalPath,
     maxIterations: props.max_iterations ?? 50,
   });
 

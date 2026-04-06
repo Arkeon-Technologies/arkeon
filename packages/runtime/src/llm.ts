@@ -99,25 +99,6 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "done",
-      description:
-        "Signal that you have completed the task. Provide a structured result object with your output.",
-      parameters: {
-        type: "object",
-        properties: {
-          result: {
-            type: "object",
-            description:
-              "Structured output — the final result of this task. Use any JSON structure appropriate for the task (e.g. { \"message\": \"Created 3 entities\" } for simple outcomes, or domain-specific objects for structured pipelines).",
-          },
-        },
-        required: ["result"],
-      },
-    },
-  },
 ];
 
 export class LlmClient {

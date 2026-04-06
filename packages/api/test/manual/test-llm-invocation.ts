@@ -49,7 +49,7 @@ async function run() {
     json: {
       kind: "worker",
       name: "test-llm-worker",
-      system_prompt: "You are a helpful assistant. When given a task, complete it and call the done tool with a structured result object.",
+      system_prompt: "You are a helpful assistant. When given a task, write the final structured JSON result to $ARKE_DONE_FILE, then run the arke-done shell command.",
       llm: {
         base_url: "https://api.openai.com/v1",
         api_key: OPENAI_KEY,
