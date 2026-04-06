@@ -9,8 +9,89 @@ const defaultHeaders: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Proxy / custom fetch
+// ---------------------------------------------------------------------------
+
+type FetchFn = typeof globalThis.fetch;
+let customFetch: FetchFn | undefined;
+let proxyInitDone = false;
+
+function getProxyUrl(): string | undefined {
+  return (
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    undefined
+  );
+}
+
+async function ensureProxy(): Promise<void> {
+  if (proxyInitDone || customFetch) return;
+  proxyInitDone = true;
+
+  const proxy = getProxyUrl();
+  if (!proxy) return;
+
+  try {
+    const { ProxyAgent } = await import("undici");
+    const dispatcher = new ProxyAgent(proxy);
+    customFetch = (input, init?) =>
+      globalThis.fetch(input, { ...init, dispatcher } as any);
+  } catch {
+    console.warn(
+      `[arkeon-sdk] HTTP proxy detected (${proxy}) but undici is not installed. ` +
+        `Install undici to enable proxy support: npm install undici`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
+
+export type ConfigureOptions = {
+  /** Custom fetch implementation — overrides proxy auto-detection. */
+  fetch?: FetchFn;
+  /** Explicit proxy URL. Requires undici to be installed. */
+  proxy?: string;
+};
+
+/**
+ * Configure the SDK's HTTP transport.
+ *
+ * @example Auto-detect proxy from env vars (just install undici):
+ *   // HTTPS_PROXY is read automatically — no code needed
+ *
+ * @example Explicit proxy:
+ *   import { configure } from "@arkeon-technologies/sdk";
+ *   configure({ proxy: "http://proxy.corp:8080" });
+ *
+ * @example Fully custom fetch:
+ *   configure({ fetch: myCustomFetch });
+ */
+export async function configure(opts: ConfigureOptions): Promise<void> {
+  if (opts.fetch) {
+    customFetch = opts.fetch;
+    proxyInitDone = true;
+    return;
+  }
+  if (opts.proxy) {
+    try {
+      const { ProxyAgent } = await import("undici");
+      const dispatcher = new ProxyAgent(opts.proxy);
+      customFetch = (input, init?) =>
+        globalThis.fetch(input, { ...init, dispatcher } as any);
+      proxyInitDone = true;
+    } catch {
+      throw new Error(
+        "undici is required for proxy support: npm install undici",
+      );
+    }
+  }
+}
 
 /** Set the default arke ID injected into requests. */
 export function setArkeId(id: string) {
@@ -94,7 +175,9 @@ async function request(method: string, path: string, opts?: RequestOpts) {
     body = JSON.stringify(payload);
   }
 
-  const res = await fetch(url, { method, headers: defaultHeaders, body });
+  await ensureProxy();
+  const doFetch = customFetch ?? globalThis.fetch;
+  const res = await doFetch(url, { method, headers: defaultHeaders, body });
 
   if (!res.ok) {
     const errBody = (await res.json().catch(() => null)) as any;

@@ -31,6 +31,14 @@
     "tsup": "^8.5.0",
     "typescript": "^5.9.3"
   },
+  "peerDependencies": {
+    "undici": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "undici": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": ">=18.17.0"
   },
