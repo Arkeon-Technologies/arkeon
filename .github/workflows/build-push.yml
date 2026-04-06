@@ -1,6 +1,7 @@
 name: Test, Build, and Push to ECR
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -14,6 +15,7 @@ on:
       - 'docker-compose.ci.yml'
       - 'package.json'
       - 'package-lock.json'
+      - '.github/workflows/build-push.yml'
 
 jobs:
   test-and-push:
