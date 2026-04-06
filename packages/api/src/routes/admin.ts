@@ -159,7 +159,7 @@ const queueResetRoute = createRoute({
   path: "/queue/reset",
   operationId: "resetQueue",
   tags: ["Admin"],
-  summary: "Force-reset the invocation queue (fixes stuck/leaked concurrency slots)",
+  summary: "Force-reset the invocation queue (aborts all running workers, cancels all pending)",
   "x-arke-auth": "required",
   "x-arke-rules": ["System admin only"],
   responses: {
@@ -175,7 +175,7 @@ const queueResetRoute = createRoute({
             running: z.number().int(),
             queued: z.number().int(),
           }),
-          recovered: z.number().int().describe("Invocations re-queued from DB"),
+          cancelled: z.number().int().describe("Total invocations cancelled (running + pending)"),
         }),
       ),
     },

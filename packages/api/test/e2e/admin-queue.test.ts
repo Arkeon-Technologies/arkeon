@@ -29,7 +29,7 @@ describe("Admin queue endpoints", () => {
     expect(response.status).toBe(403);
   });
 
-  test("POST /admin/queue/reset resets queue and returns before/after", async () => {
+  test("POST /admin/queue/reset cancels all and returns before/after", async () => {
     const { response, body } = await jsonRequest("/admin/queue/reset", {
       method: "POST",
       apiKey: adminApiKey,
@@ -39,16 +39,17 @@ describe("Admin queue endpoints", () => {
     const data = body as Record<string, any>;
     expect(data).toHaveProperty("before");
     expect(data).toHaveProperty("after");
-    expect(data).toHaveProperty("recovered");
+    expect(data).toHaveProperty("cancelled");
 
     expect(data.before).toHaveProperty("running");
     expect(data.before).toHaveProperty("queued");
     expect(data.after).toHaveProperty("running");
     expect(data.after).toHaveProperty("queued");
-    expect(typeof data.recovered).toBe("number");
+    expect(typeof data.cancelled).toBe("number");
 
-    // After a reset with no stuck invocations, running should be 0
+    // After a reset, running and queued should both be 0
     expect(data.after.running).toBe(0);
+    expect(data.after.queued).toBe(0);
   });
 
   test("POST /admin/queue/reset requires admin", async () => {

@@ -51,6 +51,7 @@ let running = 0;
 let draining = false;
 const pending: QueueItem[] = [];
 const activePromises = new Set<Promise<void>>();
+const activeAborts = new Map<number, AbortController>();
 
 /**
  * Calculate max concurrent workers from system memory.
@@ -376,71 +377,69 @@ export function getQueueStats(): {
 }
 
 /**
- * Force-reset the in-memory queue state.
- * Zeroes the running counter and re-initializes from DB.
- * Use when the running counter has leaked and invocations are stuck.
+ * Force-reset the invocation queue.
+ * Aborts all running worker processes, rejects all pending items,
+ * marks everything as cancelled in DB, and re-initializes from scratch.
  * Returns stats before and after the reset.
  */
 export async function resetQueue(): Promise<{
   before: { running: number; queued: number };
   after: { running: number; queued: number };
-  recovered: number;
+  cancelled: number;
 }> {
   const before = { running, queued: pending.length };
 
-  // Zero out in-memory state
+  // 1. Abort all running invocations — this rejects their Promise.race,
+  //    which triggers the catch block in executeItem, recording the result
+  //    and decrementing the running counter naturally.
+  const abortedIds = [...activeAborts.keys()];
+  for (const [, ac] of activeAborts) {
+    ac.abort();
+  }
+
+  // 2. Reject all pending items so their callers get unblocked
+  const pendingIds: number[] = [];
+  while (pending.length > 0) {
+    const item = pending.shift()!;
+    pendingIds.push(item.invocationId);
+    item.reject(new Error("Invocation cancelled by queue reset"));
+  }
+
+  // 3. Wait for aborted invocations to finish their catch/finally paths
+  if (activePromises.size > 0) {
+    await Promise.allSettled([...activePromises]);
+  }
+
+  // 4. Force-zero running counter in case anything leaked
   running = 0;
-  pending.length = 0;
 
-  // Re-pick up all legitimately queued invocations from DB
+  // 5. Mark any still-running/queued invocations as cancelled in DB
+  //    (belt and suspenders — executeItem should have handled running ones,
+  //    but pending ones only had their in-memory promises rejected)
   const sql = createSql();
-  const [, queuedRows] = await sql.transaction([
-    sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
-    sql.query(
-      `SELECT w.id, w.worker_id, w.invoker_id, w.prompt, w.depth,
-              w.batch_id, w.batch_seq
-       FROM worker_invocations w
-       WHERE w.status = 'queued'
-         AND (
-           w.batch_id IS NULL
-           OR w.batch_seq = 0
-           OR EXISTS (
-             SELECT 1 FROM worker_invocations prev
-             WHERE prev.batch_id = w.batch_id
-               AND prev.batch_seq = w.batch_seq - 1
-               AND prev.status IN ('completed', 'failed')
-           )
-         )
-       ORDER BY w.id`,
-    ),
-  ]);
-
-  const queued = queuedRows as Array<{
-    id: number;
-    worker_id: string;
-    invoker_id: string;
-    prompt: string;
-    depth: number;
-    batch_id: string | null;
-    batch_seq: number | null;
-  }>;
-
-  for (const row of queued) {
-    requeueInvocation(
-      row.id, row.worker_id, row.invoker_id, row.prompt, row.depth,
-      row.batch_id ?? undefined, row.batch_seq ?? undefined,
-    );
+  const cancelledCount = abortedIds.length + pendingIds.length;
+  if (pendingIds.length > 0) {
+    await sql.transaction([
+      sql.query(`SELECT set_config('app.actor_is_admin', 'true', true)`, []),
+      sql.query(
+        `UPDATE worker_invocations
+         SET status = 'cancelled',
+             error_message = 'Cancelled by admin queue reset'
+         WHERE id = ANY($1) AND status IN ('queued', 'running')`,
+        [pendingIds],
+      ),
+    ]);
   }
 
   console.log(
-    `[queue] force reset: running ${before.running}→${running}, ` +
-    `pending ${before.queued}→${pending.length}, recovered ${queued.length} from DB`,
+    `[queue] force reset: aborted ${abortedIds.length} running, ` +
+    `rejected ${pendingIds.length} pending, running counter ${before.running}→${running}`,
   );
 
   return {
     before,
     after: { running, queued: pending.length },
-    recovered: queued.length,
+    cancelled: cancelledCount,
   };
 }
 
@@ -495,20 +494,33 @@ function startItem(item: QueueItem): void {
   running++;
   markInvocationRunning(item.invocationId, item.invokerId);
 
-  const p = executeItem(item);
+  const ac = new AbortController();
+  activeAborts.set(item.invocationId, ac);
+
+  const p = executeItem(item, ac.signal);
   activePromises.add(p);
   p.finally(() => {
     activePromises.delete(p);
+    activeAborts.delete(item.invocationId);
   });
 }
 
-async function executeItem(item: QueueItem): Promise<void> {
+async function executeItem(item: QueueItem, signal: AbortSignal): Promise<void> {
   let result: InvokeResult | undefined;
   try {
-    result = await invokeWorker(item.workerId, item.prompt, {
-      invocationId: item.invocationId,
-      depth: item.depth,
-    });
+    result = await Promise.race([
+      invokeWorker(item.workerId, item.prompt, {
+        invocationId: item.invocationId,
+        depth: item.depth,
+      }),
+      new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(new Error("Invocation cancelled by queue reset"));
+        signal.addEventListener("abort", () =>
+          reject(new Error("Invocation cancelled by queue reset")),
+          { once: true },
+        );
+      }),
+    ]);
     completeInvocation(item.invocationId, item.invokerId, result, item.storeLogs);
     item.resolve(result);
   } catch (err) {
