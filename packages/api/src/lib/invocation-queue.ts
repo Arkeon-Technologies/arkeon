@@ -461,7 +461,14 @@ async function executeItem(item: QueueItem): Promise<void> {
     // Chain next batch item before decrementing — advanceBatch enqueues
     // into pending[], so tryRunNext() will pick it up below.
     if (item.batchId != null && item.batchSeq != null) {
-      await advanceBatch(item.batchId, item.batchSeq, item.invokerId, result!);
+      try {
+        await advanceBatch(item.batchId, item.batchSeq, item.invokerId, result!);
+      } catch (err) {
+        console.error(
+          `[queue] advanceBatch failed for batch ${item.batchId} seq ${item.batchSeq}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
     running--;
     tryRunNext();
@@ -469,10 +476,10 @@ async function executeItem(item: QueueItem): Promise<void> {
 }
 
 function tryRunNext(): void {
-  if (draining || pending.length === 0) return;
-  if (!canStartNow()) return;
-  const next = pending.shift()!;
-  startItem(next);
+  while (!draining && pending.length > 0 && canStartNow()) {
+    const next = pending.shift()!;
+    startItem(next);
+  }
 }
 
 /**
