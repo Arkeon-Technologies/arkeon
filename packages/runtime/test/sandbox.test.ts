@@ -108,6 +108,39 @@ async function runTests() {
     const errTest = await sandbox.exec("echo oops >&2");
     assert(errTest.stderr.includes("oops"), `stderr captured (got "${errTest.stderr.trim()}")`);
 
+    // 12b. kill() terminates a running process
+    console.log("\n12b. kill() terminates a running child process");
+    {
+      // Start a long-running command
+      const execPromise = sandbox.exec("sleep 60", 60_000);
+      // Give it a moment to actually spawn
+      await new Promise((r) => setTimeout(r, 200));
+      // Kill it
+      sandbox.kill();
+      const killResult = await execPromise;
+      // Should have been killed (non-zero exit, or null → 1)
+      assert(killResult.exitCode !== 0, `kill() terminated process (exit ${killResult.exitCode})`);
+    }
+
+    // 12c. AbortSignal integration — kill via signal listener
+    console.log("\n12c. AbortSignal kills sandbox child process");
+    {
+      const ac = new AbortController();
+      // Wire up abort → kill, same pattern as Agent.run()
+      ac.signal.addEventListener("abort", () => sandbox.kill(), { once: true });
+
+      const execPromise = sandbox.exec("sleep 60", 60_000);
+      await new Promise((r) => setTimeout(r, 200));
+      ac.abort();
+      const abortResult = await execPromise;
+      assert(abortResult.exitCode !== 0, `abort signal terminated process (exit ${abortResult.exitCode})`);
+    }
+
+    // 12d. kill() is safe to call when no process is running
+    console.log("\n12d. kill() is safe when idle");
+    sandbox.kill(); // should not throw
+    assert(true, "kill() on idle sandbox does not throw");
+
     // Linux/bwrap-specific tests
     if (isLinux) {
       console.log("\n--- bwrap-specific tests ---");
