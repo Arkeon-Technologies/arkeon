@@ -2,14 +2,22 @@
 name: local-dev
 description: Start the local development environment (Postgres + API with hot reload) and run e2e tests.
 disable-model-invocation: true
-argument-hint: [start|test|reset|stop|status]
+argument-hint: [start|start:docker|test|test:sandbox|reset|stop|status]
 allowed-tools: Bash(docker *, npm *, curl *, pkill *, sleep *, kill *, lsof *, ls *, cat *), Read, TaskOutput
 ---
 
 # Local Development Environment
 
-Manage the local dev stack: Dockerized Postgres + local API with hot reload.
-Supports isolated per-worktree environments so multiple branches can run simultaneously.
+Manage the local dev stack. Two modes:
+
+- **Local API** (`start`): Dockerized Postgres + local API via `npm run dev`. Best for API route development — instant hot reload on code changes.
+- **Full Docker** (`start:docker`): Everything in Docker including the API. Required for **worker/sandbox testing** — provides bwrap isolation, pre-installed CLI/SDKs, document processing packages, and `view_image` support. Use `docker compose --watch` for hot reload.
+
+**When to use which:**
+- Editing routes, schemas, middleware → `start` (faster iteration)
+- Testing worker invocations, sandbox behavior, CLI/SDK availability → `start:docker` (production-equivalent sandbox)
+- Running e2e API tests → `start` + `test`
+- Running sandbox integration tests → `test:sandbox`
 
 ## Worktree Detection
 
@@ -103,6 +111,51 @@ This file is gitignored. Write it on every `start` and `reset` to keep it in syn
    - Admin key: `ak_test_admin_key_e2e`
    - Docker project: `$PROJECT`
 
+### `start:docker`
+
+Full Docker mode — required for testing worker invocations and sandbox behavior.
+The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI/SDKs, document processing packages).
+
+1. Write a minimal `.env` file (no `DATABASE_URL` — compose defaults to the postgres service):
+   ```bash
+   cat > .env <<EOF
+   PORT=$API_PORT
+   ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e
+   ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+   EOF
+   ```
+
+2. Make sure the local API is NOT running (would conflict on the port):
+   ```bash
+   lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
+   ```
+
+3. Build and start everything:
+   ```bash
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d --build
+   ```
+   Wait for the API to be healthy:
+   ```bash
+   for i in $(seq 1 20); do
+     curl -s http://localhost:$API_PORT/health && break
+     sleep 2
+   done
+   ```
+
+4. For hot reload (watches source changes, auto-rebuilds on CLI/SDK changes):
+   ```bash
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up --watch
+   ```
+   Note: `--watch` runs in the foreground. Use a separate terminal or run without `--watch` for background mode.
+
+5. Confirm to the user:
+   - Full Docker stack on port `$API_PORT`
+   - Sandbox includes: bwrap, arkeon CLI, TypeScript SDK, Python SDK, document processing packages
+   - Workers can use `pip install` for additional packages
+   - Admin key: `ak_test_admin_key_e2e`
+
+**Important:** When using `start:docker`, the `stop` command must also stop the Docker API container (not just a local process). The stop logic handles this automatically.
+
 ### `test`
 
 1. Verify the API is running (start it if not — which also writes `.env`).
@@ -155,18 +208,25 @@ Use after schema changes (packages/schema). Wipes the DB and starts fresh.
 
 ### `stop`
 
-1. Stop the local API process on this port:
+1. Stop the local API process on this port (if running locally):
    ```
    lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
    ```
 
-2. Stop Postgres:
+2. Stop all Docker services (Postgres, API if running in Docker, migrate):
    ```
    PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
    ```
    Note: this preserves the DB volume. Use `reset` to wipe it.
 
-3. Confirm everything is stopped.
+3. **Worktree cleanup:** If in a worktree (i.e., `$PROJECT` is NOT `arkeon`), also remove the stopped containers and volumes to avoid stale leftovers:
+   ```
+   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down -v --remove-orphans
+   ```
+   This replaces step 2 for worktrees (use `down -v --remove-orphans` instead of plain `down`).
+   **Never run this against the main `arkeon` project** — main's DB volume should be preserved.
+
+4. Confirm everything is stopped.
 
 ### `status`
 
@@ -182,11 +242,26 @@ lsof -iTCP -sTCP:LISTEN -P | grep -E '(tsx|postgres)' || echo "Nothing running"
 
 ## Important Notes
 
-- The API runs locally (not in Docker) for instant hot reload on code changes.
-- Postgres runs in Docker, port varies by worktree.
+- **Two modes, don't mix:** Use `start` (local API) OR `start:docker` (Docker API), never both at the same time. They share the same port.
+- **Worker testing requires Docker:** The local API fallback has no bwrap, no pre-installed SDKs, and a potentially stale CLI. Workers will fail or behave differently. Always use `start:docker` when testing worker invocations.
+- Postgres always runs in Docker, port varies by worktree.
 - The `ADMIN_BOOTSTRAP_KEY` must match between server and tests.
+- `ENCRYPTION_KEY` is required for worker invocations (encrypts LLM API keys). Set it in `.env` — any 64-char hex string works for dev.
 - After schema SQL changes, you MUST use `reset` — migrations run from scratch, no ALTER TABLE.
 - Redis is not started by default (scheduling disabled). Use `REDIS_PORT=$((6379 + SLOT)) docker compose -p $PROJECT --profile workers up -d redis` if needed.
-- Do NOT start the Docker API container alongside the local API — they both use the same port.
 - Each worktree gets its own Docker volumes (namespaced by project name), so schema changes in one worktree don't affect others.
 - Use `stop` or `reset` to clean up when done with a worktree — don't leave orphaned containers.
+
+## What's in the Docker sandbox (start:docker only)
+
+Workers running in the Docker environment get:
+- **Sandbox isolation:** bwrap with PID/UTS/IPC namespaces, read-only root, writable workspace
+- **Arkeon CLI:** Current build with all flags (`--space-id`, `--permissions`, etc.)
+- **TypeScript SDK:** `import * as arkeon from '@arkeon-technologies/sdk'` (ESM, works from any directory)
+- **Python SDK:** `import arkeon_sdk as arkeon`
+- **Document packages:** pypdf, python-docx, openpyxl, python-pptx, ebooklib, Pillow, pandas, etc.
+- **Self-install:** `pip install <package>` works inside the sandbox (PIP_TARGET pre-configured)
+- **Image viewing:** `view_image` tool for multimodal models
+- **python/python3:** Both available (symlinked)
+
+See `docs/RUNTIME_ENVIRONMENT.md` for the full list.

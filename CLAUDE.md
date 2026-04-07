@@ -21,7 +21,8 @@ npm run migrate
 npm run dev -w packages/api
 ```
 
-Default `DATABASE_URL` when unset: `postgresql://arke:arke@localhost:5432/arke`
+Default API `DATABASE_URL` when unset: `postgresql://arke_app:arke@localhost:5432/arke`
+Default migration `DATABASE_URL` when unset: `postgresql://arke:arke@localhost:5432/arke`
 
 ## Workspace Commands
 
