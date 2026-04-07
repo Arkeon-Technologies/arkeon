@@ -61,8 +61,6 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 interface MeiliEntityDoc {
   id: string;
-  label: string;
-  description: string;
   note: string;
   type: string;
   kind: string;
@@ -73,6 +71,7 @@ interface MeiliEntityDoc {
   space_ids: string[];
   updated_at: number;
   created_at: number;
+  [key: string]: unknown;
 }
 
 function toUnix(val: unknown): number {
@@ -84,14 +83,24 @@ function toUnix(val: unknown): number {
 
 /**
  * Convert an entity row (from Postgres) into a Meilisearch document.
- * Only indexes searchable text fields — not the full properties blob.
+ * Flattens all properties into the doc so every property is searchable.
  */
 export function toMeiliDoc(entity: Record<string, unknown>, spaceIds: string[] = []): MeiliEntityDoc {
   const props = (entity.properties ?? {}) as Record<string, unknown>;
+
+  // Flatten properties — only include string/number/boolean values
+  const flatProps: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      flatProps[key] = value;
+    } else if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+      flatProps[key] = value;
+    }
+  }
+
   return {
+    ...flatProps,
     id: String(entity.id),
-    label: typeof props.label === "string" ? props.label : "",
-    description: typeof props.description === "string" ? props.description : "",
     note: typeof entity.note === "string" ? entity.note : "",
     type: String(entity.type ?? ""),
     kind: String(entity.kind ?? ""),
@@ -117,7 +126,7 @@ export async function ensureMeiliIndex(): Promise<void> {
     await c.createIndex(ENTITIES_INDEX, { primaryKey: "id" });
   }
   await c.index(ENTITIES_INDEX).updateSettings({
-    searchableAttributes: ["label", "description", "note"],
+    searchableAttributes: ["*"],
     filterableAttributes: ["type", "kind", "arke_id", "owner_id", "read_level", "write_level", "space_ids"],
     sortableAttributes: ["updated_at", "created_at"],
   });
