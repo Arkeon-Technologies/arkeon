@@ -24,6 +24,7 @@ import { entityRelationshipsRouter, relationshipDirectRouter } from "./routes/re
 import { searchRouter } from "./routes/search";
 import { spacesRouter } from "./routes/spaces";
 import { workersRouter } from "./routes/workers";
+import { knowledgeRouter } from "./knowledge/routes";
 
 export const openApiConfig = {
   openapi: "3.1.0" as const,
@@ -100,6 +101,7 @@ export function createApp() {
   app.route("/search", searchRouter);
   app.route("/spaces", spacesRouter);
   app.route("/workers", workersRouter);
+  app.route("/knowledge", knowledgeRouter);
 
   app.notFound((c) => {
     const requestId = c.get("requestId");

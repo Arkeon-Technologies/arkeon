@@ -9,6 +9,9 @@ import { renderFullReferenceFromSpec } from "./lib/openapi-help";
 import { startScheduler, stopScheduler } from "./lib/scheduler";
 import { initQueue, drainQueue } from "./lib/invocation-queue";
 import { setWorkerCliReference } from "./lib/worker-prompt";
+import { initKnowledgeQueue, drainKnowledgeQueue } from "./knowledge/queue";
+import { startKnowledgePoller, stopKnowledgePoller } from "./knowledge/poller";
+import { bootstrapKnowledgeService } from "./knowledge/bootstrap";
 
 const app = createApp();
 
@@ -32,12 +35,19 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8000) }, (info) => {
 
 await startScheduler();
 
+// Knowledge extraction service
+await bootstrapKnowledgeService();
+initKnowledgeQueue();
+startKnowledgePoller();
+
 async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`[shutdown] ${signal} received, starting graceful drain...`);
 
   const DRAIN_TIMEOUT_MS = Number(process.env.DRAIN_TIMEOUT_MS) || 320_000;
 
   const drainPromise = (async () => {
+    stopKnowledgePoller();
+    await drainKnowledgeQueue();
     await drainQueue();
     await stopScheduler();
   })();
