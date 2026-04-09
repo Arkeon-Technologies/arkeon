@@ -42,6 +42,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/api/package.json packages/api/
 COPY packages/runtime/package.json packages/runtime/
 COPY packages/schema/package.json packages/schema/
+COPY packages/sdk-ts/package.json packages/sdk-ts/
 RUN npm ci --omit=dev
 
 COPY packages/shared packages/shared
@@ -49,16 +50,19 @@ COPY packages/api packages/api
 COPY packages/runtime packages/runtime
 COPY packages/schema packages/schema
 
+# Copy pre-built SDK into the workspace so the API can import it at runtime.
+# Also used by worker sandboxes via the /node_modules symlink below.
+COPY --from=cli-build /sdk-standalone/dist packages/sdk-ts/dist
+
 # Install pre-built CLI globally for worker sandboxes
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
 RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
-# Install TS SDK for worker sandboxes.
-# Placed in /node_modules so Node's ESM resolver finds it from any working directory
-# (ESM traverses up to root; /usr/local/lib/node_modules only works for CJS with NODE_PATH).
-# Symlinked under both the npm package name and the bare alias used in the worker prompt.
-COPY --from=cli-build /sdk-standalone /node_modules/@arkeon-technologies/sdk
-RUN ln -s /node_modules/@arkeon-technologies/sdk /node_modules/arkeon-sdk
+# Symlink SDK into /node_modules so worker sandboxes (which run from arbitrary dirs)
+# can import it via bare specifier. The workspace copy at packages/sdk-ts handles
+# the API's own import via the npm workspace link.
+RUN ln -s /app/packages/sdk-ts /node_modules/@arkeon-technologies/sdk \
+    && ln -s /app/packages/sdk-ts /node_modules/arkeon-sdk
 
 # Install Python SDK and common document-processing packages for worker sandboxes
 COPY packages/sdk-python /tmp/sdk-python
