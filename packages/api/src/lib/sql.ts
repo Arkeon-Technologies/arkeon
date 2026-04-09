@@ -50,6 +50,58 @@ function getPg(): postgres.Sql {
   return _pg;
 }
 
+/**
+ * Run a callback inside a transaction with a scoped sql client.
+ * Guarantees all queries in the callback use the same connection.
+ * Automatically commits on success, rolls back on error.
+ */
+export async function withTransaction<T>(fn: (sql: SqlClient) => Promise<T>): Promise<T> {
+  const pg = getPg();
+  return pg.begin(async (tx) => {
+    // Wrap the transaction-scoped `tx` in our SqlClient interface
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => ({
+      _kind: "tagged" as const,
+      _strings: strings,
+      _values: values,
+      then(onfulfilled: any, onrejected: any) {
+        return (tx as any)(strings, ...values).then(
+          (r: unknown) => onfulfilled?.(r as Row[]),
+          onrejected,
+        );
+      },
+    })) as unknown as SqlClient;
+
+    sql.query = (text: string, params: unknown[] = []) => ({
+      _kind: "parameterized" as const,
+      _text: text,
+      _params: params,
+      then(onfulfilled: any, onrejected: any) {
+        return (tx as any).unsafe(text, prepareParams(params) as any[]).then(
+          (r: unknown) => onfulfilled?.(r as Row[]),
+          onrejected,
+        );
+      },
+    });
+
+    sql.transaction = async (descriptors) => {
+      // Already in a transaction — just execute sequentially
+      const results: Row[][] = [];
+      for (const desc of descriptors) {
+        if (desc._kind === "tagged") {
+          const r = await (tx as any)(desc._strings, ...desc._values!);
+          results.push(r as unknown as Row[]);
+        } else {
+          const r = await (tx as any).unsafe(desc._text, prepareParams(desc._params!));
+          results.push(r as unknown as Row[]);
+        }
+      }
+      return results;
+    };
+
+    return fn(sql);
+  }) as T;
+}
+
 export function createSql(): SqlClient {
   const pg = getPg();
 
