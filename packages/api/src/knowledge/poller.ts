@@ -35,7 +35,7 @@ async function pollForNewContent(): Promise<void> {
          FROM entity_activity ea
          WHERE ea.id > (SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default')
            AND ea.action = 'content_uploaded'
-           AND ea.edited_by NOT IN (
+           AND ea.actor_id NOT IN (
              SELECT id FROM actors WHERE properties->>'label' = 'knowledge-service'
            )
          ORDER BY ea.id ASC
