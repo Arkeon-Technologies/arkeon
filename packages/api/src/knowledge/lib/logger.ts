@@ -76,7 +76,7 @@ export function appendLog(
           usage?.tokensIn ?? null,
           usage?.tokensOut ?? null,
         ],
-      ).catch((err: unknown) => {
+      ).then(undefined, (err: unknown) => {
         console.error(`[knowledge:logger] Failed to write log for job ${jobId}:`, err);
       });
 
@@ -90,7 +90,7 @@ export function appendLog(
              tokens_in = knowledge_token_usage.tokens_in + EXCLUDED.tokens_in,
              tokens_out = knowledge_token_usage.tokens_out + EXCLUDED.tokens_out`,
           [usage.model, usage.tokensIn, usage.tokensOut],
-        ).catch((err: unknown) => {
+        ).then(undefined, (err: unknown) => {
           console.error(`[knowledge:logger] Failed to update token usage:`, err);
         });
       }

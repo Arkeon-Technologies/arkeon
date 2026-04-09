@@ -57,13 +57,39 @@ export class LlmClient {
     userMessage: string,
     opts?: { maxTokens?: number },
   ): Promise<ChatJsonResult<T>> {
+    return this._chatJsonInternal<T>(systemPrompt, userMessage, opts);
+  }
+
+  /**
+   * Single-shot JSON mode call with multimodal content (text + images).
+   * Images are passed as data URIs in image_url content parts.
+   */
+  async chatVision<T>(
+    systemPrompt: string,
+    content: Array<
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } }
+    >,
+    opts?: { maxTokens?: number },
+  ): Promise<ChatJsonResult<T>> {
+    return this._chatJsonInternal<T>(systemPrompt, content, opts);
+  }
+
+  /**
+   * Shared JSON mode implementation for both text and multimodal calls.
+   */
+  private async _chatJsonInternal<T>(
+    systemPrompt: string,
+    userContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }>,
+    opts?: { maxTokens?: number },
+  ): Promise<ChatJsonResult<T>> {
     const maxTokens = opts?.maxTokens ?? this.maxTokens;
 
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
+        { role: "user", content: userContent },
       ],
       response_format: { type: "json_object" },
       max_completion_tokens: maxTokens,
@@ -71,7 +97,7 @@ export class LlmClient {
 
     const raw = response.choices[0]?.message?.content;
     const finishReason = response.choices[0]?.finish_reason;
-    const content = raw && raw.trim().length > 0 ? raw : "{}";
+    const body = raw && raw.trim().length > 0 ? raw : "{}";
     const usage: LlmUsage = {
       model: this.model,
       tokensIn: response.usage?.prompt_tokens ?? 0,
@@ -83,10 +109,10 @@ export class LlmClient {
     }
 
     try {
-      return { data: JSON.parse(content) as T, usage };
+      return { data: JSON.parse(body) as T, usage };
     } catch (err) {
-      const preview = content.slice(0, 200);
-      throw new Error(`Failed to parse LLM JSON (finish_reason=${finishReason}, ${content.length} chars): ${preview}...`);
+      const preview = body.slice(0, 200);
+      throw new Error(`Failed to parse LLM JSON (finish_reason=${finishReason}, ${body.length} chars): ${preview}...`);
     }
   }
 

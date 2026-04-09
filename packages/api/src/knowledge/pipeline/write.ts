@@ -28,7 +28,6 @@ import type {
   CanonicalEntity,
   CanonicalRelationship,
   WriteResult,
-  TextChunk,
 } from "../lib/types";
 
 export interface WriteOpts {
@@ -139,29 +138,35 @@ export async function writeSubgraph(
   return { createdEntityIds, createdRelationshipIds, refToId };
 }
 
-export async function writeChunkEntities(
-  chunks: TextChunk[],
+export interface SourceEntityDef {
+  label: string;
+  type: string;
+  ordinal: number;
+  text?: string;
+  properties?: Record<string, unknown>;
+}
+
+export async function writeSourceEntities(
+  sources: SourceEntityDef[],
   parentEntityId: string,
-  parentLabel: string,
   arkeId: string,
   opts?: WriteOpts,
-): Promise<{ chunkIds: string[] }> {
+): Promise<{ sourceEntityIds: string[] }> {
   const results = await parallelLimit(
-    chunks, async (chunk) => {
+    sources, async (source) => {
       const id = await createEntity({
-        type: "text_chunk",
+        type: source.type,
         arke_id: arkeId,
         space_id: opts?.spaceId,
         read_level: opts?.readLevel,
         write_level: opts?.writeLevel,
         permissions: opts?.permissions,
         properties: {
-          label: `Chunk ${chunk.ordinal + 1} of ${parentLabel}`,
-          text: chunk.text,
-          ordinal: chunk.ordinal,
-          start_offset: chunk.startOffset,
-          end_offset: chunk.endOffset,
+          label: source.label,
+          ...(source.text != null ? { text: source.text } : {}),
+          ordinal: source.ordinal,
           source_document_id: parentEntityId,
+          ...source.properties,
         },
       });
 
@@ -176,43 +181,42 @@ export async function writeChunkEntities(
       return id;
     }, WRITE_CONCURRENCY);
 
-  // Transfer chunk ownership too
   if (opts?.ownerId) {
-    const chunkIds = results.filter((id): id is string => !!id);
+    const ids = results.filter((id): id is string => !!id);
     await parallelLimit(
-      chunkIds, (id) => transferOwnership(id, opts.ownerId!).catch(() => {}),
+      ids, (id) => transferOwnership(id, opts.ownerId!).catch(() => {}),
       WRITE_CONCURRENCY,
     );
   }
 
-  return { chunkIds: results.filter((id): id is string => !!id) };
+  return { sourceEntityIds: results.filter((id): id is string => !!id) };
 }
 
-export async function writeChunkProvenance(
+export async function writeSourceProvenance(
   refToId: Record<string, string>,
-  refToChunkOrdinal: Map<string, number>,
-  chunkIds: string[],
+  refToSourceOrdinal: Map<string, number>,
+  sourceEntityIds: string[],
   spaceId?: string,
 ): Promise<void> {
-  const entries = [...refToChunkOrdinal.entries()].filter(([ref, ord]) => {
+  const entries = [...refToSourceOrdinal.entries()].filter(([ref, ord]) => {
     const eid = refToId[ref];
-    const cid = chunkIds[ord];
-    return eid && cid && /^[0-9A-Z]{26}$/i.test(eid) && /^[0-9A-Z]{26}$/i.test(cid);
+    const sid = sourceEntityIds[ord];
+    return eid && sid && /^[0-9A-Z]{26}$/i.test(eid) && /^[0-9A-Z]{26}$/i.test(sid);
   });
 
   await parallelLimit(
-    entries, async ([ref, chunkOrdinal]) => {
+    entries, async ([ref, ordinal]) => {
       const entityId = refToId[ref];
-      const chunkId = chunkIds[chunkOrdinal];
+      const sourceId = sourceEntityIds[ordinal];
 
       try {
         await createRelationship(entityId, {
           predicate: "extracted_from",
-          target_id: chunkId,
+          target_id: sourceId,
           space_id: spaceId,
         });
       } catch (err) {
-        console.warn(`[knowledge:write] Failed to create provenance ${entityId} -> chunk ${chunkId}:`, err instanceof Error ? err.message : err);
+        console.warn(`[knowledge:write] Failed to create provenance ${entityId} -> source ${sourceId}:`, err instanceof Error ? err.message : err);
       }
     }, WRITE_CONCURRENCY,
   );

@@ -203,6 +203,34 @@ async function request(method: string, path: string, opts?: RequestOpts) {
 export const get = (path: string, opts?: { params?: Record<string, string> }) =>
   request("GET", path, opts);
 
+/**
+ * Raw GET — returns the Response object directly (for binary content, streaming, etc.).
+ * Uses the same auth and proxy config as other SDK methods.
+ */
+export async function rawGet(path: string, params?: Record<string, string>): Promise<Response> {
+  const url = new URL(path, baseUrl);
+  if (defaultArkeId && !url.searchParams.has("arke_id")) {
+    url.searchParams.set("arke_id", defaultArkeId);
+  }
+  if (params) {
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  }
+  await ensureProxy();
+  const doFetch = customFetch ?? globalThis.fetch;
+  const res = await doFetch(url, { method: "GET", headers: defaultHeaders });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => null)) as any;
+    throw new ArkeError(
+      res.status,
+      errBody?.error?.message ?? res.statusText,
+      errBody?.error?.request_id ?? res.headers.get("x-request-id") ?? undefined,
+      errBody?.error?.code,
+      errBody?.error?.details,
+    );
+  }
+  return res;
+}
+
 export const post = (path: string, json?: any) =>
   request("POST", path, { json });
 
