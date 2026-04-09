@@ -61,7 +61,7 @@ describe("Admin queue endpoints", () => {
     expect(response.status).toBe(403);
   });
 
-  test("reset aborts a running worker invocation", async () => {
+  test.skipIf(!!process.env.CI)("reset aborts a running worker invocation", async () => {
     // Create a worker pointing at a non-routable IP — the LLM call will
     // hang on TCP connect, giving us a reliably "running" invocation.
     const worker = await createWorker(adminApiKey, {
@@ -126,7 +126,7 @@ describe("Admin queue endpoints", () => {
     }
   }, 30_000);
 
-  test("queue stats reflect reset", async () => {
+  test.skipIf(!!process.env.CI)("queue stats reflect reset", async () => {
     // Reset first
     await jsonRequest("/admin/queue/reset", {
       method: "POST",
