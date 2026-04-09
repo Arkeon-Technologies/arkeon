@@ -10,7 +10,7 @@ import type { SqlClient } from "../../lib/sql";
 import type { ExtractPlan } from "../lib/types";
 import type { ChatJsonResult } from "../lib/llm";
 import { appendLog } from "../lib/logger";
-import { setJobStatus } from "../queue";
+import { setJobStatus, tryFinalizeParent } from "../queue";
 
 import { mergeGroupPlans } from "./merge";
 import { runExtractionPipeline, type PipelineOpts } from "./run-pipeline";
@@ -155,4 +155,14 @@ async function _runGroupFinalization(
   });
 
   console.log(`[knowledge:queue] Finalized group extraction for ${parentJobId}: ${pipelineResult.createdEntities} entities, ${pipelineResult.createdRelationships} rels`);
+
+  // Propagate up the parent chain for 3-level hierarchies
+  // (e.g., ingest → pdf.extract → pdf.page_group)
+  const [parentJob] = await sql.query(
+    `SELECT parent_job_id FROM knowledge_jobs WHERE id = $1`,
+    [parentJobId],
+  );
+  if (parentJob?.parent_job_id) {
+    await tryFinalizeParent(parentJob.parent_job_id as string);
+  }
 }

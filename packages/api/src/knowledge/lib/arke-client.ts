@@ -11,6 +11,7 @@ export {
   del,
   paginate,
   rawGet,
+  rawPost,
   setArkeId,
   getArkeId,
   setSpaceId,
@@ -19,7 +20,7 @@ export {
   configure,
 } from "@arkeon-technologies/sdk";
 
-import { get, post, put, del, rawGet, configure } from "@arkeon-technologies/sdk";
+import { get, post, put, del, rawGet, rawPost, configure } from "@arkeon-technologies/sdk";
 
 /**
  * Override the SDK's API key and base URL at runtime by wrapping fetch.
@@ -152,4 +153,22 @@ export async function getEntityPermissions(
     owner_id: data?.owner_id ?? "",
     permissions: data?.permissions ?? [],
   };
+}
+
+/**
+ * Upload binary content to an entity via the API.
+ * Uses the SDK's configured auth and proxy — no env var reads.
+ */
+export async function uploadEntityContent(
+  entityId: string,
+  key: string,
+  ver: number,
+  body: Buffer | Uint8Array,
+  contentType: string,
+): Promise<{ cid: string; size: number; ver: number }> {
+  const data = await rawPost(`/entities/${entityId}/content`, body, {
+    params: { key, ver: String(ver) },
+    contentType,
+  });
+  return data as { cid: string; size: number; ver: number };
 }

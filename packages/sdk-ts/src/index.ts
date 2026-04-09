@@ -234,6 +234,42 @@ export async function rawGet(path: string, params?: Record<string, string>): Pro
 export const post = (path: string, json?: any) =>
   request("POST", path, { json });
 
+/**
+ * Raw POST — sends a binary/non-JSON body and returns the parsed JSON response.
+ * Uses the same auth and proxy config as other SDK methods.
+ */
+export async function rawPost(
+  path: string,
+  body: Buffer | Uint8Array | string | ReadableStream,
+  opts?: { params?: Record<string, string>; contentType?: string },
+): Promise<any> {
+  const url = new URL(path, baseUrl);
+  if (opts?.params) {
+    for (const [k, v] of Object.entries(opts.params)) url.searchParams.set(k, v);
+  }
+  await ensureProxy();
+  const doFetch = customFetch ?? globalThis.fetch;
+  const headers: Record<string, string> = {
+    Authorization: defaultHeaders.Authorization,
+  };
+  if (opts?.contentType) headers["Content-Type"] = opts.contentType;
+  const res = await doFetch(url, { method: "POST", headers, body });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => null)) as any;
+    throw new ArkeError(
+      res.status,
+      errBody?.error?.message ?? res.statusText,
+      errBody?.error?.request_id ?? res.headers.get("x-request-id") ?? undefined,
+      errBody?.error?.code,
+      errBody?.error?.details,
+    );
+  }
+  if (res.status === 204) return undefined;
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("application/json")) return res.json();
+  return res.text();
+}
+
 export const put = (path: string, json?: any) =>
   request("PUT", path, { json });
 

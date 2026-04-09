@@ -97,6 +97,13 @@ export async function routeContent(entity: any): Promise<ContentResult> {
     }
   }
 
+  // If no handler matched but content entries exist, pass through the MIME type
+  // and source key so ingest.ts can route to format-specific handlers (PDF, DOCX, etc.)
+  if (!mimeType && entries.length > 0) {
+    mimeType = entries[0].content_type;
+    sourceKey = entries[0].key;
+  }
+
   const parts = [inlineText, fileText].filter((p) => p.trim().length > 0);
   const text = parts.join("\n\n---\n\n");
 

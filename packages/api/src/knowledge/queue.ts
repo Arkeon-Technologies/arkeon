@@ -132,7 +132,7 @@ export async function tryFinalizeParent(parentJobId: string): Promise<void> {
   const sql = await createAdminSql();
 
   const [parent] = await sql.query(
-    `SELECT id, status, job_type, metadata FROM knowledge_jobs WHERE id = $1`,
+    `SELECT id, status, job_type, metadata, parent_job_id FROM knowledge_jobs WHERE id = $1`,
     [parentJobId],
   );
   if (!parent || parent.status !== "waiting") return;
@@ -198,6 +198,11 @@ export async function tryFinalizeParent(parentJobId: string): Promise<void> {
     tokens_out: totalTokensOut,
     llm_calls: totalLlmCalls,
   });
+
+  // Propagate up the parent chain for 3-level hierarchies
+  if (parent.parent_job_id) {
+    await tryFinalizeParent(parent.parent_job_id as string);
+  }
 }
 
 // ---------------------------------------------------------------------------
