@@ -286,8 +286,7 @@ export function initKnowledgeQueue(): void {
   if (pollTimer) return;
   stopped = false;
 
-  const sql = await createAdminSql();
-  Promise.resolve(
+  createAdminSql().then((sql) =>
     sql.query(
       `UPDATE knowledge_jobs
        SET status = 'pending'
