@@ -11,6 +11,7 @@
  */
 
 import { createSql, type SqlClient } from "../lib/sql";
+import { createAdminSql } from "./lib/admin-sql";
 import { generateUlid } from "../lib/ids";
 import { getExtractionConfig } from "./lib/config";
 import { clearJobSeq } from "./lib/logger";
@@ -54,7 +55,7 @@ export async function createJob(opts: {
   parentJobId?: string;
   metadata?: Record<string, unknown>;
 }): Promise<string | null> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const id = generateUlid();
 
   try {
@@ -87,7 +88,7 @@ export async function setJobStatus(
   status: string,
   extra?: { result?: unknown; error?: string; model?: string; tokens_in?: number; tokens_out?: number; llm_calls?: number },
 ): Promise<void> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const sets = [`status = $2`];
   const params: unknown[] = [jobId, status];
 
@@ -128,7 +129,7 @@ export async function setJobStatus(
  * If all children are done, aggregates results onto the parent.
  */
 export async function tryFinalizeParent(parentJobId: string): Promise<void> {
-  const sql = createSql();
+  const sql = await createAdminSql();
 
   const [parent] = await sql.query(
     `SELECT id, status, job_type, metadata FROM knowledge_jobs WHERE id = $1`,
@@ -212,7 +213,7 @@ async function pollAndProcess(): Promise<void> {
   const available = maxConcurrency - running;
   if (stopped || available <= 0) return;
 
-  const sql = createSql();
+  const sql = await createAdminSql();
 
   // Claim pending jobs (exclude 'waiting' — those are parent jobs awaiting children)
   const jobs = await sql.query(
@@ -285,7 +286,7 @@ export function initKnowledgeQueue(): void {
   if (pollTimer) return;
   stopped = false;
 
-  const sql = createSql();
+  const sql = await createAdminSql();
   Promise.resolve(
     sql.query(
       `UPDATE knowledge_jobs

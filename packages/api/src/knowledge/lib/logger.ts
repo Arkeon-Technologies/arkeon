@@ -3,7 +3,7 @@
  * Fire-and-forget pattern: log calls don't block the pipeline.
  */
 
-import { createSql } from "../../lib/sql";
+import { createAdminSql } from "./admin-sql";
 import type { LlmUsage } from "./llm";
 
 export type LogKind =
@@ -55,48 +55,49 @@ export function appendLog(
   content: unknown,
   usage?: LlmUsage,
 ): void {
-  const sql = createSql();
   const seq = (seqCounters.get(jobId) ?? 0) + 1;
   seqCounters.set(jobId, seq);
 
   const raw = typeof content === "string" ? content : JSON.stringify(content);
   const scrubbed = scrubSecrets(raw);
 
-  // Fire-and-forget log write
-  Promise.resolve(
-    sql.query(
-      `INSERT INTO knowledge_job_logs (job_id, seq, ts, kind, content, model, tokens_in, tokens_out)
-       VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7)`,
-      [
-        jobId,
-        seq,
-        kind,
-        scrubbed,
-        usage?.model ?? null,
-        usage?.tokensIn ?? null,
-        usage?.tokensOut ?? null,
-      ],
-    ),
-  ).catch((err: unknown) => {
-    console.error(`[knowledge:logger] Failed to write log for job ${jobId}:`, err);
-  });
-
-  // Update daily token rollup
-  if (usage && (usage.tokensIn > 0 || usage.tokensOut > 0)) {
-    Promise.resolve(
+  // Fire-and-forget: create admin sql, then write log + usage
+  createAdminSql()
+    .then((sql) => {
       sql.query(
-        `INSERT INTO knowledge_token_usage (date, model, calls, tokens_in, tokens_out)
-         VALUES (CURRENT_DATE, $1, 1, $2, $3)
-         ON CONFLICT (date, model) DO UPDATE SET
-           calls = knowledge_token_usage.calls + 1,
-           tokens_in = knowledge_token_usage.tokens_in + EXCLUDED.tokens_in,
-           tokens_out = knowledge_token_usage.tokens_out + EXCLUDED.tokens_out`,
-        [usage.model, usage.tokensIn, usage.tokensOut],
-      ),
-    ).catch((err: unknown) => {
-      console.error(`[knowledge:logger] Failed to update token usage:`, err);
+        `INSERT INTO knowledge_job_logs (job_id, seq, ts, kind, content, model, tokens_in, tokens_out)
+         VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7)`,
+        [
+          jobId,
+          seq,
+          kind,
+          scrubbed,
+          usage?.model ?? null,
+          usage?.tokensIn ?? null,
+          usage?.tokensOut ?? null,
+        ],
+      ).catch((err: unknown) => {
+        console.error(`[knowledge:logger] Failed to write log for job ${jobId}:`, err);
+      });
+
+      // Update daily token rollup
+      if (usage && (usage.tokensIn > 0 || usage.tokensOut > 0)) {
+        sql.query(
+          `INSERT INTO knowledge_token_usage (date, model, calls, tokens_in, tokens_out)
+           VALUES (CURRENT_DATE, $1, 1, $2, $3)
+           ON CONFLICT (date, model) DO UPDATE SET
+             calls = knowledge_token_usage.calls + 1,
+             tokens_in = knowledge_token_usage.tokens_in + EXCLUDED.tokens_in,
+             tokens_out = knowledge_token_usage.tokens_out + EXCLUDED.tokens_out`,
+          [usage.model, usage.tokensIn, usage.tokensOut],
+        ).catch((err: unknown) => {
+          console.error(`[knowledge:logger] Failed to update token usage:`, err);
+        });
+      }
+    })
+    .catch((err: unknown) => {
+      console.error(`[knowledge:logger] Failed to create admin sql for job ${jobId}:`, err);
     });
-  }
 }
 
 /**
@@ -115,7 +116,7 @@ export async function getJobLogs(
   tokens_in: number | null;
   tokens_out: number | null;
 }>> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const limit = opts?.limit ?? 200;
   const offset = opts?.offset ?? 0;
 
@@ -150,7 +151,7 @@ export async function getTokenUsage(opts: {
   totals: { calls: number; tokens_in: number; tokens_out: number };
   by_model: Record<string, { calls: number; tokens_in: number; tokens_out: number }>;
 }> {
-  const sql = createSql();
+  const sql = await createAdminSql();
 
   const rows = await sql.query(
     `SELECT model, SUM(calls)::int as calls, SUM(tokens_in)::int as tokens_in, SUM(tokens_out)::int as tokens_out

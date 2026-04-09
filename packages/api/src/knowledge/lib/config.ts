@@ -3,8 +3,8 @@
  * Handles LLM config resolution (with fallback chain) and extraction rules.
  */
 
-import { createSql } from "../../lib/sql";
 import { encrypt, decrypt, keyHint } from "../../lib/crypto";
+import { createAdminSql } from "./admin-sql";
 import type { LlmConfig } from "./llm";
 
 export interface StoredLlmConfig {
@@ -42,7 +42,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
  * Falls back: agent-specific -> default -> env vars.
  */
 export async function resolveLlmConfig(agentId: string): Promise<LlmConfig> {
-  const sql = createSql();
+  const sql = await createAdminSql();
 
   for (const id of [agentId, "default"]) {
     const [row] = await sql`
@@ -92,7 +92,7 @@ export async function saveLlmConfig(
     max_tokens?: number;
   },
 ): Promise<void> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const apiKeyEncrypted = opts.api_key ? await encrypt(opts.api_key) : null;
   const apiKeyHintVal = opts.api_key ? keyHint(opts.api_key) : null;
 
@@ -130,7 +130,7 @@ export async function saveLlmConfig(
  * List all configured LLM configs (keys redacted).
  */
 export async function listLlmConfigs(): Promise<StoredLlmConfig[]> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const rows = await sql`
     SELECT id, provider, base_url, api_key_hint, model, max_tokens, updated_at, api_key_encrypted
     FROM knowledge_config
@@ -153,7 +153,7 @@ export async function listLlmConfigs(): Promise<StoredLlmConfig[]> {
  * Delete an LLM config.
  */
 export async function deleteLlmConfig(id: string): Promise<boolean> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const rows = await sql`DELETE FROM knowledge_config WHERE id = ${id} RETURNING id`;
   return rows.length > 0;
 }
@@ -161,7 +161,7 @@ export async function deleteLlmConfig(id: string): Promise<boolean> {
 // --- Extraction config ---
 
 export async function getExtractionConfig(): Promise<ExtractionConfig> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const [row] = await sql`
     SELECT entity_types, strict_entity_types, predicates, strict_predicates, custom_instructions, max_concurrency, target_chunk_chars, scope_to_space, updated_at
     FROM extraction_config
@@ -205,7 +205,7 @@ export async function saveExtractionConfig(opts: {
   target_chunk_chars?: number;
   scope_to_space?: boolean;
 }): Promise<ExtractionConfig> {
-  const sql = createSql();
+  const sql = await createAdminSql();
   const current = await getExtractionConfig();
 
   const entityTypes = opts.entity_types ?? current.entity_types;

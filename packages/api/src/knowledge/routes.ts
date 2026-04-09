@@ -240,6 +240,8 @@ knowledgeRouter.openapi(listJobsRoute, async (c) => {
   const actor = requireActor(c);
   const { status, entity_id, limit: limitStr, offset: offsetStr } = c.req.valid("query");
   const sql = createSql();
+  await sql`SELECT set_config('app.actor_id', ${actor.id}, false)`;
+  await sql`SELECT set_config('app.actor_is_admin', ${String(actor.isAdmin)}, false)`;
   const limit = Math.min(Number(limitStr) || 50, 100);
   const offset = Number(offsetStr) || 0;
 
@@ -329,6 +331,8 @@ knowledgeRouter.openapi(getJobRoute, async (c) => {
   const actor = requireActor(c);
   const { id } = c.req.valid("param");
   const sql = createSql();
+  await sql`SELECT set_config('app.actor_id', ${actor.id}, false)`;
+  await sql`SELECT set_config('app.actor_is_admin', ${String(actor.isAdmin)}, false)`;
 
   const [job] = await sql`
     SELECT id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id,
