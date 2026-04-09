@@ -81,12 +81,15 @@ describe("Admin queue endpoints", () => {
     expect(invokeResp.status).toBe(202);
     const invocationId = (invokeBody as { invocation_id: number }).invocation_id;
 
-    // Wait a moment for it to transition to running
-    await new Promise((r) => setTimeout(r, 500));
-
-    // Confirm it's running
-    const { body: statsBody } = await apiRequest("/admin/queue", { apiKey: adminApiKey });
-    expect((statsBody as any).running).toBeGreaterThanOrEqual(1);
+    // Poll until it transitions to running (sandbox init is slower in Docker)
+    let running = 0;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const { body: statsBody } = await apiRequest("/admin/queue", { apiKey: adminApiKey });
+      running = (statsBody as any).running ?? 0;
+      if (running >= 1) break;
+    }
+    expect(running).toBeGreaterThanOrEqual(1);
 
     // Reset the queue — should abort the hanging invocation
     const { response: resetResp, body: resetBody } = await jsonRequest(
@@ -107,7 +110,7 @@ describe("Admin queue endpoints", () => {
     );
     const pollData = pollBody as Record<string, any>;
     expect(["failed", "cancelled"]).toContain(pollData.status);
-  }, 15_000);
+  }, 30_000);
 
   test("queue stats reflect reset", async () => {
     // Reset first
