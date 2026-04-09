@@ -162,7 +162,7 @@ const ingestRoute = createRoute({
   path: "/ingest",
   operationId: "ingestKnowledge",
   tags: ["Knowledge"],
-  summary: "Trigger knowledge extraction for entities",
+  summary: "Manually trigger knowledge extraction for entities. Not needed after upload — content uploads are auto-ingested. Use this to re-extract or retry.",
   "x-arke-rules": ["Requires authentication", "Entities must be visible to the requesting actor"],
   request: {
     body: { content: { "application/json": { schema: ingestBodySchema } } },
