@@ -4939,18 +4939,20 @@
             "description": "Payload too large"
           }
         },
-        "summary": "Upload a file directly to an entity",
+        "summary": "Upload a file directly to an entity. Automatically triggers knowledge extraction — no need to call POST /knowledge/ingest after upload.",
         "tags": [
           "Content"
         ],
         "x-arke-auth": "required",
         "x-arke-related": [
           "GET /entities/{id}/content",
-          "DELETE /entities/{id}/content"
+          "DELETE /entities/{id}/content",
+          "POST /knowledge/ingest"
         ],
         "x-arke-rules": [
           "Requires write access to the entity (owner, editor, or admin role)",
-          "Optimistic concurrency: must pass current ver to upload"
+          "Optimistic concurrency: must pass current ver to upload",
+          "Knowledge extraction is auto-enqueued within ~10s of upload"
         ]
       }
     },
@@ -7161,6 +7163,7 @@
     },
     "/knowledge/config": {
       "get": {
+        "operationId": "getKnowledgeConfig",
         "responses": {
           "200": {
             "content": {
@@ -7192,6 +7195,7 @@
         ]
       },
       "put": {
+        "operationId": "updateKnowledgeConfig",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7305,6 +7309,7 @@
     },
     "/knowledge/config/{id}": {
       "delete": {
+        "operationId": "deleteKnowledgeLlmConfig",
         "parameters": [
           {
             "in": "path",
@@ -7346,6 +7351,7 @@
     },
     "/knowledge/ingest": {
       "post": {
+        "operationId": "ingestKnowledge",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7414,7 +7420,7 @@
             "description": "Jobs created"
           }
         },
-        "summary": "Trigger knowledge extraction for entities",
+        "summary": "Manually trigger knowledge extraction for entities. Not needed after upload — content uploads are auto-ingested. Use this to re-extract or retry.",
         "tags": [
           "Knowledge"
         ],
@@ -7426,6 +7432,7 @@
     },
     "/knowledge/jobs": {
       "get": {
+        "operationId": "listKnowledgeJobs",
         "parameters": [
           {
             "in": "query",
@@ -7503,6 +7510,7 @@
     },
     "/knowledge/jobs/{id}": {
       "get": {
+        "operationId": "getKnowledgeJob",
         "parameters": [
           {
             "in": "path",
@@ -7546,6 +7554,7 @@
     },
     "/knowledge/usage": {
       "get": {
+        "operationId": "getKnowledgeUsage",
         "parameters": [
           {
             "in": "query",
