@@ -6,7 +6,7 @@ ALTER TABLE knowledge_jobs ADD COLUMN parent_job_id TEXT REFERENCES knowledge_jo
 ALTER TABLE knowledge_jobs ADD COLUMN metadata JSONB;
 
 -- Drop old unique constraint (chunk jobs share entity+ver with parent)
-ALTER TABLE knowledge_jobs DROP CONSTRAINT knowledge_jobs_entity_id_entity_ver_key;
+ALTER TABLE knowledge_jobs DROP CONSTRAINT IF EXISTS knowledge_jobs_entity_id_entity_ver_key;
 
 -- Only ingest jobs deduplicate per entity+ver
 CREATE UNIQUE INDEX idx_knowledge_jobs_entity_ver_dedup

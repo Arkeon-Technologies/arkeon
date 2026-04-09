@@ -81,7 +81,8 @@ INSERT INTO extraction_config (id, entity_types, predicates, updated_at) VALUES 
   '["person","organization","location","event","concept","document","product","technology"]'::jsonb,
   '["relates_to","part_of","leads","works_at","located_in","participated_in","created","references","depends_on","preceded_by"]'::jsonb,
   NOW()
-);
+) ON CONFLICT (id) DO NOTHING;
 
 -- Seed poller state
-INSERT INTO knowledge_poller_state (id, last_activity_id, updated_at) VALUES ('default', 0, NOW());
+INSERT INTO knowledge_poller_state (id, last_activity_id, updated_at) VALUES ('default', 0, NOW())
+ON CONFLICT (id) DO NOTHING;
