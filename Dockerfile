@@ -58,11 +58,9 @@ COPY --from=cli-build /sdk-standalone/dist packages/sdk-ts/dist
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
 RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
-# Symlink SDK into /node_modules so worker sandboxes (which run from arbitrary dirs)
-# can import it via bare specifier. The workspace copy at packages/sdk-ts handles
-# the API's own import via the npm workspace link.
-RUN ln -sf /app/packages/sdk-ts /node_modules/@arkeon-technologies/sdk \
-    && ln -sf /app/packages/sdk-ts /node_modules/arkeon-sdk
+# npm ci already symlinks @arkeon-technologies/sdk via the workspace.
+# Add bare "arkeon-sdk" alias so worker sandboxes can import it from any directory.
+RUN ln -sf /app/packages/sdk-ts /node_modules/arkeon-sdk
 
 # Install Python SDK and common document-processing packages for worker sandboxes
 COPY packages/sdk-python /tmp/sdk-python
