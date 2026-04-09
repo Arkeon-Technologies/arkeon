@@ -115,6 +115,14 @@ export interface TextChunk {
   endOffset: number;
 }
 
+// --- Visual describe (single page) ---
+
+export interface VisualPageDescription {
+  text: string;
+  imageDescriptions: string[];
+  tables: { caption?: string; markdown: string }[];
+}
+
 // --- Full pipeline result ---
 
 export interface IngestResult {

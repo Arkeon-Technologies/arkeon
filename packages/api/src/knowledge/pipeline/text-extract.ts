@@ -1,6 +1,6 @@
 /**
- * text.extract handler: full extraction pipeline for small documents.
- * extract → materialize → [lock] resolve → write [unlock] → dedupe
+ * text.extract handler: extraction for small documents.
+ * extract → runExtractionPipeline (materialize → resolve → write → dedupe)
  */
 
 import { LlmClient, type LlmUsage } from "../lib/llm";
@@ -11,12 +11,7 @@ import { setJobStatus, tryFinalizeParent } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 
 import { extractFromDocument } from "./extract";
-import { materializeShellEntities } from "./materialize";
-import { resolveEntities } from "./resolve";
-import { rewritePlanToCanonical } from "./rewrite";
-import { writeSubgraph } from "./write";
-import { dedupeEntities } from "./dedupe";
-import { withResolveWriteLock } from "./lock";
+import { runExtractionPipeline } from "./run-pipeline";
 
 export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promise<void> {
   const jobId = job.id as string;
@@ -34,18 +29,6 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   if (!text) throw new Error("No text in job metadata");
   if (!arkeId) throw new Error("No arke_id in job metadata");
 
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let llmCalls = 0;
-  let model = "";
-
-  function trackUsage(usage: LlmUsage) {
-    if (!model && usage.model) model = usage.model;
-    tokensIn += usage.tokensIn;
-    tokensOut += usage.tokensOut;
-    llmCalls++;
-  }
-
   // Extract
   const extractorConfig = await resolveLlmConfig("extractor");
   const extractorLlm = new LlmClient(extractorConfig);
@@ -53,72 +36,43 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
 
   appendLog(jobId, "info", `Extracting from ${text.length} chars`);
   const extractResult = await extractFromDocument(extractorLlm, text, extractionConfig);
-  trackUsage(extractResult.usage);
   appendLog(jobId, "llm_response", {
     stage: "extract",
     entities: extractResult.data.entities.length,
     relationships: extractResult.data.relationships.length,
   }, extractResult.usage);
 
-  if (extractResult.data.entities.length === 0) {
-    appendLog(jobId, "info", "No entities extracted");
-    await setJobStatus(jobId, "completed", {
-      result: { createdEntities: 0, createdRelationships: 0, potentialDuplicates: 0 },
-      model, tokens_in: tokensIn, tokens_out: tokensOut, llm_calls: llmCalls,
-    });
-    if (parentJobId) await tryFinalizeParent(parentJobId);
-    return;
-  }
-
-  // Materialize
-  const materializedPlan = materializeShellEntities(extractResult.data);
-  appendLog(jobId, "info", `After materialize: ${materializedPlan.entities.length} entities, ${materializedPlan.relationships.length} relationships`);
-
-  // Resolve → Write (locked)
-  const resolverConfig = await resolveLlmConfig("resolver");
-  const resolverLlm = new LlmClient(resolverConfig);
-
-  // Resolve OUTSIDE the lock (search + LLM judge calls)
-  appendLog(jobId, "info", "Resolving against existing graph");
-  const resolveResult = await resolveEntities(resolverLlm, materializedPlan, arkeId, spaceId);
-  for (const u of resolveResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "resolve" }, u); }
-  const matched = resolveResult.decisions.filter((d) => d.same_as_ids?.length > 0).length;
-  appendLog(jobId, "info", `Resolved: ${matched} matched, ${materializedPlan.entities.length - matched} new`);
-  const { entities, relationships } = rewritePlanToCanonical(materializedPlan, resolveResult.decisions);
-
-  // Only lock the write phase
-  const writeResult = await withResolveWriteLock(async () => {
-    appendLog(jobId, "info", "Writing to graph");
-    const wr = await writeSubgraph(entities, relationships, entityId, arkeId, { spaceId, readLevel, writeLevel, ownerId, permissions });
-    appendLog(jobId, "info", `Written: ${wr.createdEntityIds.length} entities, ${wr.createdRelationshipIds.length} relationships`);
-    return wr;
+  // Pipeline tail
+  const pipelineResult = await runExtractionPipeline(extractResult.data, {
+    jobId,
+    documentId: entityId,
+    arkeId,
+    spaceId,
+    readLevel,
+    writeLevel,
+    ownerId,
+    permissions,
   });
 
-  // Dedupe (outside lock)
-  let mergedCount = 0;
-  if (writeResult.createdEntityIds.length > 0) {
-    appendLog(jobId, "info", "Deduplicating");
-    const dedupeResult = await dedupeEntities(resolverLlm, writeResult.createdEntityIds, arkeId, spaceId, { concurrency: extractionConfig.max_concurrency });
-    for (const u of dedupeResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "dedupe" }, u); }
-    mergedCount = dedupeResult.duplicates.length;
-    if (mergedCount > 0) {
-      appendLog(jobId, "info", `Found ${mergedCount} potential duplicates`);
-    }
-  }
+  // Merge extraction + pipeline usage
+  const totalTokensIn = extractResult.usage.tokensIn + pipelineResult.usage.tokensIn;
+  const totalTokensOut = extractResult.usage.tokensOut + pipelineResult.usage.tokensOut;
+  const totalLlmCalls = 1 + pipelineResult.usage.llmCalls;
+  const model = extractResult.usage.model || pipelineResult.usage.model;
 
   await setJobStatus(jobId, "completed", {
     result: {
       documentId: entityId,
-      extractedEntities: materializedPlan.entities.length,
-      extractedRelationships: materializedPlan.relationships.length,
-      createdEntities: writeResult.createdEntityIds.length,
-      createdRelationships: writeResult.createdRelationshipIds.length,
-      potentialDuplicates: mergedCount,
+      extractedEntities: pipelineResult.extractedEntities,
+      extractedRelationships: pipelineResult.extractedRelationships,
+      createdEntities: pipelineResult.createdEntities,
+      createdRelationships: pipelineResult.createdRelationships,
+      potentialDuplicates: pipelineResult.potentialDuplicates,
     },
-    model, tokens_in: tokensIn, tokens_out: tokensOut, llm_calls: llmCalls,
+    model, tokens_in: totalTokensIn, tokens_out: totalTokensOut, llm_calls: totalLlmCalls,
   });
 
-  console.log(`[knowledge:queue] text.extract ${jobId} completed: ${writeResult.createdEntityIds.length} entities, ${writeResult.createdRelationshipIds.length} rels`);
+  console.log(`[knowledge:queue] text.extract ${jobId} completed: ${pipelineResult.createdEntities} entities, ${pipelineResult.createdRelationships} rels`);
 
   if (parentJobId) await tryFinalizeParent(parentJobId);
 }

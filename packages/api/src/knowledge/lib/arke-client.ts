@@ -10,6 +10,7 @@ export {
   patch,
   del,
   paginate,
+  rawGet,
   setArkeId,
   getArkeId,
   setSpaceId,
@@ -18,7 +19,7 @@ export {
   configure,
 } from "@arkeon-technologies/sdk";
 
-import { get, post, put, del, configure } from "@arkeon-technologies/sdk";
+import { get, post, put, del, rawGet, configure } from "@arkeon-technologies/sdk";
 
 /**
  * Override the SDK's API key and base URL at runtime by wrapping fetch.
@@ -118,6 +119,19 @@ export async function getEntityContent(
     params: { key },
   });
   return typeof data === "string" ? data : JSON.stringify(data);
+}
+
+/**
+ * Fetch entity content as raw bytes (for binary formats like PDF, images).
+ * Uses the SDK's configured fetch (same auth as all other SDK calls)
+ * with rawGet() to get the Response object directly.
+ */
+export async function getEntityContentBytes(
+  entityId: string,
+  key: string,
+): Promise<Buffer> {
+  const res = await rawGet(`/entities/${entityId}/content`, { key });
+  return Buffer.from(await res.arrayBuffer());
 }
 
 export async function transferOwnership(

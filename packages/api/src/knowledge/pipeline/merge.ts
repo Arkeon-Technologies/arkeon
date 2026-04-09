@@ -17,11 +17,11 @@ function dedupeKey(label: string, type: string): string {
 
 export interface MergeResult {
   plan: ExtractPlan;
-  /** Maps entity ref -> chunk ordinal that produced it */
-  refToChunkOrdinal: Map<string, number>;
+  /** Maps entity ref -> source ordinal (chunk, page group, etc.) that produced it */
+  refToSourceOrdinal: Map<string, number>;
 }
 
-export function mergeChunkPlans(
+export function mergeGroupPlans(
   chunkResults: ChatJsonResult<ExtractPlan>[],
 ): MergeResult {
   const entityMap = new Map<string, ExtractOpEntity>();
@@ -82,5 +82,5 @@ export function mergeChunkPlans(
     });
   }
 
-  return { plan: { entities, relationships }, refToChunkOrdinal: entitySourceChunk };
+  return { plan: { entities, relationships }, refToSourceOrdinal: entitySourceChunk };
 }

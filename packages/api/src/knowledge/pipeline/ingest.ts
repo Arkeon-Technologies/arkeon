@@ -17,7 +17,7 @@ import type { SqlClient } from "../../lib/sql";
 import { routeContent } from "./route";
 import { estimateTokens, chunkText, CHUNK_THRESHOLD_TOKENS } from "./chunk";
 import { surveyDocument } from "./survey";
-import { writeChunkEntities } from "./write";
+import { writeSourceEntities } from "./write";
 
 export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void> {
   const jobId = job.id as string;
@@ -125,10 +125,21 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     const chunks = chunkText(text, { targetChars: targetChunkChars });
     appendLog(jobId, "info", `Split into ${chunks.length} chunks`);
 
-    // Create chunk entities in the graph (for provenance)
+    // Create source entities in the graph (for provenance)
     const parentLabel = entity.properties?.label ?? `Entity ${entityId}`;
-    const chunkWrite = await writeChunkEntities(chunks, entityId, parentLabel, arkeId, { spaceId, readLevel, writeLevel });
-    appendLog(jobId, "info", `Created ${chunkWrite.chunkIds.length} chunk entities`);
+    const sourceWrite = await writeSourceEntities(
+      chunks.map((c) => ({
+        label: `Chunk ${c.ordinal + 1} of ${parentLabel}`,
+        type: "text_chunk",
+        ordinal: c.ordinal,
+        text: c.text,
+        properties: { start_offset: c.startOffset, end_offset: c.endOffset },
+      })),
+      entityId,
+      arkeId,
+      { spaceId, readLevel, writeLevel },
+    );
+    appendLog(jobId, "info", `Created ${sourceWrite.sourceEntityIds.length} source entities`);
 
     // Fan out: create a text.chunk_extract job per chunk
     const childJobIds: string[] = [];
@@ -145,7 +156,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
           total_chunks: chunks.length,
           chunk_text: chunk.text,
           survey: surveyResult.data,
-          chunk_entity_ids: chunkWrite.chunkIds,
+          source_entity_ids: sourceWrite.sourceEntityIds,
           ...inheritedMeta,
         },
       });
@@ -157,7 +168,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     // Store metadata on parent for finalization
     await sql.query(
       `UPDATE knowledge_jobs SET metadata = $1 WHERE id = $2`,
-      [JSON.stringify({ arke_id: arkeId, chunk_entity_ids: chunkWrite.chunkIds }), jobId],
+      [JSON.stringify({ arke_id: arkeId, source_entity_ids: sourceWrite.sourceEntityIds }), jobId],
     );
 
     await setJobStatus(jobId, "waiting");
