@@ -8,8 +8,10 @@
  *   "text.chunk_extract" — extract from one chunk of a large text
  *   "pdf.extract"        — parse PDF, create page entities, fan out
  *   "pdf.page_group"     — extract from a group of PDF pages
+ *   "pptx.extract"       — parse PPTX, create slide entities, fan out
+ *   "pptx.slide_group"   — extract from a group of PPTX slides
  *
- * Adding new content types (pptx, image, etc.) = registering new handlers.
+ * Adding new content types (image, etc.) = registering new handlers.
  */
 
 import { createSql, type SqlClient } from "../lib/sql";
@@ -22,6 +24,8 @@ import { handleTextExtract } from "./pipeline/text-extract";
 import { handleTextChunkExtract } from "./pipeline/text-chunk-extract";
 import { handlePdfExtract } from "./pipeline/pdf-extract";
 import { handlePdfPageGroup } from "./pipeline/pdf-page-group";
+import { handlePptxExtract } from "./pipeline/pptx-extract";
+import { handlePptxSlideGroup } from "./pipeline/pptx-slide-group";
 
 const POLL_INTERVAL_MS = 2_000;
 const JOB_TIMEOUT_MS = 300_000; // 5 minutes
@@ -46,6 +50,8 @@ const handlers: Record<string, JobHandler> = {
   "text.chunk_extract": handleTextChunkExtract,
   "pdf.extract":        handlePdfExtract,
   "pdf.page_group":     handlePdfPageGroup,
+  "pptx.extract":       handlePptxExtract,
+  "pptx.slide_group":   handlePptxSlideGroup,
 };
 
 // ---------------------------------------------------------------------------

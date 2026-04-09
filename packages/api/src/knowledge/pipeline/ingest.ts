@@ -88,6 +88,26 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     return;
   }
 
+  // PPTX: route to specialized pptx.extract handler
+  const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (contentResult.mimeType === PPTX_MIME && contentResult.sourceKey) {
+    appendLog(jobId, "info", `PPTX detected (key: ${contentResult.sourceKey}), creating pptx.extract job`);
+    await createJob({
+      entityId,
+      entityVer,
+      trigger: "system",
+      triggeredBy: triggeredBy ?? undefined,
+      jobType: "pptx.extract",
+      parentJobId: jobId,
+      metadata: {
+        content_key: contentResult.sourceKey,
+        ...inheritedMeta,
+      },
+    });
+    await setJobStatus(jobId, "waiting");
+    return;
+  }
+
   const text = contentResult.text;
 
   if (!text || text.trim().length < 10) {
