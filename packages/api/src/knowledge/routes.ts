@@ -35,6 +35,7 @@ export const knowledgeRouter = createRouter();
 const getConfigRoute = createRoute({
   method: "get",
   path: "/config",
+  operationId: "getKnowledgeConfig",
   tags: ["Knowledge"],
   summary: "Get knowledge extraction configuration",
   "x-arke-rules": ["Admin only"],
@@ -82,6 +83,7 @@ const putConfigBodySchema = z.object({
 const putConfigRoute = createRoute({
   method: "put",
   path: "/config",
+  operationId: "updateKnowledgeConfig",
   tags: ["Knowledge"],
   summary: "Update knowledge extraction configuration",
   "x-arke-rules": ["Admin only"],
@@ -128,6 +130,7 @@ knowledgeRouter.openapi(putConfigRoute, async (c) => {
 const deleteConfigRoute = createRoute({
   method: "delete",
   path: "/config/{id}",
+  operationId: "deleteKnowledgeLlmConfig",
   tags: ["Knowledge"],
   summary: "Delete an LLM configuration",
   "x-arke-rules": ["Admin only"],
@@ -157,6 +160,7 @@ const ingestBodySchema = z.object({
 const ingestRoute = createRoute({
   method: "post",
   path: "/ingest",
+  operationId: "ingestKnowledge",
   tags: ["Knowledge"],
   summary: "Trigger knowledge extraction for entities",
   "x-arke-rules": ["Requires authentication", "Entities must be visible to the requesting actor"],
@@ -217,6 +221,7 @@ knowledgeRouter.openapi(ingestRoute, async (c) => {
 const listJobsRoute = createRoute({
   method: "get",
   path: "/jobs",
+  operationId: "listKnowledgeJobs",
   tags: ["Knowledge"],
   summary: "List knowledge extraction jobs",
   "x-arke-rules": ["Admin sees all jobs", "Non-admin sees only jobs they triggered"],
@@ -313,6 +318,7 @@ knowledgeRouter.openapi(listJobsRoute, async (c) => {
 const getJobRoute = createRoute({
   method: "get",
   path: "/jobs/{id}",
+  operationId: "getKnowledgeJob",
   tags: ["Knowledge"],
   summary: "Get knowledge extraction job details with logs",
   "x-arke-rules": ["Admin or triggering actor only"],
@@ -363,6 +369,7 @@ knowledgeRouter.openapi(getJobRoute, async (c) => {
 const usageRoute = createRoute({
   method: "get",
   path: "/usage",
+  operationId: "getKnowledgeUsage",
   tags: ["Knowledge"],
   summary: "Get knowledge extraction token usage",
   "x-arke-rules": ["Admin only"],
