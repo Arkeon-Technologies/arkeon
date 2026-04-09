@@ -22,8 +22,8 @@ COPY packages/cli packages/cli
 COPY packages/sdk-ts packages/sdk-ts
 COPY packages/api packages/api
 COPY packages/runtime packages/runtime
-RUN cd packages/cli && npm run fetch-spec && npm run generate && npx tsup --no-dts
 RUN cd packages/sdk-ts && npx tsup
+RUN cd packages/cli && npm run fetch-spec && npm run generate && npx tsup --no-dts
 # Re-install production-only deps in an isolated directory for the final image.
 # Remove arkeon-shared from deps — it's already bundled into dist by tsup (noExternal).
 RUN mkdir /cli-standalone \

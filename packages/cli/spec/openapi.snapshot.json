@@ -425,6 +425,12 @@
           "properties": {
             "$ref": "#/components/schemas/JsonObject"
           },
+          "read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
           "source_id": {
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
@@ -434,6 +440,12 @@
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
+          },
+          "write_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -443,6 +455,8 @@
           "target_id",
           "direction",
           "properties",
+          "read_level",
+          "write_level",
           "counterpart"
         ],
         "type": "object"
@@ -5752,6 +5766,12 @@
                             "additionalProperties": {},
                             "type": "object"
                           },
+                          "read_level": {
+                            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                            "maximum": 4,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
                           "source": {},
                           "source_id": {
                             "description": "ULID string",
@@ -5765,6 +5785,12 @@
                             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
                             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                             "type": "string"
+                          },
+                          "write_level": {
+                            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                            "maximum": 4,
+                            "minimum": 0,
+                            "type": "integer"
                           }
                         },
                         "required": [
@@ -5773,7 +5799,9 @@
                           "source_id",
                           "target_id",
                           "direction",
-                          "properties"
+                          "properties",
+                          "read_level",
+                          "write_level"
                         ],
                         "type": "object"
                       },
@@ -7131,6 +7159,430 @@
         ]
       }
     },
+    "/knowledge/config": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "extraction": {},
+                    "llm": {
+                      "items": {},
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "llm"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "LLM configs and extraction rules"
+          }
+        },
+        "summary": "Get knowledge extraction configuration",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin only"
+        ]
+      },
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "extraction": {
+                    "properties": {
+                      "custom_instructions": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "entity_types": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "max_concurrency": {
+                        "maximum": 50,
+                        "minimum": 1,
+                        "type": "number"
+                      },
+                      "predicates": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "scope_to_space": {
+                        "type": "boolean"
+                      },
+                      "strict_entity_types": {
+                        "type": "boolean"
+                      },
+                      "strict_predicates": {
+                        "type": "boolean"
+                      },
+                      "target_chunk_chars": {
+                        "maximum": 100000,
+                        "minimum": 2000,
+                        "type": "number"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "llm": {
+                    "additionalProperties": {
+                      "properties": {
+                        "api_key": {
+                          "type": "string"
+                        },
+                        "base_url": {
+                          "type": "string"
+                        },
+                        "max_tokens": {
+                          "type": "number"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "provider": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "provider",
+                        "model"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "extraction": {},
+                    "llm": {
+                      "items": {},
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "llm"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Updated configuration"
+          }
+        },
+        "summary": "Update knowledge extraction configuration",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin only"
+        ]
+      }
+    },
+    "/knowledge/config/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "deleted"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Deleted"
+          }
+        },
+        "summary": "Delete an LLM configuration",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin only"
+        ]
+      }
+    },
+    "/knowledge/ingest": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "entity_ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "entity_ids"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "jobs": {
+                      "items": {
+                        "properties": {
+                          "entity_id": {
+                            "type": "string"
+                          },
+                          "job_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "enum": [
+                              "queued",
+                              "duplicate"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "entity_id",
+                          "job_id",
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "jobs"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Jobs created"
+          }
+        },
+        "summary": "Trigger knowledge extraction for entities",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Requires authentication",
+          "Entities must be visible to the requesting actor"
+        ]
+      }
+    },
+    "/knowledge/jobs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entity_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "jobs": {
+                      "items": {},
+                      "type": "array"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "jobs",
+                    "total"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Job list"
+          }
+        },
+        "summary": "List knowledge extraction jobs",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin sees all jobs",
+          "Non-admin sees only jobs they triggered"
+        ]
+      }
+    },
+    "/knowledge/jobs/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "job": {},
+                    "logs": {
+                      "items": {},
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "logs"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Job with logs"
+          }
+        },
+        "summary": "Get knowledge extraction job details with logs",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin or triggering actor only"
+        ]
+      }
+    },
+    "/knowledge/usage": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Token usage summary"
+          }
+        },
+        "summary": "Get knowledge extraction token usage",
+        "tags": [
+          "Knowledge"
+        ],
+        "x-arke-rules": [
+          "Admin only"
+        ]
+      }
+    },
     "/relationships/{relId}": {
       "delete": {
         "operationId": "deleteRelationship",
@@ -7237,6 +7689,12 @@
                       "additionalProperties": {},
                       "type": "object"
                     },
+                    "read_level": {
+                      "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
                     "source": {},
                     "source_id": {
                       "description": "ULID string",
@@ -7250,6 +7708,12 @@
                       "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
                       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                       "type": "string"
+                    },
+                    "write_level": {
+                      "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
                     }
                   },
                   "required": [
@@ -7257,7 +7721,9 @@
                     "predicate",
                     "source_id",
                     "target_id",
-                    "properties"
+                    "properties",
+                    "read_level",
+                    "write_level"
                   ],
                   "type": "object"
                 }
