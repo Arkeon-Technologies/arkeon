@@ -26,6 +26,7 @@ import { handlePdfExtract } from "./pipeline/pdf-extract";
 import { handlePdfPageGroup } from "./pipeline/pdf-page-group";
 import { handlePptxExtract } from "./pipeline/pptx-extract";
 import { handlePptxSlideGroup } from "./pipeline/pptx-slide-group";
+import { handleDocxExtract } from "./pipeline/docx-extract";
 
 const POLL_INTERVAL_MS = 2_000;
 const JOB_TIMEOUT_MS = 300_000; // 5 minutes
@@ -52,6 +53,7 @@ const handlers: Record<string, JobHandler> = {
   "pdf.page_group":     handlePdfPageGroup,
   "pptx.extract":       handlePptxExtract,
   "pptx.slide_group":   handlePptxSlideGroup,
+  "docx.extract":       handleDocxExtract,
 };
 
 // ---------------------------------------------------------------------------

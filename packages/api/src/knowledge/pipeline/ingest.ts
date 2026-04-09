@@ -108,6 +108,23 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     return;
   }
 
+  // DOCX: route to specialized docx.extract handler
+  const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (contentResult.mimeType === DOCX_MIME && contentResult.sourceKey) {
+    appendLog(jobId, "info", "Detected DOCX, creating docx.extract job");
+    await createJob({
+      entityId,
+      entityVer,
+      trigger: "system",
+      triggeredBy: triggeredBy ?? undefined,
+      jobType: "docx.extract",
+      parentJobId: jobId,
+      metadata: { content_key: contentResult.sourceKey, ...inheritedMeta },
+    });
+    await setJobStatus(jobId, "waiting");
+    return;
+  }
+
   const text = contentResult.text;
 
   if (!text || text.trim().length < 10) {
