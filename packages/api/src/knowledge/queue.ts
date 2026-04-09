@@ -6,8 +6,10 @@
  *   "ingest"             — router, inspects entity and fans out
  *   "text.extract"       — extract from small text
  *   "text.chunk_extract" — extract from one chunk of a large text
+ *   "pdf.extract"        — parse PDF, create page entities, fan out
+ *   "pdf.page_group"     — extract from a group of PDF pages
  *
- * Adding new content types (pdf, pptx, image) = registering new handlers.
+ * Adding new content types (pptx, image, etc.) = registering new handlers.
  */
 
 import { createSql, type SqlClient } from "../lib/sql";
@@ -18,6 +20,8 @@ import { clearJobSeq } from "./lib/logger";
 import { handleIngest } from "./pipeline/ingest";
 import { handleTextExtract } from "./pipeline/text-extract";
 import { handleTextChunkExtract } from "./pipeline/text-chunk-extract";
+import { handlePdfExtract } from "./pipeline/pdf-extract";
+import { handlePdfPageGroup } from "./pipeline/pdf-page-group";
 
 const POLL_INTERVAL_MS = 2_000;
 const JOB_TIMEOUT_MS = 300_000; // 5 minutes
@@ -40,6 +44,8 @@ const handlers: Record<string, JobHandler> = {
   "ingest":             handleIngest,
   "text.extract":       handleTextExtract,
   "text.chunk_extract": handleTextChunkExtract,
+  "pdf.extract":        handlePdfExtract,
+  "pdf.page_group":     handlePdfPageGroup,
 };
 
 // ---------------------------------------------------------------------------

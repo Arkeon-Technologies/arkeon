@@ -3,7 +3,7 @@ WORKDIR /app
 
 # Pre-install tools for worker sandboxes (bwrap sandbox bind-mounts host root read-only)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bubblewrap curl jq python3 python3-pip ca-certificates \
+    bubblewrap curl jq poppler-utils python3 python3-pip ca-certificates \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 

@@ -68,6 +68,26 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
 
   // Route content
   const contentResult = await routeContent(entity);
+
+  // PDF: route to specialized pdf.extract handler
+  if (contentResult.mimeType === "application/pdf" && contentResult.sourceKey) {
+    appendLog(jobId, "info", `PDF detected (key: ${contentResult.sourceKey}), creating pdf.extract job`);
+    await createJob({
+      entityId,
+      entityVer,
+      trigger: "system",
+      triggeredBy: triggeredBy ?? undefined,
+      jobType: "pdf.extract",
+      parentJobId: jobId,
+      metadata: {
+        content_key: contentResult.sourceKey,
+        ...inheritedMeta,
+      },
+    });
+    await setJobStatus(jobId, "waiting");
+    return;
+  }
+
   const text = contentResult.text;
 
   if (!text || text.trim().length < 10) {
