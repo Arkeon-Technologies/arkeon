@@ -94,6 +94,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build SDK (required by CLI fetch-spec via API import)
+        run: npm run build -w packages/sdk-ts
+
       - name: Build CLI (fetch spec + generate + bundle)
         run: npm run build -w packages/cli
 
