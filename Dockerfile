@@ -60,7 +60,7 @@ RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
 # npm ci already symlinks @arkeon-technologies/sdk via the workspace.
 # Add bare "arkeon-sdk" alias so worker sandboxes can import it from any directory.
-RUN rm -rf /node_modules/arkeon-sdk && ln -s /app/packages/sdk-ts /node_modules/arkeon-sdk
+RUN ln -s /app/packages/sdk-ts /app/node_modules/arkeon-sdk
 
 # Install Python SDK and common document-processing packages for worker sandboxes
 COPY packages/sdk-python /tmp/sdk-python
