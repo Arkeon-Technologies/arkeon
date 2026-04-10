@@ -16,6 +16,20 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/build-push.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/api/**'
+      - 'packages/cli/src/**'
+      - 'packages/sdk-ts/src/**'
+      - 'packages/sdk-python/arkeon_sdk/**'
+      - 'packages/schema/**'
+      - 'packages/runtime/**'
+      - 'Dockerfile'
+      - 'docker-compose.ci.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-push.yml'
 
 jobs:
   test-and-push:
@@ -59,7 +73,11 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.ci.yml down -v
 
+      # Push steps below run only on push-to-main, not on pull_request runs.
+      # PR runs validate the build + e2e suite without exposing AWS secrets
+      # to forked-PR contexts or polluting ECR with pre-merge images.
       - name: Configure AWS credentials
+        if: github.event_name != 'pull_request'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -67,9 +85,11 @@ jobs:
           aws-region: us-east-1
 
       - name: Login to ECR
+        if: github.event_name != 'pull_request'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Tag and push to ECR
+        if: github.event_name != 'pull_request'
         env:
           ECR_REPO: 071493678184.dkr.ecr.us-east-1.amazonaws.com/arke
         run: |
@@ -79,6 +99,8 @@ jobs:
           docker push $ECR_REPO:sha-${GITHUB_SHA::8}
 
   publish-cli:
+    # Only publish from push-to-main, never from PR runs.
+    if: github.event_name != 'pull_request'
     needs: test-and-push
     runs-on: ubuntu-latest
     permissions:
