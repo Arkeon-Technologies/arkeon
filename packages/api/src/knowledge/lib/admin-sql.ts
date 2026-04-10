@@ -1,23 +1,22 @@
 /**
- * Admin RLS context helpers for the knowledge service.
+ * Admin RLS context helper for the knowledge service.
  *
- * createAdminSql() — quick single-query helper. Sets admin context on a
- * pooled connection. Works reliably for single-query operations since
- * postgres.js pipelines sequential queries on the same connection.
+ * withAdminSql() — runs `fn` inside a single Postgres transaction with
+ * `app.actor_is_admin = 'true'` set transaction-locally. Guarantees the
+ * set_config and every query inside `fn` execute on the same pooled
+ * connection, so RLS policies that read the GUC always see admin = true.
  *
- * withAdminSql() — transaction-scoped helper. Guarantees set_config and
- * ALL queries in the callback use the same connection via pg.begin().
- * Use this when a function does multiple queries that all need admin context.
+ * Why this is the only helper: an earlier `createAdminSql()` returned a
+ * shared sql client after running set_config on it, then expected later
+ * `sql.query(...)` calls to inherit the admin context. That works in
+ * isolation but fails under pool contention — postgres.js hands out a
+ * fresh connection per await, so the follow-up query lands on a connection
+ * with no GUC set and RLS denies the write with PG 42501 (mapped to a
+ * 403 forbidden by lib/pg-errors.ts).
  */
 
-import { createSql, withTransaction } from "../../lib/sql";
+import { withTransaction } from "../../lib/sql";
 import type { SqlClient } from "../../lib/sql";
-
-export async function createAdminSql() {
-  const sql = createSql();
-  await sql`SELECT set_config('app.actor_is_admin', 'true', false)`;
-  return sql;
-}
 
 export async function withAdminSql<T>(fn: (sql: SqlClient) => Promise<T>): Promise<T> {
   return withTransaction(async (sql) => {

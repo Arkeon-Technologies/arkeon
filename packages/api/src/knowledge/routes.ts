@@ -23,6 +23,7 @@ import {
   getExtractionConfig,
   saveExtractionConfig,
 } from "./lib/config";
+import { withAdminSql } from "./lib/admin-sql";
 import { getJobLogs, getTokenUsage } from "./lib/logger";
 import { createJob } from "./queue";
 
@@ -245,8 +246,6 @@ knowledgeRouter.openapi(listJobsRoute, async (c) => {
   const actor = requireActor(c);
   const { status, entity_id, limit: limitStr, offset: offsetStr } = c.req.valid("query");
   const sql = createSql();
-  await sql`SELECT set_config('app.actor_id', ${actor.id}, false)`;
-  await sql`SELECT set_config('app.actor_is_admin', ${String(actor.isAdmin)}, false)`;
   const limit = Math.min(Number(limitStr) || 50, 100);
   const offset = Number(offsetStr) || 0;
 
@@ -269,22 +268,27 @@ knowledgeRouter.openapi(listJobsRoute, async (c) => {
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  const [countRow] = await sql.query(
-    `SELECT COUNT(*)::int AS total FROM knowledge_jobs ${where}`,
-    params,
-  );
-
   const jobParams = [...params, limit, offset];
-  const jobs = await sql.query(
-    `SELECT id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id,
-            attempts, result, error, model, tokens_in, tokens_out, llm_calls,
-            created_at, started_at, completed_at
-     FROM knowledge_jobs ${where}
-     ORDER BY created_at DESC
-     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    jobParams,
-  );
+
+  // setActorContext + count + select all run on the same connection so
+  // RLS sees the actor GUCs set in the same transaction. Separate awaits
+  // would each get a fresh pooled connection — see admin-sql.ts.
+  const txResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`SELECT COUNT(*)::int AS total FROM knowledge_jobs ${where}`, params),
+    sql.query(
+      `SELECT id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id,
+              attempts, result, error, model, tokens_in, tokens_out, llm_calls,
+              created_at, started_at, completed_at
+       FROM knowledge_jobs ${where}
+       ORDER BY created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      jobParams,
+    ),
+  ]);
+
+  const countRow = (txResults[txResults.length - 2] as Array<{ total: number }>)[0];
+  const jobs = txResults[txResults.length - 1] as Array<Record<string, unknown>>;
 
   return c.json({
     jobs: jobs.map((j) => ({
@@ -336,17 +340,23 @@ const getJobRoute = createRoute({
 knowledgeRouter.openapi(getJobRoute, async (c) => {
   const actor = requireActor(c);
   const { id } = c.req.valid("param");
-  const sql = createSql();
-  await sql`SELECT set_config('app.actor_id', ${actor.id}, false)`;
-  await sql`SELECT set_config('app.actor_is_admin', ${String(actor.isAdmin)}, false)`;
 
-  const [job] = await sql`
-    SELECT id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id,
-           attempts, max_attempts, result, error, model, tokens_in, tokens_out, llm_calls,
-           created_at, started_at, completed_at
-    FROM knowledge_jobs
-    WHERE id = ${id}
-  `;
+  // Look up the job in admin context so we can return a precise 403 to a
+  // non-admin asking about someone else's job (instead of a leaky 404).
+  // Without the admin context the RLS policy on knowledge_jobs would
+  // already filter the row out, and the app-layer check below would be
+  // dead code. The actual visibility decision lives in this handler.
+  const job = await withAdminSql(async (sql) => {
+    const rows = await sql.query(
+      `SELECT id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id,
+              attempts, max_attempts, result, error, model, tokens_in, tokens_out, llm_calls,
+              created_at, started_at, completed_at
+       FROM knowledge_jobs
+       WHERE id = $1`,
+      [id],
+    );
+    return rows[0] as Record<string, unknown> | undefined;
+  });
 
   if (!job) {
     throw new ApiError(404, "not_found", `Job ${id} not found`);

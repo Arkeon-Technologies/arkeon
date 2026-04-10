@@ -15,7 +15,7 @@
  */
 
 import { createSql, type SqlClient } from "../lib/sql";
-import { createAdminSql } from "./lib/admin-sql";
+import { withAdminSql } from "./lib/admin-sql";
 import { generateUlid } from "../lib/ids";
 import { getExtractionConfig } from "./lib/config";
 import { clearJobSeq } from "./lib/logger";
@@ -69,24 +69,25 @@ export async function createJob(opts: {
   parentJobId?: string;
   metadata?: Record<string, unknown>;
 }): Promise<string | null> {
-  const sql = await createAdminSql();
   const id = generateUlid();
 
   try {
-    await sql.query(
-      `INSERT INTO knowledge_jobs (id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id, metadata, created_at)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, NOW())`,
-      [
-        id,
-        opts.entityId,
-        opts.entityVer,
-        opts.trigger,
-        opts.triggeredBy ?? null,
-        opts.jobType ?? "ingest",
-        opts.parentJobId ?? null,
-        opts.metadata ? JSON.stringify(opts.metadata) : null,
-      ],
-    );
+    await withAdminSql(async (sql) => {
+      await sql.query(
+        `INSERT INTO knowledge_jobs (id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id, metadata, created_at)
+         VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, NOW())`,
+        [
+          id,
+          opts.entityId,
+          opts.entityVer,
+          opts.trigger,
+          opts.triggeredBy ?? null,
+          opts.jobType ?? "ingest",
+          opts.parentJobId ?? null,
+          opts.metadata ? JSON.stringify(opts.metadata) : null,
+        ],
+      );
+    });
     return id;
   } catch (err: any) {
     if (err?.code === "23505") return null; // duplicate
@@ -102,7 +103,6 @@ export async function setJobStatus(
   status: string,
   extra?: { result?: unknown; error?: string; model?: string; tokens_in?: number; tokens_out?: number; llm_calls?: number },
 ): Promise<void> {
-  const sql = await createAdminSql();
   const sets = [`status = $2`];
   const params: unknown[] = [jobId, status];
 
@@ -135,7 +135,9 @@ export async function setJobStatus(
     sets.push(`llm_calls = $${params.length}`);
   }
 
-  await sql.query(`UPDATE knowledge_jobs SET ${sets.join(", ")} WHERE id = $1`, params);
+  await withAdminSql(async (sql) => {
+    await sql.query(`UPDATE knowledge_jobs SET ${sets.join(", ")} WHERE id = $1`, params);
+  });
 }
 
 /**
@@ -143,43 +145,54 @@ export async function setJobStatus(
  * If all children are done, aggregates results onto the parent.
  */
 export async function tryFinalizeParent(parentJobId: string): Promise<void> {
-  const sql = await createAdminSql();
+  const aggregated = await withAdminSql(async (sql) => {
+    const [parent] = await sql.query(
+      `SELECT id, status, job_type, metadata, parent_job_id FROM knowledge_jobs WHERE id = $1`,
+      [parentJobId],
+    );
+    if (!parent || parent.status !== "waiting") return null;
 
-  const [parent] = await sql.query(
-    `SELECT id, status, job_type, metadata, parent_job_id FROM knowledge_jobs WHERE id = $1`,
-    [parentJobId],
-  );
-  if (!parent || parent.status !== "waiting") return;
+    // Count children
+    const [counts] = await sql.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+         COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+         COUNT(*)::int AS total
+       FROM knowledge_jobs WHERE parent_job_id = $1`,
+      [parentJobId],
+    );
 
-  // Count children
-  const [counts] = await sql.query(
-    `SELECT
-       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
-       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
-       COUNT(*)::int AS total
-     FROM knowledge_jobs WHERE parent_job_id = $1`,
-    [parentJobId],
-  );
+    const completed = counts.completed as number;
+    const failed = counts.failed as number;
+    const total = counts.total as number;
 
-  const completed = counts.completed as number;
-  const failed = counts.failed as number;
-  const total = counts.total as number;
+    if (completed + failed < total) return null; // still pending/processing children
 
-  if (completed + failed < total) return; // still pending/processing children
+    if (failed > 0 && completed === 0) {
+      // All children failed — return marker so the outer function can call
+      // setJobStatus from outside this transaction.
+      return { kind: "all_failed" as const, parent, failed };
+    }
 
-  if (failed > 0 && completed === 0) {
-    // All children failed
-    await setJobStatus(parentJobId, "failed", { error: `All ${failed} child jobs failed` });
+    // Aggregate child results
+    const children = await sql.query(
+      `SELECT result, model, tokens_in, tokens_out, llm_calls
+       FROM knowledge_jobs WHERE parent_job_id = $1 AND status = 'completed'
+       ORDER BY created_at`,
+      [parentJobId],
+    );
+
+    return { kind: "aggregate" as const, parent, total, failed, children };
+  });
+
+  if (!aggregated) return;
+
+  if (aggregated.kind === "all_failed") {
+    await setJobStatus(parentJobId, "failed", { error: `All ${aggregated.failed} child jobs failed` });
     return;
   }
 
-  // Aggregate child results onto parent
-  const children = await sql.query(
-    `SELECT result, model, tokens_in, tokens_out, llm_calls
-     FROM knowledge_jobs WHERE parent_job_id = $1 AND status = 'completed'
-     ORDER BY created_at`,
-    [parentJobId],
-  );
+  const { parent, total, failed, children } = aggregated;
 
   let totalTokensIn = 0;
   let totalTokensOut = 0;
@@ -232,26 +245,29 @@ async function pollAndProcess(): Promise<void> {
   const available = maxConcurrency - running;
   if (stopped || available <= 0) return;
 
-  const sql = await createAdminSql();
-
-  // Claim pending jobs (exclude 'waiting' — those are parent jobs awaiting children)
-  const jobs = await sql.query(
-    `UPDATE knowledge_jobs
-     SET status = 'processing', started_at = NOW(), attempts = attempts + 1
-     WHERE id IN (
-       SELECT id FROM knowledge_jobs
-       WHERE status = 'pending'
-       ORDER BY created_at
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED
-     )
-     RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts`,
-    [available],
+  // Claim pending jobs atomically inside an admin-context transaction.
+  // Handlers run after this returns, so they get a fresh non-tx sql client
+  // and re-establish whatever context they need themselves.
+  const jobs = await withAdminSql(async (sql) =>
+    await sql.query(
+      `UPDATE knowledge_jobs
+       SET status = 'processing', started_at = NOW(), attempts = attempts + 1
+       WHERE id IN (
+         SELECT id FROM knowledge_jobs
+         WHERE status = 'pending'
+         ORDER BY created_at
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts`,
+      [available],
+    ),
   );
 
+  const handlerSql = createSql();
   for (const job of jobs) {
     running++;
-    processJob(sql, job);
+    processJob(handlerSql, job);
   }
 }
 
@@ -305,8 +321,8 @@ export function initKnowledgeQueue(): void {
   if (pollTimer) return;
   stopped = false;
 
-  createAdminSql().then((sql) =>
-    sql.query(
+  withAdminSql(async (sql) =>
+    await sql.query(
       `UPDATE knowledge_jobs
        SET status = 'pending'
        WHERE status = 'processing'
