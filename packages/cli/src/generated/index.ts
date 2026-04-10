@@ -43,7 +43,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "arke_id", description: "Arke to assign the actor to (defaults to creator's arke)", required: false, type: "string" }, { name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["agent","worker"] }, { name: "max_read_level", description: "Max read level (0-4)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
+    bodyFields: [{ name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["agent","worker"] }, { name: "max_read_level", description: "Max read level (0-4)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
   },
   {
     operationId: "createActorKey",
@@ -108,7 +108,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [{ name: "id", description: "Actor ULID", required: true, type: "string" }],
     queryParams: [],
-    bodyFields: [{ name: "arke_id", description: "Assign to arke (admin only, null = unrestricted)", required: false, type: "string" }, { name: "max_read_level", description: "New max read level", required: false, type: "integer" }, { name: "max_write_level", description: "New max write level", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
+    bodyFields: [{ name: "max_read_level", description: "New max read level", required: false, type: "integer" }, { name: "max_write_level", description: "New max write level", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
   },
   {
     operationId: "getInstanceInfo",
@@ -187,71 +187,6 @@ const OPERATIONS: GeneratedOperation[] = [
     pathParams: [],
     queryParams: [],
     bodyFields: [],
-  },
-  {
-    operationId: "createArke",
-    group: "arkes",
-    action: "create",
-    method: "POST",
-    path: "/arkes",
-    summary: "Create a new arke (network)",
-    description: "Create a new arke (network)",
-    auth: "required",
-    pathParams: [],
-    queryParams: [],
-    bodyFields: [{ name: "default_read_level", description: "Default read level (0-4)", required: false, type: "integer" }, { name: "default_write_level", description: "Default write level (0-4)", required: false, type: "integer" }, { name: "description", description: "Arke description", required: false, type: "string" }, { name: "name", description: "Arke name", required: true, type: "string" }, { name: "properties", description: "", required: false, type: "object" }],
-  },
-  {
-    operationId: "deleteArke",
-    group: "arkes",
-    action: "delete",
-    method: "DELETE",
-    path: "/arkes/{id}",
-    summary: "Delete an arke (admin only via RLS)",
-    description: "Delete an arke (admin only via RLS)",
-    auth: "required",
-    pathParams: [{ name: "id", description: "Arke ULID", required: true, type: "string" }],
-    queryParams: [],
-    bodyFields: [],
-  },
-  {
-    operationId: "getArke",
-    group: "arkes",
-    action: "get",
-    method: "GET",
-    path: "/arkes/{id}",
-    summary: "Fetch a single arke by ID",
-    description: "Fetch a single arke by ID",
-    auth: "optional",
-    pathParams: [{ name: "id", description: "Arke ULID", required: true, type: "string" }],
-    queryParams: [],
-    bodyFields: [],
-  },
-  {
-    operationId: "listArkes",
-    group: "arkes",
-    action: "list",
-    method: "GET",
-    path: "/arkes",
-    summary: "List all arkes (networks)",
-    description: "List all arkes (networks)",
-    auth: "optional",
-    pathParams: [],
-    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "q", description: "Search by name", required: false, type: "string" }],
-    bodyFields: [],
-  },
-  {
-    operationId: "updateArke",
-    group: "arkes",
-    action: "update",
-    method: "PUT",
-    path: "/arkes/{id}",
-    summary: "Update an arke (admin only via RLS)",
-    description: "Update an arke (admin only via RLS)",
-    auth: "required",
-    pathParams: [{ name: "id", description: "Arke ULID", required: true, type: "string" }],
-    queryParams: [],
-    bodyFields: [{ name: "default_read_level", description: "New default read level", required: false, type: "integer" }, { name: "default_write_level", description: "New default write level", required: false, type: "integer" }, { name: "description", description: "New description", required: false, type: "string" }, { name: "name", description: "New name", required: false, type: "string" }, { name: "properties", description: "", required: false, type: "object" }],
   },
   {
     operationId: "createApiKey",
@@ -420,7 +355,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "arke_id", description: "Arke ULID (derived from actor for regular users, required for admins)", required: false, type: "string" }, { name: "permissions", description: "Permission grants to apply to the new entity atomically", required: false, type: "array" }, { name: "properties", description: "Arbitrary properties", required: true, type: "object" }, { name: "read_level", description: "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED", required: false, type: "integer" }, { name: "space_id", description: "Space ULID — if provided, the entity is added to this space atomically", required: false, type: "string" }, { name: "type", description: "Entity type", required: true, type: "string" }, { name: "write_level", description: "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED", required: false, type: "integer" }],
+    bodyFields: [{ name: "permissions", description: "Permission grants to apply to the new entity atomically", required: false, type: "array" }, { name: "properties", description: "Arbitrary properties", required: true, type: "object" }, { name: "read_level", description: "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED", required: false, type: "integer" }, { name: "space_id", description: "Space ULID — if provided, the entity is added to this space atomically", required: false, type: "string" }, { name: "type", description: "Entity type", required: true, type: "string" }, { name: "write_level", description: "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED", required: false, type: "integer" }],
   },
   {
     operationId: "deleteEntity",
@@ -602,7 +537,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "arke_id", description: "Arke ULID (derived from actor for regular users, required for admins)", required: false, type: "string" }, { name: "name", description: "Group name", required: true, type: "string" }, { name: "read_level", description: "Classification level (default: 1 = INTERNAL)", required: false, type: "integer" }, { name: "type", description: "Group type (default: project)", required: false, type: "string", enumValues: ["org","project","editorial","admin"] }],
+    bodyFields: [{ name: "name", description: "Group name", required: true, type: "string" }, { name: "read_level", description: "Classification level (default: 1 = INTERNAL)", required: false, type: "integer" }, { name: "type", description: "Group type (default: project)", required: false, type: "string", enumValues: ["org","project","editorial","admin"] }],
   },
   {
     operationId: "deleteGroup",
@@ -640,7 +575,7 @@ const OPERATIONS: GeneratedOperation[] = [
     description: "List groups",
     auth: "optional",
     pathParams: [],
-    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "arke_id", description: "Filter by arke", required: false, type: "string" }, { name: "type", description: "Filter by type", required: false, type: "string", enumValues: ["org","project","editorial","admin"] }],
+    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "type", description: "Filter by type", required: false, type: "string", enumValues: ["org","project","editorial","admin"] }],
     bodyFields: [],
   },
   {
@@ -848,7 +783,7 @@ const OPERATIONS: GeneratedOperation[] = [
     description: "Keyword search with typo tolerance, prefix matching, and relevance ranking. Results are automatically filtered by the caller's read clearance level. Use the read_level parameter to restrict results below your clearance. Use view=expanded to include each result's relationships with counterpart summaries.",
     auth: "optional",
     pathParams: [],
-    queryParams: [{ name: "view", description: "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.", required: false, type: "string", enumValues: ["summary","expanded"] }, { name: "fields", description: "Comma-separated field list", required: false, type: "string" }, { name: "q", description: "Search query string", required: true, type: "string" }, { name: "type", description: "Filter by entity type", required: false, type: "string" }, { name: "kind", description: "Filter by kind (entity or relationship). Defaults to excluding relationships.", required: false, type: "string" }, { name: "arke_id", description: "Scope search to an arke ULID", required: false, type: "string" }, { name: "space_id", description: "Scope search to a space ULID", required: false, type: "string" }, { name: "read_level", description: "Restrict results to this read level or below (cannot exceed your clearance)", required: false, type: "integer" }, { name: "limit", description: "Page size (default 50, max 200)", required: false, type: "integer" }, { name: "offset", description: "Offset for pagination (default 0)", required: false, type: "integer" }, { name: "rel_limit", description: "Max relationships per result when view=expanded (default 5, max 100)", required: false, type: "integer" }],
+    queryParams: [{ name: "view", description: "Projection: summary | expanded. Default returns all fields. expanded adds _relationships.", required: false, type: "string", enumValues: ["summary","expanded"] }, { name: "fields", description: "Comma-separated field list", required: false, type: "string" }, { name: "q", description: "Search query string", required: true, type: "string" }, { name: "type", description: "Filter by entity type", required: false, type: "string" }, { name: "kind", description: "Filter by kind (entity or relationship). Defaults to excluding relationships.", required: false, type: "string" }, { name: "space_id", description: "Scope search to a space ULID", required: false, type: "string" }, { name: "read_level", description: "Restrict results to this read level or below (cannot exceed your clearance)", required: false, type: "integer" }, { name: "limit", description: "Page size (default 50, max 200)", required: false, type: "integer" }, { name: "offset", description: "Offset for pagination (default 0)", required: false, type: "integer" }, { name: "rel_limit", description: "Max relationships per result when view=expanded (default 5, max 100)", required: false, type: "integer" }],
     bodyFields: [],
   },
   {
@@ -875,7 +810,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "arke_id", description: "Arke ULID (derived from actor for regular users, required for admins)", required: false, type: "string" }, { name: "description", description: "Space description", required: false, type: "string" }, { name: "name", description: "Space name", required: true, type: "string" }, { name: "properties", description: "", required: false, type: "object" }, { name: "read_level", description: "Read classification level (0-4)", required: false, type: "integer" }, { name: "write_level", description: "Write classification level (0-4)", required: false, type: "integer" }],
+    bodyFields: [{ name: "description", description: "Space description", required: false, type: "string" }, { name: "name", description: "Space name", required: true, type: "string" }, { name: "properties", description: "", required: false, type: "object" }, { name: "read_level", description: "Read classification level (0-4)", required: false, type: "integer" }, { name: "write_level", description: "Write classification level (0-4)", required: false, type: "integer" }],
   },
   {
     operationId: "deleteSpace",
@@ -939,7 +874,7 @@ const OPERATIONS: GeneratedOperation[] = [
     description: "List spaces (paginated, RLS filters by read_level)",
     auth: "optional",
     pathParams: [],
-    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "arke_id", description: "Filter by arke", required: false, type: "string" }, { name: "q", description: "Search by name", required: false, type: "string" }],
+    queryParams: [{ name: "limit", description: "Max results (default 50, max 200)", required: false, type: "integer" }, { name: "cursor", description: "Pagination cursor", required: false, type: "string" }, { name: "q", description: "Search by name", required: false, type: "string" }],
     bodyFields: [],
   },
   {
@@ -1192,7 +1127,7 @@ const OPERATIONS: GeneratedOperation[] = [
 ];
 
 export function registerApiCommands(program: Command, options: { skipExisting?: boolean } = {}): void {
-  for (const group of ["activity","actors","admin","arkes","auth","comments","entities","groups","knowledge","relationships","search","spaces","workers"]) {
+  for (const group of ["activity","actors","admin","auth","comments","entities","groups","knowledge","relationships","search","spaces","workers"]) {
     const existing = program.commands.find((command) => command.name() === group);
     if (existing && options.skipExisting) {
       registerGeneratedGroup(existing, OPERATIONS.filter((operation) => operation.group === group));

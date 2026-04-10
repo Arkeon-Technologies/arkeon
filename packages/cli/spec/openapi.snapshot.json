@@ -4,14 +4,6 @@
     "schemas": {
       "Actor": {
         "properties": {
-          "arke_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "can_publish_public": {
             "type": "boolean"
           },
@@ -75,7 +67,6 @@
         "required": [
           "id",
           "kind",
-          "arke_id",
           "max_read_level",
           "max_write_level",
           "is_admin",
@@ -88,73 +79,8 @@
         ],
         "type": "object"
       },
-      "Arke": {
-        "properties": {
-          "created_at": {
-            "example": "2026-01-01T00:00:00.000Z",
-            "format": "date-time",
-            "type": "string"
-          },
-          "default_read_level": {
-            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
-            "maximum": 4,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "default_write_level": {
-            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
-            "maximum": 4,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "owner_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
-          },
-          "properties": {
-            "$ref": "#/components/schemas/JsonObject"
-          },
-          "updated_at": {
-            "example": "2026-01-01T00:00:00.000Z",
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "description",
-          "owner_id",
-          "default_read_level",
-          "default_write_level",
-          "properties",
-          "created_at",
-          "updated_at"
-        ],
-        "type": "object"
-      },
       "Entity": {
         "properties": {
-          "arke_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
-          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -219,7 +145,6 @@
           "id",
           "kind",
           "type",
-          "arke_id",
           "ver",
           "properties",
           "owner_id",
@@ -304,11 +229,6 @@
       },
       "Group": {
         "properties": {
-          "arke_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
-          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -347,7 +267,6 @@
           "id",
           "name",
           "type",
-          "arke_id",
           "read_level",
           "created_by",
           "created_at"
@@ -463,11 +382,6 @@
       },
       "Space": {
         "properties": {
-          "arke_id": {
-            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-            "type": "string"
-          },
           "created_at": {
             "example": "2026-01-01T00:00:00.000Z",
             "format": "date-time",
@@ -534,7 +448,6 @@
         },
         "required": [
           "id",
-          "arke_id",
           "name",
           "description",
           "owner_id",
@@ -911,12 +824,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "arke_id": {
-                    "description": "Arke to assign the actor to (defaults to creator's arke)",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
                   "kind": {
                     "description": "Actor kind: user or agent",
                     "enum": [
@@ -1190,15 +1097,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "arke_id": {
-                    "description": "Assign to arke (admin only, null = unrestricted)",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
                   "max_read_level": {
                     "description": "New max read level",
                     "maximum": 4,
@@ -1298,7 +1196,6 @@
         ],
         "x-arke-rules": [
           "Only the actor themselves or a system admin may update",
-          "Only admins can change arke_id, is_admin, status, or can_publish_public",
           "Cannot set clearance levels higher than your own"
         ]
       }
@@ -1768,18 +1665,11 @@
               "application/json": {
                 "schema": {
                   "properties": {
-                    "arke_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
                     "version": {
                       "type": "string"
                     }
                   },
                   "required": [
-                    "arke_id",
                     "version"
                   ],
                   "type": "object"
@@ -2056,9 +1946,6 @@
                         "actor_count": {
                           "type": "integer"
                         },
-                        "arke_count": {
-                          "type": "integer"
-                        },
                         "db_size_bytes": {
                           "type": "integer"
                         },
@@ -2073,7 +1960,6 @@
                         "entity_count",
                         "actor_count",
                         "relationship_count",
-                        "arke_count",
                         "db_size_bytes"
                       ],
                       "type": "object"
@@ -2114,464 +2000,6 @@
           "Admin"
         ],
         "x-arke-auth": "required",
-        "x-arke-rules": [
-          "System admin only"
-        ]
-      }
-    },
-    "/arkes": {
-      "get": {
-        "operationId": "listArkes",
-        "parameters": [
-          {
-            "description": "Max results (default 50, max 200)",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "description": "Max results (default 50, max 200)",
-              "maximum": 200,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          {
-            "description": "Pagination cursor",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "description": "Pagination cursor",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Search by name",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "description": "Search by name",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "arkes": {
-                      "items": {
-                        "$ref": "#/components/schemas/Arke"
-                      },
-                      "type": "array"
-                    },
-                    "cursor": {
-                      "description": "Opaque pagination cursor",
-                      "example": "eyJ0Ijoi...",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "arkes",
-                    "cursor"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Arke listing"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          }
-        },
-        "summary": "List all arkes (networks)",
-        "tags": [
-          "Arkes"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "POST /arkes",
-          "GET /arkes/{id}"
-        ],
-        "x-arke-rules": []
-      },
-      "post": {
-        "operationId": "createArke",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "default_read_level": {
-                    "description": "Default read level (0-4)",
-                    "maximum": 4,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "default_write_level": {
-                    "description": "Default write level (0-4)",
-                    "maximum": 4,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "description": {
-                    "description": "Arke description",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "name": {
-                    "description": "Arke name",
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "properties": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/JsonObject"
-                      },
-                      {
-                        "description": "Arbitrary properties"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "name"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "arke": {
-                      "$ref": "#/components/schemas/Arke"
-                    }
-                  },
-                  "required": [
-                    "arke"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Arke created"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "summary": "Create a new arke (network)",
-        "tags": [
-          "Arkes"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /arkes/{id}",
-          "GET /arkes"
-        ],
-        "x-arke-rules": [
-          "System admin only"
-        ]
-      }
-    },
-    "/arkes/{id}": {
-      "delete": {
-        "operationId": "deleteArke",
-        "parameters": [
-          {
-            "description": "Arke ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Arke ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Arke deleted"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Delete an arke (admin only via RLS)",
-        "tags": [
-          "Arkes"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-rules": [
-          "System admin only"
-        ]
-      },
-      "get": {
-        "operationId": "getArke",
-        "parameters": [
-          {
-            "description": "Arke ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Arke ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "arke": {
-                      "$ref": "#/components/schemas/Arke"
-                    }
-                  },
-                  "required": [
-                    "arke"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Arke details"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Fetch a single arke by ID",
-        "tags": [
-          "Arkes"
-        ],
-        "x-arke-auth": "optional",
-        "x-arke-related": [
-          "PUT /arkes/{id}",
-          "DELETE /arkes/{id}"
-        ],
-        "x-arke-rules": []
-      },
-      "put": {
-        "operationId": "updateArke",
-        "parameters": [
-          {
-            "description": "Arke ULID",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "description": "Arke ULID",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "properties": {
-                  "default_read_level": {
-                    "description": "New default read level",
-                    "maximum": 4,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "default_write_level": {
-                    "description": "New default write level",
-                    "maximum": 4,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "description": {
-                    "description": "New description",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "name": {
-                    "description": "New name",
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "properties": {
-                    "allOf": [
-                      {
-                        "$ref": "#/components/schemas/JsonObject"
-                      },
-                      {
-                        "description": "New properties"
-                      }
-                    ]
-                  }
-                },
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "properties": {
-                    "arke": {
-                      "$ref": "#/components/schemas/Arke"
-                    }
-                  },
-                  "required": [
-                    "arke"
-                  ],
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Arke updated"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Bad request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Not found"
-          }
-        },
-        "summary": "Update an arke (admin only via RLS)",
-        "tags": [
-          "Arkes"
-        ],
-        "x-arke-auth": "required",
-        "x-arke-related": [
-          "GET /arkes/{id}"
-        ],
         "x-arke-rules": [
           "System admin only"
         ]
@@ -3385,12 +2813,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "arke_id": {
-                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
                   "permissions": {
                     "description": "Permission grants to apply to the new entity atomically",
                     "items": {
@@ -3519,7 +2941,6 @@
         "x-arke-rules": [
           "Requires write_level clearance >= entity's write_level",
           "Requires read_level clearance >= entity's read_level",
-          "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly",
           "If space_id is provided, requires contributor role or above on that space",
           "All operations (create, space add, permission grants) are atomic"
         ]
@@ -5192,7 +4613,6 @@
         ],
         "x-arke-rules": [
           "Requires admin access on both source and target entities",
-          "Both entities must belong to the same arke",
           "Both entities must have the same kind (entity or relationship)",
           "If merging relationships, both must connect the same source and target entities",
           "Source entity is deleted after merge; a redirect is created from source ID to target ID"
@@ -6475,18 +5895,6 @@
             }
           },
           {
-            "description": "Filter by arke",
-            "in": "query",
-            "name": "arke_id",
-            "required": false,
-            "schema": {
-              "description": "Filter by arke",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
             "description": "Filter by type",
             "in": "query",
             "name": "type",
@@ -6563,12 +5971,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "arke_id": {
-                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
                   "name": {
                     "description": "Group name",
                     "minLength": 1,
@@ -7974,16 +7376,6 @@
             }
           },
           {
-            "description": "Scope search to an arke ULID",
-            "in": "query",
-            "name": "arke_id",
-            "required": false,
-            "schema": {
-              "description": "Scope search to an arke ULID",
-              "type": "string"
-            }
-          },
-          {
             "description": "Scope search to a space ULID",
             "in": "query",
             "name": "space_id",
@@ -8136,10 +7528,6 @@
                     "description": "Search queries (max 10)",
                     "items": {
                       "properties": {
-                        "arke_id": {
-                          "description": "Scope to an arke ULID",
-                          "type": "string"
-                        },
                         "kind": {
                           "description": "Filter by kind (entity or relationship)",
                           "type": "string"
@@ -8325,18 +7713,6 @@
             }
           },
           {
-            "description": "Filter by arke",
-            "in": "query",
-            "name": "arke_id",
-            "required": false,
-            "schema": {
-              "description": "Filter by arke",
-              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-              "type": "string"
-            }
-          },
-          {
             "description": "Search by name",
             "in": "query",
             "name": "q",
@@ -8409,12 +7785,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "arke_id": {
-                    "description": "Arke ULID (derived from actor for regular users, required for admins)",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-                    "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
-                    "type": "string"
-                  },
                   "description": {
                     "description": "Space description",
                     "type": [
