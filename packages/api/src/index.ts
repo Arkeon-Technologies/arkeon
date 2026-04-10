@@ -35,10 +35,20 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8000) }, (info) => {
 
 await startScheduler();
 
-// Knowledge extraction service
-await bootstrapKnowledgeService();
-initKnowledgeQueue();
-startKnowledgePoller();
+// Knowledge extraction service — opt-in via ENABLE_KNOWLEDGE_PIPELINE=true.
+// See docs/ADVANCED.md for setup, required secrets (OPENAI_API_KEY), and
+// cost/behavior notes.
+const knowledgeEnabled = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
+if (knowledgeEnabled) {
+  await bootstrapKnowledgeService();
+  initKnowledgeQueue();
+  startKnowledgePoller();
+  console.log("[knowledge] pipeline enabled");
+} else {
+  console.log(
+    "[knowledge] pipeline disabled (set ENABLE_KNOWLEDGE_PIPELINE=true to enable; see docs/ADVANCED.md)",
+  );
+}
 
 async function gracefulShutdown(signal: string): Promise<void> {
   console.log(`[shutdown] ${signal} received, starting graceful drain...`);
@@ -46,8 +56,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   const DRAIN_TIMEOUT_MS = Number(process.env.DRAIN_TIMEOUT_MS) || 320_000;
 
   const drainPromise = (async () => {
-    stopKnowledgePoller();
-    await drainKnowledgeQueue();
+    if (knowledgeEnabled) {
+      stopKnowledgePoller();
+      await drainKnowledgeQueue();
+    }
     await drainQueue();
     await stopScheduler();
   })();

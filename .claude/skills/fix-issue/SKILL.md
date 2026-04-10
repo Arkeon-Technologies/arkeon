@@ -85,7 +85,7 @@ If tests fail, fix the issue and re-run. Do not proceed to the PR step with fail
 # (use /local-dev stop from the worktree, or manually:)
 source .claude/worktrees/issue-$ARGUMENTS/.devports
 lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
-PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
+PG_PORT=$PG_PORT docker compose -p $PROJECT down
 ```
 
 ### 6. Commit and push

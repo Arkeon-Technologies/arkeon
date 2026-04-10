@@ -1,4 +1,6 @@
 services:
+  # API waits for migrate to complete successfully before starting, so
+  # `docker compose up` always runs pending migrations before the API boots.
   api:
     build:
       context: .
@@ -9,19 +11,18 @@ services:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://arke_app:arke@postgres:5432/arke}
-      - ADMIN_BOOTSTRAP_KEY=${ADMIN_BOOTSTRAP_KEY:-ak_test_admin_key_e2e}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
-      - MEILI_URL=${MEILI_URL:-}
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
+      DATABASE_URL: "${DATABASE_URL:-postgresql://arke_app:arke@postgres:5432/arke}"
+      ADMIN_BOOTSTRAP_KEY: "${ADMIN_BOOTSTRAP_KEY:?ADMIN_BOOTSTRAP_KEY is required — see .env.example}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required — see .env.example}"
+      MEILI_URL: "${MEILI_URL:-http://meilisearch:7700}"
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required — see .env.example}"
+      ENABLE_KNOWLEDGE_PIPELINE: "${ENABLE_KNOWLEDGE_PIPELINE:-false}"
     stop_grace_period: 330s
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
       migrate:
         condition: service_completed_successfully
-        required: false
     develop:
       watch:
         # Hot-reload: sync API/runtime/shared source changes → tsx watch restarts
@@ -46,10 +47,9 @@ services:
 
   postgres:
     image: postgres:17
-    profiles: ["local-db"]
     environment:
       POSTGRES_USER: arke
-      POSTGRES_PASSWORD: arke
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — see .env.example}"
       POSTGRES_DB: arke
     ports:
       - "${PG_PORT:-5432}:5432"
@@ -63,7 +63,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    profiles: ["workers"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -71,9 +70,8 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1
-    profiles: ["search"]
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-meili_dev_master_key}
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY:?MEILI_MASTER_KEY is required — see .env.example}"
     ports:
       - "${MEILI_PORT:-7700}:7700"
     volumes:
@@ -88,16 +86,24 @@ services:
     build:
       context: .
       target: migrate
-    profiles: ["migrate"]
     env_file:
       - path: .env
         required: false
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://arke:arke@postgres:5432/arke}
+      # Migrate runs DDL as the superuser. Defaults build the URL from
+      # POSTGRES_PASSWORD; override MIGRATION_DATABASE_URL in .env to
+      # point at an external database.
+      #
+      # NOTE: POSTGRES_PASSWORD is embedded into the URL verbatim — it
+      # must be URL-safe (alphanumeric recommended). Passwords containing
+      # @, :, /, ?, #, or $ will either break URL parsing or be
+      # re-interpolated by compose. If you need a password with special
+      # characters, set MIGRATION_DATABASE_URL explicitly with the
+      # password percent-encoded.
+      DATABASE_URL: "${MIGRATION_DATABASE_URL:-postgresql://arke:${POSTGRES_PASSWORD}@postgres:5432/arke}"
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
 
 volumes:
   pgdata:

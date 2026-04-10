@@ -8,7 +8,8 @@
  * All vision LLM calls happen in the children, not here.
  */
 
-import { readFile, writeFile, mkdir, rm, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, mkdtemp, rm, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -131,8 +132,11 @@ export async function handlePdfExtract(
   const pageTexts = await extractTextPerPage(pdfBytes);
   appendLog(jobId, "info", `Extracted text from ${pageTexts.length} pages`);
 
-  // 3. Render pages to JPEG and upload (in try/finally for cleanup)
-  const tmpDir = `/tmp/pdf-${jobId}`;
+  // 3. Render pages to JPEG and upload (in try/finally for cleanup).
+  // Created lazily below only when vision rendering is needed. Using
+  // mkdtemp gives us a unique, unguessable directory under the OS temp
+  // dir — avoids symlink attacks and collisions between concurrent jobs.
+  let tmpDir: string | null = null;
 
   // Per-page: decide if it needs vision
   const needsVision = pageTexts.map(
@@ -169,7 +173,7 @@ export async function handlePdfExtract(
 
   // 6. Render + upload page images for pages needing vision (with temp cleanup)
   if (visionPageCount > 0) {
-    await mkdir(tmpDir, { recursive: true });
+    tmpDir = await mkdtemp(join(tmpdir(), "arke-pdf-"));
     try {
       appendLog(jobId, "info", "Rendering pages to JPEG via pdftoppm");
       const pdfPath = join(tmpDir, "input.pdf");
@@ -192,7 +196,9 @@ export async function handlePdfExtract(
         );
       }
     } finally {
-      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      if (tmpDir) {
+        await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+      }
     }
   }
 

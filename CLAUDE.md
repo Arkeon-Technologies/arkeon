@@ -10,19 +10,21 @@ Monorepo for the Arkeon platform. npm workspaces with four packages:
 ## Quick Start
 
 ```bash
-# Option A: Local Postgres via Docker
-docker compose --profile local-db up -d postgres
-npm run migrate
-npm run dev -w packages/api
+# 1. Copy the env template and fill in the required secrets
+cp .env.example .env
+# edit .env: ADMIN_BOOTSTRAP_KEY, ENCRYPTION_KEY, MEILI_MASTER_KEY, POSTGRES_PASSWORD
 
-# Option B: External Postgres (Neon, RDS, etc.)
-# Set DATABASE_URL in .env
+# Option A: Full stack via Docker (api + postgres + meilisearch + redis + migrate)
+docker compose up
+
+# Option B: Host API against an existing Postgres
+# Set DATABASE_URL in .env to your external instance
 npm run migrate
 npm run dev -w packages/api
 ```
 
-Default API `DATABASE_URL` when unset: `postgresql://arke_app:arke@localhost:5432/arke`
-Default migration `DATABASE_URL` when unset: `postgresql://arke:arke@localhost:5432/arke`
+See `.env.example` for the full list of environment variables. The API
+and compose stack will refuse to boot if any required secret is missing.
 
 ## Workspace Commands
 
@@ -38,17 +40,35 @@ npm run test:e2e -w packages/api   # Run API e2e tests
 ## Docker
 
 ```bash
-docker compose up                                    # API only (external DB)
-docker compose --profile local-db up                 # API + local Postgres
-docker compose --profile local-db --profile migrate up  # Full stack + migrations
+docker compose up            # full stack: api + postgres + meilisearch + redis + migrate
+docker compose down -v       # tear down and drop volumes
 ```
+
+Migrations run automatically on every `docker compose up` via the
+`migrate` service, which the `api` service blocks on.
 
 ## Configuration
 
-See `.env.example` for all options. Key settings:
-- `DATABASE_URL` — any Postgres connection string (defaults to local)
-- `STORAGE_BACKEND` — `local` (default) or `s3` (R2, S3, MinIO)
-- `PORT` — server port (default 8000)
+See `.env.example` for all options. Required secrets (no defaults):
+- `ADMIN_BOOTSTRAP_KEY` — seeds the first admin API key
+- `ENCRYPTION_KEY` — 64-char hex (AES-256-GCM for secrets at rest)
+- `MEILI_MASTER_KEY` — Meilisearch master key
+- `POSTGRES_PASSWORD` — local compose Postgres password
+
+Optional features:
+- `ENABLE_KNOWLEDGE_PIPELINE=true` — opt in to the LLM knowledge
+  extraction pipeline (off by default; see `docs/ADVANCED.md`)
+- `STORAGE_BACKEND=s3` — switch from local filesystem to S3/R2/MinIO
+
+## Do NOT add in-process rate limiting
+
+We deliberately have no rate limiter. Do not propose adding a per-IP
+token bucket, a path exemption list, or a middleware to throttle
+requests. The tradeoffs are captured in `docs/ADVANCED.md` under
+"Rate limiting (not implemented)" — read that before suggesting
+otherwise. Rate limiting, when we need it, belongs at the edge
+(Cloudflare / nginx in front of deployed instances) or as per-actor
+database quotas, not in-process.
 
 ## Documentation Principles
 

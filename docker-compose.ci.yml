@@ -1,4 +1,13 @@
-# CI/CD test compose — uses locally built arke:ci image
+# CI/CD test compose — uses locally built arke:ci image.
+#
+# SECURITY NOTE: The admin/encryption/postgres secrets below are deliberately
+# hardcoded weak values. This file is used solely by
+# .github/workflows/build-push.yml and scripts/test-local.sh against
+# ephemeral, network-isolated containers that are destroyed at the end of
+# each run. NEVER copy these values to docker-compose.yml or any other
+# environment. The main docker-compose.yml enforces real secrets via the
+# ${VAR:?required} syntax — see .env.example.
+#
 # Used by: .github/workflows/build-push.yml, scripts/test-local.sh
 #
 # Usage:
@@ -18,6 +27,9 @@ services:
       - DATABASE_URL=postgresql://arke_app:arke@postgres:5432/arke
       - ADMIN_BOOTSTRAP_KEY=ak_test_ci_key
       - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      # Knowledge pipeline is off by default in production (see docs/ADVANCED.md),
+      # but the e2e suite has knowledge/* tests that exercise it, so turn it on here.
+      - ENABLE_KNOWLEDGE_PIPELINE=true
     depends_on:
       postgres:
         condition: service_healthy

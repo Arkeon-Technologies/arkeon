@@ -120,11 +120,11 @@ Workers can generate images using Pillow (pre-installed) or matplotlib (self-ins
 For worker testing, always use Docker. The local macOS fallback lacks bwrap isolation, has a potentially stale CLI binary, and doesn't have the SDKs installed at the right paths.
 
 ```bash
-# Start with local Postgres + migrations
-docker compose --profile local-db --profile migrate up -d --build
+# Full stack: api + postgres + meilisearch + redis + migrate
+docker compose up -d --build
 
 # With hot-reload (syncs source changes, rebuilds on CLI/SDK changes)
-docker compose --profile local-db --profile migrate up --watch
+docker compose up --watch
 ```
 
 ### Docker Compose Watch

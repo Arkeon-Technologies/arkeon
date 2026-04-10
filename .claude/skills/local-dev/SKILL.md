@@ -59,14 +59,18 @@ After determining ports, **always write a `.env` file** in the project root (or 
 ```bash
 cat > .env <<EOF
 PORT=$API_PORT
+PG_PORT=$PG_PORT
 DATABASE_URL=postgresql://arke_app:arke@localhost:$PG_PORT/arke
 MIGRATION_DATABASE_URL=postgresql://arke:arke@localhost:$PG_PORT/arke
 ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e
+ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+MEILI_MASTER_KEY=dev_meili_key
+POSTGRES_PASSWORD=arke
 E2E_BASE_URL=http://localhost:$API_PORT
 EOF
 ```
 
-This file is gitignored. Write it on every `start` and `reset` to keep it in sync with the assigned ports.
+This file is gitignored. Write it on every `start` and `reset` to keep it in sync with the assigned ports. The weak dev-only secrets above are safe here because the `.devports` setup binds ports to localhost and worktrees are ephemeral — never reuse them outside local dev.
 
 ## Commands
 
@@ -78,16 +82,16 @@ This file is gitignored. Write it on every `start` and `reset` to keep it in syn
 
 2. Check if Postgres is already running:
    ```
-   docker compose -p $PROJECT --profile local-db ps postgres
+   docker compose -p $PROJECT ps postgres
    ```
 
 3. If not running, start Postgres and run migrations:
    ```
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
+   PG_PORT=$PG_PORT docker compose -p $PROJECT up -d postgres migrate
    ```
    Wait for migrate to exit successfully:
    ```
-   docker compose -p $PROJECT --profile migrate logs -f migrate
+   docker compose -p $PROJECT logs -f migrate
    ```
 
 4. Check if the API is already running on the target port:
@@ -120,8 +124,11 @@ The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI
    ```bash
    cat > .env <<EOF
    PORT=$API_PORT
+   PG_PORT=$PG_PORT
    ADMIN_BOOTSTRAP_KEY=ak_test_admin_key_e2e
    ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+   MEILI_MASTER_KEY=dev_meili_key
+   POSTGRES_PASSWORD=arke
    EOF
    ```
 
@@ -132,7 +139,7 @@ The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI
 
 3. Build and start everything:
    ```bash
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d --build
+   PG_PORT=$PG_PORT docker compose -p $PROJECT up -d --build
    ```
    Wait for the API to be healthy:
    ```bash
@@ -144,7 +151,7 @@ The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI
 
 4. For hot reload (watches source changes, auto-rebuilds on CLI/SDK changes):
    ```bash
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up --watch
+   PG_PORT=$PG_PORT docker compose -p $PROJECT up --watch
    ```
    Note: `--watch` runs in the foreground. Use a separate terminal or run without `--watch` for background mode.
 
@@ -187,14 +194,14 @@ Use after schema changes (packages/schema). Wipes the DB and starts fresh.
 
 2. Tear down Postgres and wipe the volume:
    ```
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down -v
+   PG_PORT=$PG_PORT docker compose -p $PROJECT down -v
    ```
 
 3. Write the `.env` file (see above).
 
 4. Start fresh Postgres + migrations:
    ```
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db --profile migrate up -d postgres migrate
+   PG_PORT=$PG_PORT docker compose -p $PROJECT up -d postgres migrate
    ```
    Wait for migrate to complete successfully.
 
@@ -215,13 +222,13 @@ Use after schema changes (packages/schema). Wipes the DB and starts fresh.
 
 2. Stop all Docker services (Postgres, API if running in Docker, migrate):
    ```
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down
+   PG_PORT=$PG_PORT docker compose -p $PROJECT down
    ```
    Note: this preserves the DB volume. Use `reset` to wipe it.
 
 3. **Worktree cleanup:** If in a worktree (i.e., `$PROJECT` is NOT `arkeon`), also remove the stopped containers and volumes to avoid stale leftovers:
    ```
-   PG_PORT=$PG_PORT docker compose -p $PROJECT --profile local-db down -v --remove-orphans
+   PG_PORT=$PG_PORT docker compose -p $PROJECT down -v --remove-orphans
    ```
    This replaces step 2 for worktrees (use `down -v --remove-orphans` instead of plain `down`).
    **Never run this against the main `arkeon` project** — main's DB volume should be preserved.
@@ -248,7 +255,7 @@ lsof -iTCP -sTCP:LISTEN -P | grep -E '(tsx|postgres)' || echo "Nothing running"
 - The `ADMIN_BOOTSTRAP_KEY` must match between server and tests.
 - `ENCRYPTION_KEY` is required for worker invocations (encrypts LLM API keys). Set it in `.env` — any 64-char hex string works for dev.
 - After schema SQL changes, you MUST use `reset` — migrations run from scratch, no ALTER TABLE.
-- Redis is not started by default (scheduling disabled). Use `REDIS_PORT=$((6379 + SLOT)) docker compose -p $PROJECT --profile workers up -d redis` if needed.
+- Redis now starts by default as part of the full stack (`docker compose up`). In `start` mode (local API + docker Postgres only) you can start it individually: `REDIS_PORT=$((6379 + SLOT)) docker compose -p $PROJECT up -d redis`.
 - Each worktree gets its own Docker volumes (namespaced by project name), so schema changes in one worktree don't affect others.
 - Use `stop` or `reset` to clean up when done with a worktree — don't leave orphaned containers.
 
