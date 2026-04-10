@@ -79,6 +79,68 @@
         ],
         "type": "object"
       },
+      "CreatedEdgeResult": {
+        "properties": {
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "source": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "target": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "predicate",
+          "target"
+        ],
+        "type": "object"
+      },
+      "CreatedEntityResult": {
+        "properties": {
+          "id": {
+            "description": "The created entity's ULID — use this in subsequent requests.",
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "label": {
+            "description": "Echoed label if provided in the op, otherwise null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ref": {
+            "description": "The @local ref from the request — maps back to the original op.",
+            "example": "@jane",
+            "pattern": "^@[a-zA-Z0-9_.-]+$",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "id",
+          "type",
+          "label"
+        ],
+        "type": "object"
+      },
       "Entity": {
         "properties": {
           "created_at": {
@@ -275,6 +337,348 @@
       },
       "JsonObject": {
         "additionalProperties": {},
+        "type": "object"
+      },
+      "OpsEnvelope": {
+        "properties": {
+          "defaults": {
+            "description": "Defaults applied to every op that does not set them individually. Per-op values override.",
+            "properties": {
+              "permissions": {
+                "items": {
+                  "properties": {
+                    "grantee_id": {
+                      "description": "Actor or group ULID",
+                      "type": "string"
+                    },
+                    "grantee_type": {
+                      "description": "Type of grantee",
+                      "enum": [
+                        "actor",
+                        "group"
+                      ],
+                      "type": "string"
+                    },
+                    "role": {
+                      "description": "Permission role to grant",
+                      "enum": [
+                        "admin",
+                        "editor"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "grantee_type",
+                    "grantee_id",
+                    "role"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "read_level": {
+                "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                "maximum": 4,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "space_id": {
+                "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                "type": "string"
+              },
+              "write_level": {
+                "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+                "maximum": 4,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "format": {
+            "description": "Format version. Current: 'arke.ops/v1'.",
+            "enum": [
+              "arke.ops/v1"
+            ],
+            "type": "string"
+          },
+          "ops": {
+            "description": "Ordered list of operations. Entity ops define @local refs; relate ops reference them as source/target. Each @ref must be defined by an earlier entity op in the same list.",
+            "items": {
+              "description": "A single operation — 'entity' or 'relate'.",
+              "oneOf": [
+                {
+                  "additionalProperties": {},
+                  "description": "Create a new entity. Any field beyond the reserved keys (op, ref, type, space_id, read_level, write_level, permissions) is stored as a property — inline label, description, and any domain-specific fields directly.",
+                  "properties": {
+                    "op": {
+                      "enum": [
+                        "entity"
+                      ],
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "description": "Optional — grant permissions to actors or groups atomically with creation.",
+                      "items": {
+                        "properties": {
+                          "grantee_id": {
+                            "description": "Actor or group ULID",
+                            "type": "string"
+                          },
+                          "grantee_type": {
+                            "description": "Type of grantee",
+                            "enum": [
+                              "actor",
+                              "group"
+                            ],
+                            "type": "string"
+                          },
+                          "role": {
+                            "description": "Permission role to grant",
+                            "enum": [
+                              "admin",
+                              "editor"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "grantee_type",
+                          "grantee_id",
+                          "role"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "read_level": {
+                      "description": "Optional read clearance required to see this entity. Defaults to actor's arke default.",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "ref": {
+                      "description": "Local ref for this entity, scoped to this request. Later ops in the same batch can reference it as source/target.",
+                      "example": "@jane",
+                      "pattern": "^@[a-zA-Z0-9_.-]+$",
+                      "type": "string"
+                    },
+                    "space_id": {
+                      "description": "Optional — add this entity to a space atomically. Requires contributor role or above on the space.",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "type": {
+                      "description": "Entity type (e.g. 'person', 'organization', 'event')",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "write_level": {
+                      "description": "Optional write clearance required to edit this entity. Defaults to actor's arke default.",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "ref",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": {},
+                  "description": "Create a relationship between two entities. Any field beyond the reserved keys (op, source, target, predicate, space_id, read_level, write_level, permissions) is stored as a property — inline 'span', 'detail', 'confidence', or any other provenance/metadata directly.",
+                  "properties": {
+                    "op": {
+                      "enum": [
+                        "relate"
+                      ],
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "items": {
+                        "properties": {
+                          "grantee_id": {
+                            "description": "Actor or group ULID",
+                            "type": "string"
+                          },
+                          "grantee_type": {
+                            "description": "Type of grantee",
+                            "enum": [
+                              "actor",
+                              "group"
+                            ],
+                            "type": "string"
+                          },
+                          "role": {
+                            "description": "Permission role to grant",
+                            "enum": [
+                              "admin",
+                              "editor"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "grantee_type",
+                          "grantee_id",
+                          "role"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "predicate": {
+                      "description": "Relationship predicate — prefer specific verbs (e.g. 'recruited', 'founded', 'reports_to') over generic ones ('relates_to').",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "read_level": {
+                      "description": "Optional. If omitted, auto-lifts to max(source.read_level, target.read_level).",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "source": {
+                      "anyOf": [
+                        {
+                          "example": "@jane",
+                          "pattern": "^@[a-zA-Z0-9_.-]+$",
+                          "type": "string"
+                        },
+                        {
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^(arke:)?[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      ],
+                      "description": "Source of the relationship — @local ref or existing ULID."
+                    },
+                    "space_id": {
+                      "description": "Optional — add the relationship to a space atomically.",
+                      "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                      "type": "string"
+                    },
+                    "target": {
+                      "anyOf": [
+                        {
+                          "example": "@jane",
+                          "pattern": "^@[a-zA-Z0-9_.-]+$",
+                          "type": "string"
+                        },
+                        {
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^(arke:)?[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      ],
+                      "description": "Target of the relationship — @local ref or existing ULID."
+                    },
+                    "write_level": {
+                      "description": "Optional. If omitted, auto-lifts to max(source.write_level, target.write_level).",
+                      "maximum": 4,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "source",
+                    "target",
+                    "predicate"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "type": "array"
+          },
+          "source": {
+            "description": "Optional provenance — links every created entity back to a source document.",
+            "properties": {
+              "entity_id": {
+                "description": "Source document ULID. Every created entity in this batch will get an 'extracted_from' relationship to this entity. Caller must have read access on it.",
+                "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                "type": "string"
+              },
+              "extracted_by": {
+                "additionalProperties": {},
+                "description": "Optional extraction metadata — e.g. { model: 'gpt-4.1', run_id: '...', at: ISO8601 }. Stored on created entities as provenance.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "entity_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "format",
+          "ops"
+        ],
+        "type": "object"
+      },
+      "OpsResult": {
+        "properties": {
+          "committed": {
+            "description": "True if writes were persisted, false for dry_run.",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Ordered list of entities created in this batch. Each entry maps a @local ref to its new ULID — read this to know what IDs to use in follow-up requests.",
+            "items": {
+              "$ref": "#/components/schemas/CreatedEntityResult"
+            },
+            "type": "array"
+          },
+          "edges": {
+            "description": "Created relationships, with all refs resolved to ULIDs.",
+            "items": {
+              "$ref": "#/components/schemas/CreatedEdgeResult"
+            },
+            "type": "array"
+          },
+          "format": {
+            "enum": [
+              "arke.ops/v1"
+            ],
+            "type": "string"
+          },
+          "stats": {
+            "properties": {
+              "edges": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "entities": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "entities",
+              "edges"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "format",
+          "committed",
+          "created",
+          "edges",
+          "stats"
+        ],
         "type": "object"
       },
       "RelationshipSummary": {
@@ -6991,6 +7395,114 @@
         ],
         "x-arke-rules": [
           "Admin only"
+        ]
+      }
+    },
+    "/ops": {
+      "post": {
+        "description": "Execute a batch of entity and relationship operations in a single atomic transaction.\n\nThis is the recommended way to create anything non-trivial. Any time you are creating more than one entity, or an entity plus a relationship, use this endpoint instead of the per-resource endpoints — it is faster, simpler, and atomic.\n\n## Format\n\nThe request body is an `arke.ops/v1` envelope containing an ordered `ops` array. Each op is either:\n\n- `{\"op\": \"entity\", \"ref\": \"@name\", \"type\": \"...\", ...inline-properties}` — create a new entity and give it a @local ref so later ops in the same batch can reference it.\n- `{\"op\": \"relate\", \"source\": \"@a\", \"target\": \"@b\", \"predicate\": \"...\", ...inline-properties}` — create a relationship between two entities. Source and target may each be a @local ref (defined by an earlier entity op in the SAME batch) or a bare ULID (an existing entity).\n\n## Inline properties\n\nAny field on an op beyond the reserved keys is stored as a property on the created entity or relationship. Reserved keys are:\n- entity ops: `op, ref, type, space_id, read_level, write_level, permissions`\n- relate ops: `op, source, target, predicate, space_id, read_level, write_level, permissions`\n\nEverything else — `label`, `description`, `span`, `detail`, `confidence`, any domain-specific field — flows into properties verbatim. No schema changes needed.\n\n## Ref resolution\n\n- `@jane` — a @local ref. Must be defined by an earlier entity op in this request. Scoped to one call.\n- `01ARZ3NDEKTSV4RRFFQ69G5FAV` — a bare ULID referencing an existing entity.\n- `arke:01ARZ3NDEKTSV4RRFFQ69G5FAV` — same as bare ULID (alternate form).\n\n@local refs DO NOT persist across requests. After this call commits, the response `created` array maps each @ref to its new ULID — use those ULIDs directly in subsequent requests.\n\n## Atomicity\n\nAll ops commit together or none do. If any op fails — invalid ref, permission violation, missing target, classification ceiling — the entire batch is rolled back and the response contains an error with `op_index`, `code`, and a `fix` hint telling you exactly what to change.\n\n## Source provenance\n\nSetting `source.entity_id` to a document ULID causes every created entity in this batch to get an `extracted_from` relationship back to that source. Ideal for LLM extraction pipelines — you get full provenance for free. The caller must have read access on the source document.\n\n## Dry run\n\nAdd `?dry_run=true` to validate the envelope and return the planned IDs without writing anything. Recommended for LLMs that want to self-check before committing.",
+        "operationId": "executeOps",
+        "parameters": [
+          {
+            "description": "If 'true', validate the envelope and return the planned IDs without writing anything.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "description": "If 'true', validate the envelope and return the planned IDs without writing anything.",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpsEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsResult"
+                }
+              }
+            },
+            "description": "Ops executed atomically (or dry-run plan returned)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "PRIMARY ingestion path — create many entities and relationships atomically in one call. Prefer this over POST /entities + POST /entities/{id}/relationships whenever creating more than one thing.",
+        "tags": [
+          "Ingest"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /entities",
+          "POST /entities/{id}/relationships",
+          "POST /spaces/{id}/entities"
+        ],
+        "x-arke-rules": [
+          "Use this endpoint whenever creating more than one entity, or an entity plus a relationship",
+          "All ops execute in a single transaction — all commit or none do",
+          "Entity write_level must be <= actor.max_write_level",
+          "Entity read_level must be <= actor.max_read_level",
+          "Relationship read_level auto-lifts to max(source.read_level, target.read_level)",
+          "Relationship write_level auto-lifts to max(source.write_level, target.write_level)",
+          "@local refs (e.g. '@jane') exist only within a single request and must be defined by an earlier entity op before being referenced",
+          "Bare ULIDs reference existing entities across requests — use these for anything from a previous batch",
+          "Any field on an op beyond reserved keys is stored as a property — inline label/description/span/detail/etc. directly",
+          "If source.entity_id is set, caller must have read access on that entity and every created entity gets an 'extracted_from' edge to it",
+          "Space-scoped ops require contributor role or above on the referenced space",
+          "Maximum 2000 ops per request — split larger batches into multiple calls"
         ]
       }
     },

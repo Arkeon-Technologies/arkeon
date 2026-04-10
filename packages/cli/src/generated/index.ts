@@ -605,6 +605,19 @@ const OPERATIONS: GeneratedOperation[] = [
     bodyFields: [{ name: "name", description: "New group name", required: false, type: "string" }, { name: "type", description: "New group type", required: false, type: "string", enumValues: ["org","project","editorial","admin"] }],
   },
   {
+    operationId: "executeOps",
+    group: "ingest",
+    action: "post-ops",
+    method: "POST",
+    path: "/ops",
+    summary: "PRIMARY ingestion path — create many entities and relationships atomically in one call. Prefer this over POST /entities + POST /entities/{id}/relationships whenever creating more than one thing.",
+    description: "Execute a batch of entity and relationship operations in a single atomic transaction.\n\nThis is the recommended way to create anything non-trivial. Any time you are creating more than one entity, or an entity plus a relationship, use this endpoint instead of the per-resource endpoints — it is faster, simpler, and atomic.\n\n## Format\n\nThe request body is an `arke.ops/v1` envelope containing an ordered `ops` array. Each op is either:\n\n- `{\"op\": \"entity\", \"ref\": \"@name\", \"type\": \"...\", ...inline-properties}` — create a new entity and give it a @local ref so later ops in the same batch can reference it.\n- `{\"op\": \"relate\", \"source\": \"@a\", \"target\": \"@b\", \"predicate\": \"...\", ...inline-properties}` — create a relationship between two entities. Source and target may each be a @local ref (defined by an earlier entity op in the SAME batch) or a bare ULID (an existing entity).\n\n## Inline properties\n\nAny field on an op beyond the reserved keys is stored as a property on the created entity or relationship. Reserved keys are:\n- entity ops: `op, ref, type, space_id, read_level, write_level, permissions`\n- relate ops: `op, source, target, predicate, space_id, read_level, write_level, permissions`\n\nEverything else — `label`, `description`, `span`, `detail`, `confidence`, any domain-specific field — flows into properties verbatim. No schema changes needed.\n\n## Ref resolution\n\n- `@jane` — a @local ref. Must be defined by an earlier entity op in this request. Scoped to one call.\n- `01ARZ3NDEKTSV4RRFFQ69G5FAV` — a bare ULID referencing an existing entity.\n- `arke:01ARZ3NDEKTSV4RRFFQ69G5FAV` — same as bare ULID (alternate form).\n\n@local refs DO NOT persist across requests. After this call commits, the response `created` array maps each @ref to its new ULID — use those ULIDs directly in subsequent requests.\n\n## Atomicity\n\nAll ops commit together or none do. If any op fails — invalid ref, permission violation, missing target, classification ceiling — the entire batch is rolled back and the response contains an error with `op_index`, `code`, and a `fix` hint telling you exactly what to change.\n\n## Source provenance\n\nSetting `source.entity_id` to a document ULID causes every created entity in this batch to get an `extracted_from` relationship back to that source. Ideal for LLM extraction pipelines — you get full provenance for free. The caller must have read access on the source document.\n\n## Dry run\n\nAdd `?dry_run=true` to validate the envelope and return the planned IDs without writing anything. Recommended for LLMs that want to self-check before committing.",
+    auth: "required",
+    pathParams: [],
+    queryParams: [{ name: "dry_run", description: "If 'true', validate the envelope and return the planned IDs without writing anything.", required: false, type: "string", enumValues: ["true","false"] }],
+    bodyFields: [{ name: "defaults", description: "Defaults applied to every op that does not set them individually. Per-op values override.", required: false, type: "object" }, { name: "format", description: "Format version. Current: 'arke.ops/v1'.", required: true, type: "string", enumValues: ["arke.ops/v1"] }, { name: "ops", description: "Ordered list of operations. Entity ops define @local refs; relate ops reference them as source/target. Each @ref must be defined by an earlier entity op in the same list.", required: true, type: "array" }, { name: "source", description: "Optional provenance — links every created entity back to a source document.", required: false, type: "object" }],
+  },
+  {
     operationId: "deleteKnowledgeLlmConfig",
     group: "knowledge",
     action: "delete-knowledge-llm-config",
@@ -1127,7 +1140,7 @@ const OPERATIONS: GeneratedOperation[] = [
 ];
 
 export function registerApiCommands(program: Command, options: { skipExisting?: boolean } = {}): void {
-  for (const group of ["activity","actors","admin","auth","comments","entities","groups","knowledge","relationships","search","spaces","workers"]) {
+  for (const group of ["activity","actors","admin","auth","comments","entities","groups","ingest","knowledge","relationships","search","spaces","workers"]) {
     const existing = program.commands.find((command) => command.name() === group);
     if (existing && options.skipExisting) {
       registerGeneratedGroup(existing, OPERATIONS.filter((operation) => operation.group === group));
