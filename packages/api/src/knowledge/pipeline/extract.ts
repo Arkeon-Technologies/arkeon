@@ -1,6 +1,22 @@
 /**
  * Entity/relationship extraction from document text via LLM.
  * Single LLM call with JSON mode -> structured ExtractPlan.
+ *
+ * TODO(ops-migration): This file emits the legacy {entities, relationships}
+ * format (plus a legacy {ops: [{op: "create_entity"}, ...]} variant handled
+ * by normalizePlan below). The canonical ingestion format for the API is now
+ * arke.ops/v1 — see packages/api/src/lib/ops-schema.ts and docs/INGEST_OPS.md.
+ *
+ * When the knowledge pipeline migrates to calling executeOps() instead of its
+ * own write.ts, rewrite this prompt to emit an OpsEnvelope directly:
+ *   - @local refs (e.g. "@person_jane") instead of bare "ref"
+ *   - op: "entity" / op: "relate" (not "create_entity" / "create_relationship")
+ *   - source/target (single field) instead of source_ref/target_ref
+ *   - Inline properties top-level (span, detail, description) rather than
+ *     wrapped in a properties object
+ *   - Add "IMPORTANT: Output ONLY the JSON envelope, no preamble or thinking"
+ *     to suppress thinking-model preamble leakage (Flash-Lite etc.)
+ * normalizePlan can then be deleted.
  */
 
 import { LlmClient, type ChatJsonResult } from "../lib/llm";

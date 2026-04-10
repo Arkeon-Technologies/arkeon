@@ -5,6 +5,31 @@
  * All entity operations go through the SDK (HTTP API), not direct SQL.
  * This ensures activity logging, permission validation, and consistency
  * with the rest of the platform.
+ *
+ * TODO(ops-migration): Replace the per-entity createEntity/createRelationship
+ * loops below with a single in-process call to executeOps() from
+ * packages/api/src/lib/ops-execute.ts. That function is the canonical atomic
+ * multi-entity writer — it handles the same entity+version+activity+space+
+ * permissions inserts in one Postgres transaction, with better error
+ * diagnostics and without the N+M HTTP round-trips this file currently makes.
+ *
+ * Migration steps when we get to it:
+ *   1. Build an OpsEnvelope from canonicalEntities + canonicalRelationships.
+ *      Entities with a canonical_id already set become bare-ULID references on
+ *      their outgoing relationships (not entity ops).
+ *   2. Set envelope.source.entity_id = documentId so the executor auto-emits
+ *      extracted_from edges — deletes the "Link to source document" block
+ *      around lines 77-81 and writeSourceProvenance() entirely.
+ *   3. Import executeOps from ../../lib/ops-execute and call it with a sql
+ *      handle (NOT via HTTP — direct function call, same process).
+ *   4. Map the OpsResult back to the WriteResult shape. Nothing downstream
+ *      should change.
+ *   5. transferOwnership (lines 97-105) stays as a separate post-step — it's
+ *      rarely used and not an op type.
+ *   6. writeSourceEntities (chunk materialization) can also move to executeOps
+ *      but is lower priority; current behavior is fine.
+ *
+ * See docs/INGEST_OPS.md for the format contract.
  */
 
 import {
