@@ -45,7 +45,6 @@ Rules:
 async function resolveOne(
   llm: LlmClient,
   entity: ExtractOpEntity,
-  arkeId: string,
   spaceId?: string,
 ): Promise<{
   candidates: EntityCandidate[];
@@ -60,7 +59,7 @@ async function resolveOne(
   const MAX_CANDIDATES = 10;
 
   for (const q of queries) {
-    const results = await search(q, { arke_id: arkeId, space_id: spaceId, limit: 20 });
+    const results = await search(q, { space_id: spaceId, limit: 20 });
     for (const hit of results) {
       if (hit.id && !hits.has(hit.id)) {
         const full = await getEntity(hit.id);
@@ -144,7 +143,6 @@ async function resolveOne(
 export async function resolveEntities(
   llm: LlmClient,
   plan: ExtractPlan,
-  arkeId: string,
   spaceId?: string,
 ): Promise<{
   candidates: Record<string, EntityCandidate[]>;
@@ -153,7 +151,7 @@ export async function resolveEntities(
 }> {
   const results = await Promise.all(
     plan.entities.map((entity) =>
-      resolveOne(llm, entity, arkeId, spaceId).catch((err) => {
+      resolveOne(llm, entity, spaceId).catch((err) => {
         console.warn(`[knowledge:resolve] Failed for "${entity.label}":`, err instanceof Error ? err.message : err);
         return {
           candidates: [] as EntityCandidate[],

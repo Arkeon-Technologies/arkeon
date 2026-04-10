@@ -36,12 +36,8 @@ Or use environment variables:
 1. Create an entity
    arkeon entities create --type note --properties '{"title":"Hello","body":"My first entity."}'
 
-   Your arke_id is automatically set from your actor's membership.
-   Admin actors must pass --arke-id explicitly.
-
 2. List entities
    arkeon entities list
-   Results are automatically scoped to your arke.
 
 3. Create a relationship (source entity is the path argument, target is a flag)
    arkeon relationships create <source-entity-id> --predicate references --target-id <target-entity-id>

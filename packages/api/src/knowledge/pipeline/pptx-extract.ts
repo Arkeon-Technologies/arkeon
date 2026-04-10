@@ -114,7 +114,6 @@ export async function handlePptxExtract(
   const parentJobId = job.parent_job_id as string;
   const metadata = (job.metadata ?? {}) as Record<string, unknown>;
   const contentKey = metadata.content_key as string;
-  const arkeId = metadata.arke_id as string;
   const readLevel = metadata.read_level as number | undefined;
   const writeLevel = metadata.write_level as number | undefined;
   const ownerId = metadata.owner_id as string | undefined;
@@ -127,7 +126,6 @@ export async function handlePptxExtract(
 
   const extractionConfig = await getExtractionConfig();
   const inheritedMeta = {
-    arke_id: arkeId,
     read_level: readLevel,
     write_level: writeLevel,
     owner_id: ownerId,
@@ -199,7 +197,6 @@ export async function handlePptxExtract(
         },
       })),
       entityId,
-      arkeId,
       { spaceId, readLevel, writeLevel, ownerId, permissions },
     );
     appendLog(jobId, "info", `Created ${sourceEntityIds.length} slide entities`);
@@ -302,7 +299,6 @@ export async function handlePptxExtract(
       `UPDATE knowledge_jobs SET metadata = $1 WHERE id = $2`,
       [
         JSON.stringify({
-          arke_id: arkeId,
           source_entity_ids: sourceEntityIds,
         }),
         jobId,

@@ -75,15 +75,6 @@ export async function getJson(path: string, apiKey?: string) {
 
 // --- Actor helpers ---
 
-/** Get the network (arke) ID from the server */
-export async function getArkeId(): Promise<string> {
-  const { response, body } = await apiRequest("/arkes", { apiKey: adminApiKey });
-  expect(response.status).toBe(200);
-  const arkes = (body as { arkes: Array<{ id: string }> }).arkes;
-  expect(arkes.length).toBeGreaterThan(0);
-  return arkes[0].id;
-}
-
 /** Create an actor via POST /actors (requires admin or actor with sufficient level) */
 export async function createActor(
   callerApiKey: string,
@@ -165,7 +156,6 @@ export async function createWorker(
 
 export async function createEntity(
   apiKey: string,
-  networkId: string,
   type: string,
   properties: Record<string, unknown>,
   extra: Record<string, unknown> = {},
@@ -173,7 +163,7 @@ export async function createEntity(
   const { response, body } = await jsonRequest("/entities", {
     method: "POST",
     apiKey,
-    json: { arke_id: networkId, type, properties, ...extra },
+    json: { type, properties, ...extra },
   });
   expect(response.status).toBe(201);
   return (body as { entity: Record<string, any> }).entity;
@@ -199,14 +189,13 @@ export async function createRelationship(
 
 export async function createSpace(
   apiKey: string,
-  networkId: string,
   name: string,
   extra: Record<string, unknown> = {},
 ) {
   const { response, body } = await jsonRequest("/spaces", {
     method: "POST",
     apiKey,
-    json: { arke_id: networkId, name, ...extra },
+    json: { name, ...extra },
   });
   expect(response.status).toBe(201);
   return (body as { space: Record<string, any> }).space;
@@ -320,11 +309,11 @@ export async function uploadDirectContent(apiKey: string, entityId: string, key:
 
 // --- Group helpers ---
 
-export async function createGroup(apiKey: string, networkId: string, name: string) {
+export async function createGroup(apiKey: string, name: string) {
   const { response, body } = await jsonRequest("/groups", {
     method: "POST",
     apiKey,
-    json: { arke_id: networkId, name },
+    json: { name },
   });
   expect(response.status).toBe(201);
   return (body as { group: Record<string, any> }).group;

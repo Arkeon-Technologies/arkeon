@@ -32,11 +32,6 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     throw new Error(`Entity ${entityId} not found`);
   }
 
-  const arkeId = entity.arke_id ?? entity.network_id;
-  if (!arkeId) {
-    throw new Error(`Entity ${entityId} has no arke_id`);
-  }
-
   // Inherit access control from source entity
   const readLevel = entity.read_level as number | undefined;
   const writeLevel = entity.write_level as number | undefined;
@@ -58,7 +53,6 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
 
   // Common metadata inherited by all child jobs
   const inheritedMeta = {
-    arke_id: arkeId,
     read_level: readLevel,
     write_level: writeLevel,
     owner_id: ownerId,
@@ -193,7 +187,6 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
         properties: { start_offset: c.startOffset, end_offset: c.endOffset },
       })),
       entityId,
-      arkeId,
       { spaceId, readLevel, writeLevel },
     );
     appendLog(jobId, "info", `Created ${sourceWrite.sourceEntityIds.length} source entities`);
@@ -225,7 +218,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     // Store metadata on parent for finalization
     await sql.query(
       `UPDATE knowledge_jobs SET metadata = $1 WHERE id = $2`,
-      [JSON.stringify({ arke_id: arkeId, source_entity_ids: sourceWrite.sourceEntityIds }), jobId],
+      [JSON.stringify({ source_entity_ids: sourceWrite.sourceEntityIds }), jobId],
     );
 
     await setJobStatus(jobId, "waiting");

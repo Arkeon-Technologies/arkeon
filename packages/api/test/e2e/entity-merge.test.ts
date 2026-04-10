@@ -8,7 +8,6 @@ import {
   createEntity,
   createRelationship,
   createSpace,
-  getArkeId,
   getJson,
   grantEntityPermission,
   jsonRequest,
@@ -16,11 +15,9 @@ import {
 } from "./helpers";
 
 describe("Entity Merge", () => {
-  let arkeId: string;
   let actor: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create actor", async () => {
-    arkeId = await getArkeId();
+  test("setup: create actor", async () => {
     actor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -31,18 +28,18 @@ describe("Entity Merge", () => {
 
   test("merge transfers properties, relationships, permissions, spaces, and comments", async () => {
     // Create target and source entities
-    const target = await createEntity(actor.apiKey, arkeId, "person", {
+    const target = await createEntity(actor.apiKey, "person", {
       label: uniqueName("merge-target"),
       name: "Target Name",
     });
-    const source = await createEntity(actor.apiKey, arkeId, "person", {
+    const source = await createEntity(actor.apiKey, "person", {
       label: uniqueName("merge-source"),
       name: "Source Name",
       extra_field: "from source",
     });
 
     // Create a third entity for relationships
-    const other = await createEntity(actor.apiKey, arkeId, "document", {
+    const other = await createEntity(actor.apiKey, "document", {
       label: uniqueName("merge-other"),
     });
 
@@ -53,7 +50,7 @@ describe("Entity Merge", () => {
     await createComment(actor.apiKey, source.id, "Comment on source entity");
 
     // Add source to a space
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("merge-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("merge-space"));
     await addEntityToSpace(actor.apiKey, space.id, source.id);
 
     // Grant permission on source to another actor
@@ -107,11 +104,11 @@ describe("Entity Merge", () => {
   // --- Property strategies ---
 
   test("property_strategy: keep_target preserves target properties", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: "target-label",
       target_only: true,
     });
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: "source-label",
       source_only: true,
     });
@@ -133,11 +130,11 @@ describe("Entity Merge", () => {
   });
 
   test("property_strategy: keep_source replaces with source properties", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: "target-label",
       target_only: true,
     });
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: "source-label",
       source_only: true,
     });
@@ -159,12 +156,12 @@ describe("Entity Merge", () => {
   });
 
   test("property_strategy: shallow_merge combines properties (source wins conflicts)", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: "target-label",
       target_only: "keep",
       shared: "from-target",
     });
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: "source-label",
       source_only: "keep",
       shared: "from-source",
@@ -191,8 +188,8 @@ describe("Entity Merge", () => {
 
   test("403 when actor lacks admin on source", async () => {
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("t") });
-    const source = await createEntity(actorB.apiKey, arkeId, "note", { label: uniqueName("s") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
+    const source = await createEntity(actorB.apiKey, "note", { label: uniqueName("s") });
 
     // actor owns target but not source, and has no admin grant on source
     // Grant editor (not admin) on source so actor can see it but shouldn't merge
@@ -209,8 +206,8 @@ describe("Entity Merge", () => {
 
   test("403 when actor lacks admin on target", async () => {
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
-    const target = await createEntity(actorB.apiKey, arkeId, "note", { label: uniqueName("t") });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("s") });
+    const target = await createEntity(actorB.apiKey, "note", { label: uniqueName("t") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("s") });
 
     // actor owns source but not target; grant editor on target (not admin)
     await grantEntityPermission(actorB.apiKey, target.id, "actor", actor.id, "editor");
@@ -225,7 +222,7 @@ describe("Entity Merge", () => {
   });
 
   test("400 when merging entity into itself", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "self" });
+    const entity = await createEntity(actor.apiKey, "note", { label: "self" });
 
     const { response, body } = await jsonRequest(`/entities/${entity.id}/merge`, {
       method: "POST",
@@ -236,8 +233,8 @@ describe("Entity Merge", () => {
   });
 
   test("400 when merging entities of different kinds", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", { label: "e" });
-    const entity2 = await createEntity(actor.apiKey, arkeId, "note", { label: "e2" });
+    const entity = await createEntity(actor.apiKey, "note", { label: "e" });
+    const entity2 = await createEntity(actor.apiKey, "note", { label: "e2" });
     // Create a relationship (which is kind='relationship')
     const rel = await createRelationship(actor.apiKey, entity.id, "cites", entity2.id);
     const relId = rel.relationship.id;
@@ -252,8 +249,8 @@ describe("Entity Merge", () => {
   });
 
   test("409 on CAS version mismatch", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: "t" });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: "s" });
+    const target = await createEntity(actor.apiKey, "note", { label: "t" });
+    const source = await createEntity(actor.apiKey, "note", { label: "s" });
 
     const { response, body } = await jsonRequest(`/entities/${target.id}/merge`, {
       method: "POST",
@@ -267,8 +264,8 @@ describe("Entity Merge", () => {
   // --- Relationship merge ---
 
   test("merge two relationships with same endpoints", async () => {
-    const entityA = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("a") });
-    const entityB = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("b") });
+    const entityA = await createEntity(actor.apiKey, "note", { label: uniqueName("a") });
+    const entityB = await createEntity(actor.apiKey, "note", { label: uniqueName("b") });
 
     const rel1 = await createRelationship(actor.apiKey, entityA.id, "references", entityB.id, {
       weight: 1,
@@ -310,9 +307,9 @@ describe("Entity Merge", () => {
   });
 
   test("400 when merging relationships with different endpoints", async () => {
-    const entityA = await createEntity(actor.apiKey, arkeId, "note", { label: "a" });
-    const entityB = await createEntity(actor.apiKey, arkeId, "note", { label: "b" });
-    const entityC = await createEntity(actor.apiKey, arkeId, "note", { label: "c" });
+    const entityA = await createEntity(actor.apiKey, "note", { label: "a" });
+    const entityB = await createEntity(actor.apiKey, "note", { label: "b" });
+    const entityC = await createEntity(actor.apiKey, "note", { label: "c" });
 
     const rel1 = await createRelationship(actor.apiKey, entityA.id, "references", entityB.id);
     const rel2 = await createRelationship(actor.apiKey, entityA.id, "references", entityC.id);
@@ -332,9 +329,9 @@ describe("Entity Merge", () => {
   // --- Edge deduplication ---
 
   test("duplicate edges are deduplicated during merge", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: "t" });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: "s" });
-    const other = await createEntity(actor.apiKey, arkeId, "note", { label: "o" });
+    const target = await createEntity(actor.apiKey, "note", { label: "t" });
+    const source = await createEntity(actor.apiKey, "note", { label: "s" });
+    const other = await createEntity(actor.apiKey, "note", { label: "o" });
 
     // Both have "cites" relationship to other
     await createRelationship(actor.apiKey, target.id, "cites", other.id);
@@ -360,8 +357,8 @@ describe("Entity Merge", () => {
   // --- Self-referential edge deletion ---
 
   test("self-referential edges between source and target are deleted", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: "t" });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: "s" });
+    const target = await createEntity(actor.apiKey, "note", { label: "t" });
+    const source = await createEntity(actor.apiKey, "note", { label: "s" });
 
     // Create relationship from source to target
     await createRelationship(actor.apiKey, source.id, "relates_to", target.id);
@@ -383,8 +380,8 @@ describe("Entity Merge", () => {
   // --- Redirect on GET ---
 
   test("GET on merged entity returns 410 with merged_into", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: "t" });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: "s" });
+    const target = await createEntity(actor.apiKey, "note", { label: "t" });
+    const source = await createEntity(actor.apiKey, "note", { label: "s" });
 
     await jsonRequest(`/entities/${target.id}/merge`, {
       method: "POST",
@@ -405,8 +402,8 @@ describe("Entity Merge", () => {
   test("actor with admin grant (not owner) can merge", async () => {
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
 
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: "t" });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: "s" });
+    const target = await createEntity(actor.apiKey, "note", { label: "t" });
+    const source = await createEntity(actor.apiKey, "note", { label: "s" });
 
     // Grant admin on both to actorB
     await grantEntityPermission(actor.apiKey, target.id, "actor", actorB.id, "admin");
@@ -423,7 +420,7 @@ describe("Entity Merge", () => {
   // --- Additional edge case tests ---
 
   test("404 when source entity does not exist", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("t") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
 
     const { response, body } = await jsonRequest(`/entities/${target.id}/merge`, {
       method: "POST",
@@ -434,7 +431,7 @@ describe("Entity Merge", () => {
   });
 
   test("404 when target entity does not exist", async () => {
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("s") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("s") });
 
     const { response } = await jsonRequest("/entities/01ZZZZZZZZZZZZZZZZZZZZZZZZ/merge", {
       method: "POST",
@@ -445,9 +442,9 @@ describe("Entity Merge", () => {
   });
 
   test("redirect chain: A→B then B→C results in A→C", async () => {
-    const entityA = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("a") });
-    const entityB = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("b") });
-    const entityC = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("c") });
+    const entityA = await createEntity(actor.apiKey, "note", { label: uniqueName("a") });
+    const entityB = await createEntity(actor.apiKey, "note", { label: uniqueName("b") });
+    const entityC = await createEntity(actor.apiKey, "note", { label: uniqueName("c") });
 
     // Merge A into B
     await jsonRequest(`/entities/${entityB.id}/merge`, {
@@ -481,11 +478,11 @@ describe("Entity Merge", () => {
   test("third-party relationships are repointed during merge", async () => {
     // ActorB creates entities and a relationship
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
-    const thirdParty = await createEntity(actorB.apiKey, arkeId, "note", { label: uniqueName("tp") });
+    const thirdParty = await createEntity(actorB.apiKey, "note", { label: uniqueName("tp") });
 
     // Actor creates source and target
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("t") });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("s") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("s") });
 
     // ActorB creates a relationship from thirdParty to source (actor doesn't own this rel)
     await createRelationship(actorB.apiKey, thirdParty.id, "references", source.id);
@@ -508,11 +505,11 @@ describe("Entity Merge", () => {
   test("spaces actor does not own are transferred during merge", async () => {
     // ActorB creates a space
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
-    const space = await createSpace(actorB.apiKey, arkeId, uniqueName("space"));
+    const space = await createSpace(actorB.apiKey, uniqueName("space"));
 
     // Actor creates source and target
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("t") });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("s") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("s") });
 
     // ActorB adds source to their space (actor has no role in this space)
     await addEntityToSpace(actorB.apiKey, space.id, source.id);
@@ -532,11 +529,11 @@ describe("Entity Merge", () => {
   });
 
   test("multiple incoming relationships from different entities are all repointed", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("t") });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("s") });
-    const other1 = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("o1") });
-    const other2 = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("o2") });
-    const other3 = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("o3") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("s") });
+    const other1 = await createEntity(actor.apiKey, "note", { label: uniqueName("o1") });
+    const other2 = await createEntity(actor.apiKey, "note", { label: uniqueName("o2") });
+    const other3 = await createEntity(actor.apiKey, "note", { label: uniqueName("o3") });
 
     // Create incoming relationships to source from multiple entities
     await createRelationship(actor.apiKey, other1.id, "cites", source.id);

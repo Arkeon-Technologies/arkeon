@@ -16,21 +16,17 @@ import {
   apiRequest,
   createActor,
   createEntity,
-  getArkeId,
   createSpace,
   addEntityToSpace,
   grantEntityPermission,
   type CreatedActor,
 } from "../e2e/helpers";
 
-let arkeId: string;
 let ownerActor: CreatedActor;
 let editorActor: CreatedActor;
 let viewerActor: CreatedActor;
 
 beforeAll(async () => {
-  arkeId = await getArkeId();
-
   // Create actors at different clearance levels
   ownerActor = await createActor(adminApiKey, {
     maxReadLevel: 3,
@@ -100,7 +96,7 @@ describe("Knowledge Permission Inheritance", () => {
 
   test("setup: create document with owner, editor, and read_level=2", async () => {
     // Owner creates a document at read_level=2
-    const entity = await createEntity(ownerActor.apiKey, arkeId, "document", {
+    const entity = await createEntity(ownerActor.apiKey, "document", {
       label: "Classified Report",
       description: "Alice works at Globex Corporation. Bob manages the Tokyo office. Alice reports to Bob.",
     }, { read_level: 2, write_level: 2 });

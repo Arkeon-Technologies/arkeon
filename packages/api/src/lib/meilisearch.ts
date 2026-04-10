@@ -64,7 +64,6 @@ interface MeiliEntityDoc {
   note: string;
   type: string;
   kind: string;
-  arke_id: string;
   owner_id: string;
   read_level: number;
   write_level: number;
@@ -104,7 +103,6 @@ export function toMeiliDoc(entity: Record<string, unknown>, spaceIds: string[] =
     note: typeof entity.note === "string" ? entity.note : "",
     type: String(entity.type ?? ""),
     kind: String(entity.kind ?? ""),
-    arke_id: String(entity.arke_id ?? ""),
     owner_id: String(entity.owner_id ?? ""),
     read_level: typeof entity.read_level === "number" ? entity.read_level : 1,
     write_level: typeof entity.write_level === "number" ? entity.write_level : 1,
@@ -127,7 +125,7 @@ export async function ensureMeiliIndex(): Promise<void> {
   }
   await c.index(ENTITIES_INDEX).updateSettings({
     searchableAttributes: ["*"],
-    filterableAttributes: ["type", "kind", "arke_id", "owner_id", "read_level", "write_level", "space_ids"],
+    filterableAttributes: ["type", "kind", "owner_id", "read_level", "write_level", "space_ids"],
     sortableAttributes: ["updated_at", "created_at"],
   });
 }
@@ -201,7 +199,6 @@ export interface MeiliSearchResult {
 export interface SearchOptions {
   type?: string;
   kind?: string;
-  arkeId?: string;
   spaceId?: string;
   readLevelOverride?: number;
   limit?: number;
@@ -235,9 +232,6 @@ export function buildSearchFilters(actor: Actor | null, options: SearchOptions):
 
   if (options.type) {
     filters.push(`type = "${options.type}"`);
-  }
-  if (options.arkeId) {
-    filters.push(`arke_id = "${options.arkeId}"`);
   }
   if (options.spaceId) {
     filters.push(`space_ids = "${options.spaceId}"`);

@@ -17,42 +17,23 @@ export function ensureBootstrap(): Promise<void> {
     // Ensure ENCRYPTION_KEY is available — auto-generate and persist if missing
     await ensureEncryptionKey(sql);
 
-    // Generate ARKE_ID if not provided
-    if (!process.env.ARKE_ID) {
-      process.env.ARKE_ID = generateUlid();
-    }
-    const arkeId = process.env.ARKE_ID;
-
     // Bootstrap admin from ADMIN_BOOTSTRAP_KEY (must exist for first startup)
     if (process.env.ADMIN_BOOTSTRAP_KEY) {
       try {
-        await bootstrapAdmin(sql, arkeId, now);
+        await bootstrapAdmin(sql, now);
       } catch (err) {
         console.error("[bootstrap] admin setup failed:", err);
       }
     }
 
-    // Resolve admin actor ID for arke ownership
-    const adminKey = process.env.ADMIN_BOOTSTRAP_KEY;
-    let adminId = "SYSTEM";
-    if (adminKey) {
-      const keyHash = await sha256Hex(adminKey);
-      const [rows] = await sql.transaction([
-        sql`SELECT actor_id FROM api_keys WHERE key_hash = ${keyHash} LIMIT 1`,
-      ]);
-      const found = (rows as Array<{ actor_id: string }>)[0];
-      if (found) {
-        adminId = found.actor_id;
-      }
-    }
-
-    // Ensure the owner actor exists (create SYSTEM actor if no bootstrap key)
-    if (adminId === "SYSTEM") {
+    // Ensure SYSTEM actor exists if no bootstrap key
+    if (!process.env.ADMIN_BOOTSTRAP_KEY) {
       await sql.transaction([
-        sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
-        sql`SELECT set_config('app.actor_read_level', '4', true)`,
-        sql`SELECT set_config('app.actor_write_level', '4', true)`,
-        sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+        sql`SELECT
+          set_config('app.actor_id', 'SYSTEM', true),
+          set_config('app.actor_read_level', '4', true),
+          set_config('app.actor_write_level', '4', true),
+          set_config('app.actor_is_admin', 'true', true)`,
         sql`
           INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, properties, created_at, updated_at)
           VALUES (
@@ -64,22 +45,6 @@ export function ensureBootstrap(): Promise<void> {
         `,
       ]);
     }
-
-    // Create arke with admin as owner (or SYSTEM if no admin)
-    await sql.transaction([
-      sql`SELECT set_config('app.actor_id', ${adminId}, true)`,
-      sql`SELECT set_config('app.actor_read_level', '4', true)`,
-      sql`SELECT set_config('app.actor_write_level', '4', true)`,
-      sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
-      sql`
-        INSERT INTO arkes (id, name, owner_id, default_read_level, default_write_level, properties)
-        VALUES (
-          ${arkeId}, 'The Arke', ${adminId}, 1, 1,
-          ${JSON.stringify({ label: "The Arke" })}::jsonb
-        )
-        ON CONFLICT (id) DO NOTHING
-      `,
-    ]);
   })().catch((error) => {
     bootstrapPromise = null;
     throw error;
@@ -90,7 +55,6 @@ export function ensureBootstrap(): Promise<void> {
 
 async function bootstrapAdmin(
   sql: ReturnType<typeof createSql>,
-  arkeId: string,
   now: string,
 ) {
   const adminKey = process.env.ADMIN_BOOTSTRAP_KEY!;
@@ -111,10 +75,11 @@ async function bootstrapAdmin(
   // Create admin actor + API key
   // Use permissive context (no actor_id check needed for bootstrap)
   await sql.transaction([
-    sql`SELECT set_config('app.actor_id', ${adminId}, true)`,
-    sql`SELECT set_config('app.actor_read_level', '4', true)`,
-    sql`SELECT set_config('app.actor_write_level', '4', true)`,
-    sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+    sql`SELECT
+      set_config('app.actor_id', ${adminId}, true),
+      set_config('app.actor_read_level', '4', true),
+      set_config('app.actor_write_level', '4', true),
+      set_config('app.actor_is_admin', 'true', true)`,
     sql`
       INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, properties, created_at, updated_at)
       VALUES (

@@ -15,7 +15,6 @@ import { requireSpaceRole } from "../lib/spaces";
 import { ApiError } from "../lib/errors";
 import {
   requireActor,
-  resolveArkeId,
   parseCursorParam,
   parseJsonBody,
   parseLimit,
@@ -117,7 +116,6 @@ const createEntityRoute = createRoute({
   "x-arke-rules": [
     "Requires write_level clearance >= entity's write_level",
     "Requires read_level clearance >= entity's read_level",
-    "Non-admin actors are scoped to their own arke; admins must pass arke_id explicitly",
     "If space_id is provided, requires contributor role or above on that space",
     "All operations (create, space add, permission grants) are atomic",
   ],
@@ -126,7 +124,6 @@ const createEntityRoute = createRoute({
       required: true,
       content: jsonContent(
         z.object({
-          arke_id: EntityIdParam.optional().describe("Arke ULID (derived from actor for regular users, required for admins)"),
           type: z.string().describe("Entity type"),
           properties: z.record(z.string(), z.any()).describe("Arbitrary properties"),
           read_level: ClassificationLevel.optional(),
@@ -398,7 +395,6 @@ const mergeEntityRoute = createRoute({
   "x-arke-related": ["GET /entities/{id}", "DELETE /entities/{id}"],
   "x-arke-rules": [
     "Requires admin access on both source and target entities",
-    "Both entities must belong to the same arke",
     "Both entities must have the same kind (entity or relationship)",
     "If merging relationships, both must connect the same source and target entities",
     "Source entity is deleted after merge; a redirect is created from source ID to target ID",
@@ -538,7 +534,6 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   const actor = requireActor(c);
   const body = await parseJsonBody<Record<string, unknown>>(c);
 
-  const arkeId = resolveArkeId(body, actor);
   if (typeof body.type !== "string") {
     throw new ApiError(400, "missing_required_field", "Missing type");
   }
@@ -564,13 +559,13 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql.query(
       `INSERT INTO entities (
-        id, kind, type, arke_id, ver, properties, owner_id,
+        id, kind, type, ver, properties, owner_id,
         read_level, write_level, edited_by, note, created_at, updated_at
       ) VALUES (
-        $1, 'entity', $2, $3, 1, $4::jsonb, $5,
-        $6, $7, $5, NULL, $8::timestamptz, $8::timestamptz
+        $1, 'entity', $2, 1, $3::jsonb, $4,
+        $5, $6, $4, NULL, $7::timestamptz, $7::timestamptz
       ) RETURNING *`,
-      [id, body.type, arkeId, JSON.stringify(properties), actor.id, readLevel, writeLevel, now],
+      [id, body.type, JSON.stringify(properties), actor.id, readLevel, writeLevel, now],
     ),
     sql.query(
       `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
@@ -594,7 +589,7 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   // RLS enforces: actor.max_write_level >= write_level AND actor.max_read_level >= read_level
   const results = await sql.transaction(queries);
 
-  const inserted = (results[5] as EntityRecord[])[0]; // 5 context queries + INSERT
+  const inserted = (results[1] as EntityRecord[])[0]; // 1 context query + INSERT
   if (!inserted) {
     throw new ApiError(403, "forbidden", "Insufficient classification level");
   }
@@ -1031,7 +1026,7 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
     ),
   ]);
 
-  const ctxLen = 5; // setActorContext produces 5 queries
+  const ctxLen = 1; // setActorContext produces 1 query
   const lockedRows = results[ctxLen] as EntityRecord[];
   const target = lockedRows.find((r) => r.id === targetId);
   const source = lockedRows.find((r) => r.id === sourceId);
@@ -1046,11 +1041,6 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
   // Validate same kind
   if (source.kind !== target.kind) {
     throw new ApiError(400, "invalid_body", "Cannot merge entities of different kinds");
-  }
-
-  // Validate same arke
-  if (source.arke_id !== target.arke_id) {
-    throw new ApiError(400, "invalid_body", "Cannot merge entities from different arkes");
   }
 
   // Validate admin access on both

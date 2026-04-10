@@ -28,9 +28,6 @@ CREATE TABLE entities (
   kind       TEXT NOT NULL,                                 -- 'entity' | 'relationship'
   type       TEXT NOT NULL,                                 -- semantic: book, chapter, person, etc.
 
-  -- Network membership — every entity belongs to an Arke
-  network_id TEXT NOT NULL REFERENCES arkes(id),
-
   -- Version chain (content versions only)
   ver        INTEGER NOT NULL DEFAULT 1,                    -- monotonically increasing
 
@@ -63,7 +60,6 @@ CREATE INDEX IF NOT EXISTS idx_entities_kind_type_updated ON entities(kind, type
 CREATE INDEX IF NOT EXISTS idx_entities_updated ON entities(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_entities_owner ON entities(owner_id);
 CREATE INDEX IF NOT EXISTS idx_entities_edited_by ON entities(edited_by, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_entities_network ON entities(network_id);
 CREATE INDEX IF NOT EXISTS idx_entities_read_level ON entities(read_level);
 
 -- Grant table access to app role

@@ -30,10 +30,6 @@ export async function bootstrapKnowledgeService(): Promise<void> {
     process.env.ARKE_API_URL = `http://localhost:${process.env.PORT ?? 8000}`;
   }
 
-  // Intentionally do NOT set arkeId on the SDK — the knowledge service
-  // operates across all arkes on the instance. Omitting arke_id means
-  // search and entity fetches are unfiltered.
-
   // Check if we already have a stored service key
   try {
     const [row] = await sql.query(
@@ -74,18 +70,6 @@ export async function bootstrapKnowledgeService(): Promise<void> {
   const keyPrefix = apiKey.substring(0, 7);
   const keyHash = await sha256Hex(apiKey);
 
-  // Need to find the arke_id for the network
-  let arkeId = process.env.ARKE_ID;
-  if (!arkeId) {
-    const [arke] = await sql.query(`SELECT id FROM arkes LIMIT 1`, []);
-    arkeId = arke?.id as string;
-  }
-
-  if (!arkeId) {
-    console.warn("[knowledge:bootstrap] No arke found, skipping service actor creation");
-    return;
-  }
-
   try {
     await sql.transaction([
       sql`SELECT set_config('app.actor_id', ${actorId}, true)`,
@@ -108,8 +92,6 @@ export async function bootstrapKnowledgeService(): Promise<void> {
         VALUES (${keyId}, ${keyPrefix}, ${keyHash}, ${actorId})
         ON CONFLICT DO NOTHING
       `,
-      // Service actor keeps arke_id = NULL (admin actors are cross-arke).
-      // The RLS pattern "current_actor_arke_id() IS NULL" grants unrestricted access.
     ]);
 
     // Store the encrypted key in system_config

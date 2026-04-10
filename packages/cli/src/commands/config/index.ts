@@ -44,44 +44,6 @@ export function registerConfigCommands(program: Command): void {
     });
 
   configCmd
-    .command("set-arke")
-    .description("Set the default arke ID used when --arke-id is not provided")
-    .argument("<id>", "Arke ULID")
-    .action((id: string) => {
-      config.set("arkeId", id);
-      output.result({
-        operation: "config.set-arke",
-        arke_id: id,
-        config_path: config.path(),
-      });
-    });
-
-  configCmd
-    .command("get-arke")
-    .description("Show the current default arke ID")
-    .action(() => {
-      const arkeId = config.get("arkeId");
-      output.result({
-        operation: "config.get-arke",
-        arke_id: arkeId ?? null,
-        source: process.env.ARKE_ID ? "ARKE_ID" : arkeId ? "config" : null,
-        config_path: config.path(),
-      });
-    });
-
-  configCmd
-    .command("clear-arke")
-    .description("Remove the stored default arke ID")
-    .action(() => {
-      config.delete("arkeId");
-      output.result({
-        operation: "config.clear-arke",
-        cleared: true,
-        config_path: config.path(),
-      });
-    });
-
-  configCmd
     .command("set-space")
     .description("Set the default space ID — entities and relationships will be added to this space on creation")
     .argument("<id>", "Space ULID")
@@ -123,14 +85,11 @@ export function registerConfigCommands(program: Command): void {
     .command("show")
     .description("Show all CLI configuration")
     .action(() => {
-      const arkeId = config.get("arkeId");
       const spaceId = config.get("spaceId");
       output.result({
         operation: "config.show",
         api_url: config.get("apiUrl"),
         api_url_source: process.env.ARKE_API_URL ? "ARKE_API_URL" : "config",
-        arke_id: arkeId ?? null,
-        arke_id_source: process.env.ARKE_ID ? "ARKE_ID" : arkeId ? "config" : null,
         space_id: spaceId ?? null,
         space_id_source: process.env.ARKE_SPACE_ID ? "ARKE_SPACE_ID" : spaceId ? "config" : null,
         config_path: config.path(),

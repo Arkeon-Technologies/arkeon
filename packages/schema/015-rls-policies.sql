@@ -20,6 +20,64 @@
 
 
 -- =============================================================================
+-- DROP existing policies so this file is fully re-runnable.
+-- Critical: on instances upgrading from the old arke-scoped schema, the
+-- existing policies reference current_actor_arke_id(). If we don't drop
+-- them first, CREATE POLICY fails with "already exists" and migrate.js
+-- silently skips it, leaving the stale arke-scoped policies in place.
+-- =============================================================================
+
+DROP POLICY IF EXISTS entities_select ON entities;
+DROP POLICY IF EXISTS entities_insert ON entities;
+DROP POLICY IF EXISTS entities_update ON entities;
+DROP POLICY IF EXISTS entities_delete ON entities;
+DROP POLICY IF EXISTS entity_perms_select ON entity_permissions;
+DROP POLICY IF EXISTS entity_perms_insert ON entity_permissions;
+DROP POLICY IF EXISTS entity_perms_delete ON entity_permissions;
+DROP POLICY IF EXISTS edges_select ON relationship_edges;
+DROP POLICY IF EXISTS edges_insert ON relationship_edges;
+DROP POLICY IF EXISTS edges_delete ON relationship_edges;
+DROP POLICY IF EXISTS versions_select ON entity_versions;
+DROP POLICY IF EXISTS versions_insert ON entity_versions;
+DROP POLICY IF EXISTS activity_select ON entity_activity;
+DROP POLICY IF EXISTS activity_insert ON entity_activity;
+DROP POLICY IF EXISTS actors_select ON actors;
+DROP POLICY IF EXISTS actors_insert ON actors;
+DROP POLICY IF EXISTS actors_update ON actors;
+DROP POLICY IF EXISTS actors_delete ON actors;
+DROP POLICY IF EXISTS groups_select ON groups;
+DROP POLICY IF EXISTS groups_insert ON groups;
+DROP POLICY IF EXISTS groups_update ON groups;
+DROP POLICY IF EXISTS groups_delete ON groups;
+DROP POLICY IF EXISTS memberships_select ON group_memberships;
+DROP POLICY IF EXISTS memberships_insert ON group_memberships;
+DROP POLICY IF EXISTS memberships_update ON group_memberships;
+DROP POLICY IF EXISTS memberships_delete ON group_memberships;
+DROP POLICY IF EXISTS spaces_select ON spaces;
+DROP POLICY IF EXISTS spaces_insert ON spaces;
+DROP POLICY IF EXISTS spaces_update ON spaces;
+DROP POLICY IF EXISTS spaces_delete ON spaces;
+DROP POLICY IF EXISTS space_perms_select ON space_permissions;
+DROP POLICY IF EXISTS space_perms_insert ON space_permissions;
+DROP POLICY IF EXISTS space_perms_update ON space_permissions;
+DROP POLICY IF EXISTS space_perms_delete ON space_permissions;
+DROP POLICY IF EXISTS space_entities_select ON space_entities;
+DROP POLICY IF EXISTS space_entities_insert ON space_entities;
+DROP POLICY IF EXISTS space_entities_delete ON space_entities;
+DROP POLICY IF EXISTS comments_select ON comments;
+DROP POLICY IF EXISTS comments_insert ON comments;
+DROP POLICY IF EXISTS comments_delete ON comments;
+DROP POLICY IF EXISTS notifications_select ON notifications;
+DROP POLICY IF EXISTS notifications_insert ON notifications;
+DROP POLICY IF EXISTS notifications_delete ON notifications;
+DROP POLICY IF EXISTS api_keys_select ON api_keys;
+DROP POLICY IF EXISTS api_keys_insert ON api_keys;
+DROP POLICY IF EXISTS api_keys_update ON api_keys;
+DROP POLICY IF EXISTS agent_keys_select ON agent_keys;
+DROP POLICY IF EXISTS agent_keys_insert ON agent_keys;
+
+
+-- =============================================================================
 -- HELPER: check if current actor has a given role (or higher) on an entity
 -- =============================================================================
 --
@@ -355,32 +413,6 @@ FOR DELETE TO arke_app
 USING (
   current_actor_is_admin()
 );
-
-
--- =============================================================================
--- ARKES (Networks)
--- =============================================================================
-
-ALTER TABLE arkes ENABLE ROW LEVEL SECURITY;
-
--- All Arkes visible to everyone
-CREATE POLICY arkes_select ON arkes
-FOR SELECT TO arke_app
-USING (true);
-
--- Only system admins can manage Arkes
-CREATE POLICY arkes_insert ON arkes
-FOR INSERT TO arke_app
-WITH CHECK (current_actor_is_admin());
-
-CREATE POLICY arkes_update ON arkes
-FOR UPDATE TO arke_app
-USING (current_actor_is_admin())
-WITH CHECK (current_actor_is_admin());
-
-CREATE POLICY arkes_delete ON arkes
-FOR DELETE TO arke_app
-USING (current_actor_is_admin());
 
 
 -- =============================================================================

@@ -36,7 +36,6 @@ export async function handlePdfPageGroup(
   const groupOrdinal = metadata.group_ordinal as number;
   const totalGroups = metadata.total_groups as number;
   const survey = metadata.survey as DocumentSurvey | undefined;
-  const arkeId = metadata.arke_id as string;
   const readLevel = metadata.read_level as number | undefined;
   const writeLevel = metadata.write_level as number | undefined;
   const ownerId = metadata.owner_id as string | undefined;
@@ -201,7 +200,6 @@ export async function handlePdfPageGroup(
       {
         jobId: parentJobId,
         documentId: entityId,
-        arkeId,
         spaceId,
         readLevel,
         writeLevel,

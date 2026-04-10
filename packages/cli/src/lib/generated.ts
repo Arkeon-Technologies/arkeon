@@ -147,19 +147,6 @@ export function registerGeneratedGroup(group: Command, operations: GeneratedOper
           }
         }
 
-        // Auto-inject default arke_id from config when not explicitly provided
-        const defaultArkeId = config.get("arkeId");
-        if (defaultArkeId) {
-          const hasBodyArkeId = operation.bodyFields.some((f) => f.name === "arke_id");
-          if (hasBodyArkeId && body && body.arke_id === undefined) {
-            body.arke_id = defaultArkeId;
-          }
-          const hasQueryArkeId = operation.queryParams.some((f) => f.name === "arke_id");
-          if (hasQueryArkeId && !query.has("arke_id")) {
-            query.set("arke_id", defaultArkeId);
-          }
-        }
-
         // Auto-inject default space_id from config when not explicitly provided
         const defaultSpaceId = config.get("spaceId");
         if (defaultSpaceId) {

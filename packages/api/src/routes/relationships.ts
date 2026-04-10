@@ -244,7 +244,7 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
     : "(re.source_id = $1 OR re.target_id = $1)";
 
   const actorCtx = c.get("actor");
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -277,9 +277,10 @@ entityRelationshipsRouter.openapi(listRelationshipsRoute, async (c) => {
       [entityId, predicate ?? null, targetId ?? null, cursor?.t ?? null, cursor?.i ?? null, limit + 1],
     ),
   ]);
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
 
-  const page = (rows as Array<Record<string, unknown>>).slice(0, limit);
-  const next = (rows as Array<Record<string, unknown>>).length > limit ? page[page.length - 1] : null;
+  const page = rows.slice(0, limit);
+  const next = rows.length > limit ? page[page.length - 1] : null;
 
   return c.json({
     relationships: page.map((row) => {
@@ -325,7 +326,7 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
 
   // Pre-validate: actor must see both entities, have edit access on source,
   // and any requested classification levels must be at or above the endpoint floor
-  const [,,,,, preCheckRows] = await sql.transaction([
+  const preCheckResults = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       SELECT
@@ -341,11 +342,12 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
       WHERE src.id = ${sourceId} AND tgt.id = ${body.target_id}
     `,
   ]);
-
-  const preCheck = (preCheckRows as Array<{
+  const preCheckRows = preCheckResults.at(-1) as Array<{
     source_owner: string; can_edit_source: boolean;
     min_read: number; min_write: number;
-  }>)[0];
+  }>;
+
+  const preCheck = preCheckRows[0];
   if (!preCheck) {
     // At least one entity not visible to actor — diagnose which
     const [, srcExists, tgtExists] = await sql.transaction([
@@ -376,12 +378,12 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO entities (
-        id, kind, type, arke_id, ver, properties, owner_id,
+        id, kind, type, ver, properties, owner_id,
         read_level, write_level,
         edited_by, note, created_at, updated_at
       )
       SELECT
-        ${relId}, 'relationship', 'relationship', src.arke_id, 1, ${JSON.stringify(properties)}::jsonb,
+        ${relId}, 'relationship', 'relationship', 1, ${JSON.stringify(properties)}::jsonb,
         ${actor.id},
         GREATEST(src.read_level, tgt.read_level, ${requestedReadLevel ?? 0}),
         GREATEST(src.write_level, tgt.write_level, ${requestedWriteLevel ?? 0}),
@@ -415,8 +417,8 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   }
 
   const txResults = await sql.transaction(queries);
-  const entityRows = txResults[5];
-  const edgeRows = txResults[6];
+  const entityRows = txResults[1];
+  const edgeRows = txResults[2];
 
   backgroundTask(
     fanOutNotifications({
@@ -449,7 +451,7 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
   const relId = c.req.param("relId");
 
   const actorCtx = c.get("actor");
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -470,8 +472,9 @@ relationshipDirectRouter.openapi(getRelationshipRoute, async (c) => {
       [relId],
     ),
   ]);
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
 
-  const row = (rows as Array<Record<string, unknown>>)[0];
+  const row = rows[0];
   if (!row) {
     throw new ApiError(404, "not_found", "Relationship not found");
   }
@@ -491,7 +494,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -508,8 +511,9 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
       [JSON.stringify(properties), actor.id, note, now, relId, body.ver],
     ),
   ]);
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
 
-  const row = (rows as Array<Record<string, unknown>>)[0];
+  const row = rows[0];
   if (!row) {
     throw new ApiError(409, "cas_conflict", "Version mismatch");
   }
@@ -545,7 +549,7 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,,, relRows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -556,8 +560,9 @@ relationshipDirectRouter.openapi(deleteRelationshipRoute, async (c) => {
       [relId],
     ),
   ]);
+  const relRows = results.at(-1) as Array<{ source_id: string; target_id: string; predicate: string }>;
 
-  const rel = (relRows as Array<{ source_id: string; target_id: string; predicate: string }>)[0];
+  const rel = relRows[0];
   if (!rel) {
     throw new ApiError(404, "not_found", "Relationship not found");
   }

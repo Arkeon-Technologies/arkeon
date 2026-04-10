@@ -41,7 +41,6 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
   const triggeredBy = job.triggered_by as string | null;
   const metadata = (job.metadata ?? {}) as Record<string, unknown>;
   const contentKey = metadata.content_key as string;
-  const arkeId = metadata.arke_id as string;
   const readLevel = metadata.read_level as number | undefined;
   const writeLevel = metadata.write_level as number | undefined;
   const ownerId = metadata.owner_id as string | undefined;
@@ -49,11 +48,9 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
   const spaceId = metadata.space_id as string | undefined;
 
   if (!contentKey) throw new Error("No content_key in job metadata");
-  if (!arkeId) throw new Error("No arke_id in job metadata");
 
   // Inherited metadata for child jobs
   const inheritedMeta = {
-    arke_id: arkeId,
     read_level: readLevel,
     write_level: writeLevel,
     owner_id: ownerId,
@@ -225,7 +222,6 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
         properties: { start_offset: c.startOffset, end_offset: c.endOffset },
       })),
       entityId,
-      arkeId,
       { spaceId, readLevel, writeLevel },
     );
     appendLog(jobId, "info", `Created ${sourceWrite.sourceEntityIds.length} source entities`);
@@ -258,7 +254,6 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
     await sql.query(
       `UPDATE knowledge_jobs SET metadata = $1 WHERE id = $2`,
       [JSON.stringify({
-        arke_id: arkeId,
         source_entity_ids: sourceWrite.sourceEntityIds,
         vision_tokens_in: totalVisionTokensIn,
         vision_tokens_out: totalVisionTokensOut,

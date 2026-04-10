@@ -30,11 +30,6 @@ const SearchQuery = ProjectionQuery.extend({
     z.string().optional(),
     "Filter by kind (entity or relationship). Defaults to excluding relationships.",
   ),
-  arke_id: queryParam(
-    "arke_id",
-    z.string().optional(),
-    "Scope search to an arke ULID",
-  ),
   space_id: queryParam(
     "space_id",
     z.string().optional(),
@@ -98,7 +93,6 @@ const MultiSearchQuerySchema = z.object({
   q: z.string().min(1).describe("Search query string"),
   type: z.string().optional().describe("Filter by entity type"),
   kind: z.string().optional().describe("Filter by kind (entity or relationship)"),
-  arke_id: z.string().optional().describe("Scope to an arke ULID"),
   space_id: z.string().optional().describe("Scope to a space ULID"),
   read_level: z.number().int().min(0).max(4).optional().describe("Max read level for results"),
   limit: z.number().int().min(1).max(50).optional().describe("Per-query limit (default 20, max 50)"),
@@ -181,7 +175,6 @@ searchRouter.openapi(searchRoute, async (c) => {
   const filters = buildSearchFilters(actor, {
     type: c.req.query("type"),
     kind: c.req.query("kind"),
-    arkeId: c.get("actor")?.arkeId ?? c.req.query("arke_id") ?? undefined,
     spaceId: c.req.query("space_id"),
     readLevelOverride,
   });
@@ -284,7 +277,6 @@ searchRouter.openapi(multiSearchRoute, async (c) => {
     const filters = buildSearchFilters(actor, {
       type: typeof sq.type === "string" ? sq.type : undefined,
       kind: typeof sq.kind === "string" ? sq.kind : undefined,
-      arkeId: actor?.arkeId ?? (typeof sq.arke_id === "string" ? sq.arke_id : undefined),
       spaceId: typeof sq.space_id === "string" ? sq.space_id : undefined,
       readLevelOverride,
     });

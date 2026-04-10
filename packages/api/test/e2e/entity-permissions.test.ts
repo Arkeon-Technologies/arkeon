@@ -6,7 +6,6 @@ import {
   createActor,
   createEntity,
   createGroup,
-  getArkeId,
   getJson,
   grantEntityPermission,
   jsonRequest,
@@ -14,12 +13,10 @@ import {
 } from "./helpers";
 
 describe("Entity permissions", () => {
-  let arkeId: string;
   let owner: Awaited<ReturnType<typeof createActor>>;
   let otherActor: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create actors", async () => {
-    arkeId = await getArkeId();
+  test("setup: create actors", async () => {
     owner = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -33,7 +30,6 @@ describe("Entity permissions", () => {
   test("Owner can grant editor role to another actor", async () => {
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("perm-editor") },
       { read_level: 1, write_level: 1 },
@@ -49,7 +45,6 @@ describe("Entity permissions", () => {
   test("Editor can update entity", async () => {
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: "before-edit" },
       { read_level: 1, write_level: 1 },
@@ -68,7 +63,6 @@ describe("Entity permissions", () => {
   test("Editor cannot delete entity (needs admin)", async () => {
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("editor-no-delete") },
       { read_level: 1, write_level: 1 },
@@ -85,7 +79,6 @@ describe("Entity permissions", () => {
   test("Owner can grant admin role", async () => {
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("perm-admin") },
       { read_level: 1, write_level: 1 },
@@ -101,7 +94,6 @@ describe("Entity permissions", () => {
   test("Admin-granted actor can delete entity", async () => {
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("admin-delete") },
       { read_level: 1, write_level: 1 },
@@ -122,7 +114,6 @@ describe("Entity permissions", () => {
     });
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("no-access") },
       { read_level: 1, write_level: 1 },
@@ -137,7 +128,7 @@ describe("Entity permissions", () => {
   });
 
   test("Group-based permissions: create group, add actor, grant group editor role, actor can edit", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("editor-group"));
+    const group = await createGroup(adminApiKey, uniqueName("editor-group"));
     const member = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -146,7 +137,6 @@ describe("Entity permissions", () => {
 
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: "group-edit-target" },
       { read_level: 1, write_level: 1 },
@@ -169,7 +159,6 @@ describe("Entity permissions", () => {
     });
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: "revoke-target" },
       { read_level: 1, write_level: 1 },
@@ -211,7 +200,6 @@ describe("Entity permissions", () => {
     });
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("transfer") },
       { read_level: 1, write_level: 1 },

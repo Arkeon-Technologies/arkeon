@@ -1,0 +1,28 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  base: '/explore/',
+  build: {
+    outDir: 'dist',
+  },
+  server: {
+    port: 3100,
+    proxy: {
+      '/entities': 'http://localhost:8000',
+      '/relationships': 'http://localhost:8000',
+      '/activity': 'http://localhost:8000',
+      '/search': 'http://localhost:8000',
+      '/arkes': 'http://localhost:8000',
+      '/health': 'http://localhost:8000',
+    },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
+  },
+})

@@ -108,7 +108,6 @@ function generateEntity(i) {
   const readLevel = Math.random() < 0.5 ? 0 : Math.random() < 0.5 ? 1 : Math.random() < 0.5 ? 2 : 3;
   return {
     type: Math.random() < 0.8 ? "document" : "person",
-    network_id: "01KN0DQJFMMFF4BZYWJXBZH7YF",
     read_level: readLevel,
     write_level: readLevel,
     properties: {
@@ -171,7 +170,6 @@ async function testSyncLag() {
   const createStart = performance.now();
   await api("POST", "/entities", {
     type: "document",
-    network_id: "01KN0DQJFMMFF4BZYWJXBZH7YF",
     read_level: 0,
     write_level: 0,
     properties: { label: uniqueLabel, description: "Testing write-to-search delay" },

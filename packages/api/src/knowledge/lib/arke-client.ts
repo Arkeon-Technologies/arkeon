@@ -12,8 +12,6 @@ export {
   paginate,
   rawGet,
   rawPost,
-  setArkeId,
-  getArkeId,
   setSpaceId,
   getSpaceId,
   ArkeError,
@@ -46,7 +44,6 @@ export async function setServiceKey(key: string): Promise<void> {
       return globalThis.fetch(url, { ...init, headers });
     }) as typeof fetch,
   });
-  // Intentionally do NOT call setArkeId — knowledge service is cross-arke
 }
 
 // --- Convenience helpers ---
@@ -61,7 +58,6 @@ export async function getEntity(id: string, view?: "expanded"): Promise<any> {
 export async function createEntity(opts: {
   type: string;
   properties: Record<string, unknown>;
-  arke_id?: string;
   space_id?: string;
   read_level?: number;
   write_level?: number;
@@ -101,10 +97,9 @@ export async function createRelationship(
 
 export async function search(
   q: string,
-  opts?: { arke_id?: string; space_id?: string; filter?: string; limit?: number },
+  opts?: { space_id?: string; filter?: string; limit?: number },
 ): Promise<any[]> {
   const params: Record<string, string> = { q };
-  if (opts?.arke_id) params.arke_id = opts.arke_id;
   if (opts?.space_id) params.space_id = opts.space_id;
   if (opts?.filter) params.filter = opts.filter;
   if (opts?.limit) params.limit = String(opts.limit);

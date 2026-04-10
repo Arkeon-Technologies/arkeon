@@ -15,15 +15,12 @@ import {
   apiRequest,
   createActor,
   createEntity,
-  getArkeId,
   uploadDirectContent,
 } from "./helpers";
 
-let arkeId: string;
 let userActor: { id: string; apiKey: string };
 
 beforeAll(async () => {
-  arkeId = await getArkeId();
   userActor = await createActor(adminApiKey, {
     maxReadLevel: 2,
     maxWriteLevel: 2,
@@ -166,7 +163,7 @@ describe("Knowledge Config", () => {
 describe("Knowledge Ingest", () => {
   test("POST /knowledge/ingest creates jobs for entities", async () => {
     // Create a test entity with some content
-    const entity = await createEntity(adminApiKey, arkeId, "document", {
+    const entity = await createEntity(adminApiKey, "document", {
       label: "Test Document for KG Extraction",
       description: "A document to test knowledge graph extraction.",
     });
@@ -185,7 +182,7 @@ describe("Knowledge Ingest", () => {
   });
 
   test("POST /knowledge/ingest deduplicates same entity+version", async () => {
-    const entity = await createEntity(adminApiKey, arkeId, "note", {
+    const entity = await createEntity(adminApiKey, "note", {
       label: "Dedupe Test Note",
     });
 
@@ -245,7 +242,7 @@ describe("Knowledge Jobs", () => {
 
   test("GET /knowledge/jobs/:id returns job with logs", async () => {
     // Create an entity and ingest it to get a job
-    const entity = await createEntity(adminApiKey, arkeId, "document", {
+    const entity = await createEntity(adminApiKey, "document", {
       label: "Job Detail Test",
     });
 
@@ -272,7 +269,7 @@ describe("Knowledge Jobs", () => {
 
 describe("Knowledge Permissions", () => {
   test("non-admin can trigger ingest", async () => {
-    const entity = await createEntity(adminApiKey, arkeId, "document", {
+    const entity = await createEntity(adminApiKey, "document", {
       label: "User Ingest Test",
     });
 
@@ -287,7 +284,7 @@ describe("Knowledge Permissions", () => {
 
   test("non-admin can only see own jobs", async () => {
     // Create a job as admin
-    const adminEntity = await createEntity(adminApiKey, arkeId, "document", {
+    const adminEntity = await createEntity(adminApiKey, "document", {
       label: "Admin Only Doc",
     });
     await jsonRequest("/knowledge/ingest", {
@@ -350,7 +347,7 @@ describe("Knowledge Usage", () => {
 describe("Knowledge Poller", () => {
   test("uploading content to an entity should auto-create a job via poller", async () => {
     // Create entity
-    const entity = await createEntity(adminApiKey, arkeId, "document", {
+    const entity = await createEntity(adminApiKey, "document", {
       label: "Poller Test Document",
     });
 

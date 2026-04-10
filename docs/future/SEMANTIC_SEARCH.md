@@ -10,7 +10,7 @@ The API uses Meilisearch as the primary search backend, indexing `label`, `descr
 - Prefix search ("clim" matches "climate")
 - Relevance ranking (exact > proximity > typo count > position)
 - Language stemming ("running" matches "run")
-- Faceted filtering on `type`, `kind`, `network_id`, `owner_id`
+- Faceted filtering on `type`, `kind`, `owner_id`
 - ~50ms query latency, often <10ms
 
 When `MEILI_URL` is not set, the API falls back to ILIKE patterns on `properties::text`.

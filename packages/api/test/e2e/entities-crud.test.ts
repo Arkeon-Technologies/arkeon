@@ -8,7 +8,6 @@ import {
   createEntity,
   createRelationship,
   createSpace,
-  getArkeId,
   getJson,
   grantSpacePermission,
   jsonRequest,
@@ -16,11 +15,9 @@ import {
 } from "./helpers";
 
 describe("Entities CRUD", () => {
-  let arkeId: string;
   let actor: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create actor", async () => {
-    arkeId = await getArkeId();
+  test("setup: create actor", async () => {
     actor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -28,7 +25,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Create entity with properties", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("crud-create"),
       description: "A test entity",
     });
@@ -39,7 +36,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Get entity by ID", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("crud-get"),
     });
     const { response, body } = await getJson(`/entities/${entity.id}`, actor.apiKey);
@@ -49,7 +46,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Update entity with CAS (ver)", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: "version-1",
     });
     expect(entity.ver).toBe(1);
@@ -65,7 +62,7 @@ describe("Entities CRUD", () => {
   });
 
   test("CAS conflict on stale ver returns 409", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: "cas-test",
     });
 
@@ -87,7 +84,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Delete entity", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("crud-delete"),
     });
 
@@ -103,7 +100,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Entity versions: list and get specific version", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: "v1-label",
     });
 
@@ -136,7 +133,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Entity activity log", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("activity-log"),
     });
 
@@ -160,10 +157,10 @@ describe("Entities CRUD", () => {
   });
 
   test("Relationships: create, list, delete", async () => {
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-source"),
     });
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-target"),
     });
 
@@ -208,10 +205,10 @@ describe("Entities CRUD", () => {
 
   test("Relationships: 403 when actor lacks edit access on source entity", async () => {
     // Actor A creates source and target
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-perm-source"),
     });
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-perm-target"),
     });
 
@@ -235,10 +232,10 @@ describe("Entities CRUD", () => {
   });
 
   test("Relationships: 201 when actor has editor grant on source entity", async () => {
-    const source = await createEntity(actor.apiKey, arkeId, "note", {
+    const source = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-grant-source"),
     });
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-grant-target"),
     });
 
@@ -271,7 +268,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Relationships: 404 for nonexistent source entity", async () => {
-    const target = await createEntity(actor.apiKey, arkeId, "note", {
+    const target = await createEntity(actor.apiKey, "note", {
       label: uniqueName("rel-404-target"),
     });
 
@@ -290,12 +287,12 @@ describe("Entities CRUD", () => {
   test("Filter entities by boolean property", async () => {
     const tag = uniqueName("bool-filter");
     // Create entity with boolean true
-    const eTrue = await createEntity(actor.apiKey, arkeId, "note", {
+    const eTrue = await createEntity(actor.apiKey, "note", {
       label: tag,
       extracted: true,
     });
     // Create entity with boolean false
-    const eFalse = await createEntity(actor.apiKey, arkeId, "note", {
+    const eFalse = await createEntity(actor.apiKey, "note", {
       label: tag,
       extracted: false,
     });
@@ -322,11 +319,11 @@ describe("Entities CRUD", () => {
 
   test("Filter entities by numeric property", async () => {
     const tag = uniqueName("num-filter");
-    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e1 = await createEntity(actor.apiKey, "note", {
       label: tag,
       count: 42,
     });
-    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e2 = await createEntity(actor.apiKey, "note", {
       label: tag,
       count: 99,
     });
@@ -343,11 +340,11 @@ describe("Entities CRUD", () => {
 
   test("Filter entities by string property (unchanged behavior)", async () => {
     const tag = uniqueName("str-filter");
-    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e1 = await createEntity(actor.apiKey, "note", {
       label: tag,
       status: "active",
     });
-    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e2 = await createEntity(actor.apiKey, "note", {
       label: tag,
       status: "archived",
     });
@@ -363,11 +360,11 @@ describe("Entities CRUD", () => {
 
   test("Filter entities by property negation (!:)", async () => {
     const tag = uniqueName("neg-filter");
-    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e1 = await createEntity(actor.apiKey, "note", {
       label: tag,
       extracted: true,
     });
-    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e2 = await createEntity(actor.apiKey, "note", {
       label: tag,
       extracted: false,
     });
@@ -384,11 +381,11 @@ describe("Entities CRUD", () => {
 
   test("Filter entities by nested property (dot notation)", async () => {
     const tag = uniqueName("nested-filter");
-    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e1 = await createEntity(actor.apiKey, "note", {
       label: tag,
       metadata: { source: "arxiv", year: 2024 },
     });
-    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e2 = await createEntity(actor.apiKey, "note", {
       label: tag,
       metadata: { source: "pubmed", year: 2023 },
     });
@@ -406,11 +403,11 @@ describe("Entities CRUD", () => {
 
   test("Filter with properties. prefix is normalized", async () => {
     const tag = uniqueName("prefix-filter");
-    const e1 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e1 = await createEntity(actor.apiKey, "note", {
       label: tag,
       processed: true,
     });
-    const e2 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e2 = await createEntity(actor.apiKey, "note", {
       label: tag,
       processed: false,
     });
@@ -426,7 +423,7 @@ describe("Entities CRUD", () => {
     expect(ids).not.toContain(e2.id);
 
     // Also test nested with prefix
-    const e3 = await createEntity(actor.apiKey, arkeId, "note", {
+    const e3 = await createEntity(actor.apiKey, "note", {
       label: tag,
       metadata: { source: "arxiv" },
     });
@@ -439,7 +436,7 @@ describe("Entities CRUD", () => {
   });
 
   test("Comments: create, list with threading, delete", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("comment-target"),
     });
 
@@ -481,11 +478,11 @@ describe("Entities CRUD", () => {
   });
 
   test("List entities with space_id filter returns only entities in that space", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("filter-space"));
-    const inSpace = await createEntity(actor.apiKey, arkeId, "note", {
+    const space = await createSpace(actor.apiKey, uniqueName("filter-space"));
+    const inSpace = await createEntity(actor.apiKey, "note", {
       label: uniqueName("in-space"),
     });
-    const outside = await createEntity(actor.apiKey, arkeId, "note", {
+    const outside = await createEntity(actor.apiKey, "note", {
       label: uniqueName("outside-space"),
     });
 
@@ -502,13 +499,13 @@ describe("Entities CRUD", () => {
   });
 
   test("List entities with space_id filter combines with other filters", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("combo-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("combo-space"));
     const tag = uniqueName("combo-tag");
-    const match = await createEntity(actor.apiKey, arkeId, "note", {
+    const match = await createEntity(actor.apiKey, "note", {
       label: tag,
       status: "active",
     });
-    const noMatch = await createEntity(actor.apiKey, arkeId, "note", {
+    const noMatch = await createEntity(actor.apiKey, "note", {
       label: tag,
       status: "archived",
     });
@@ -528,7 +525,7 @@ describe("Entities CRUD", () => {
 
   test("List entities without space_id returns all entities", async () => {
     const tag = uniqueName("no-space-filter");
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: tag,
     });
 

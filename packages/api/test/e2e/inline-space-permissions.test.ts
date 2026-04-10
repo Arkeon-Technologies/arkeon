@@ -5,7 +5,6 @@ import {
   createActor,
   createEntity,
   createSpace,
-  getArkeId,
   getJson,
   grantSpacePermission,
   jsonRequest,
@@ -13,11 +12,9 @@ import {
 } from "./helpers";
 
 describe("Inline space_id and permissions on entity/relationship creation", () => {
-  let arkeId: string;
   let actor: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create actor", async () => {
-    arkeId = await getArkeId();
+  test("setup: create actor", async () => {
     actor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -27,8 +24,8 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   // --- Entity + space_id ---
 
   test("Create entity with space_id adds entity to space atomically", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("inline-space"));
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const space = await createSpace(actor.apiKey, uniqueName("inline-space"));
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("inline-entity"),
     }, { space_id: space.id });
 
@@ -39,13 +36,13 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   });
 
   test("Create entity with space_id updates space entity_count", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("count-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("count-space"));
 
-    await createEntity(actor.apiKey, arkeId, "note", {
+    await createEntity(actor.apiKey, "note", {
       label: uniqueName("count-1"),
     }, { space_id: space.id });
 
-    await createEntity(actor.apiKey, arkeId, "note", {
+    await createEntity(actor.apiKey, "note", {
       label: uniqueName("count-2"),
     }, { space_id: space.id });
 
@@ -58,7 +55,6 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
       method: "POST",
       apiKey: actor.apiKey,
       json: {
-        arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("orphan-test") },
         space_id: "01JAAAAAAAAAAAAAAAAAAAAAAA",
@@ -68,7 +64,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   });
 
   test("Create entity with space_id but no contributor role returns 403", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("no-role-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("no-role-space"));
     const outsider = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -78,7 +74,6 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
       method: "POST",
       apiKey: outsider.apiKey,
       json: {
-        arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("no-role-entity") },
         space_id: space.id,
@@ -88,14 +83,14 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   });
 
   test("Create entity with space_id works for contributor", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("contributor-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("contributor-space"));
     const contributor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
     });
     await grantSpacePermission(actor.apiKey, space.id, "actor", contributor.id, "contributor");
 
-    const entity = await createEntity(contributor.apiKey, arkeId, "note", {
+    const entity = await createEntity(contributor.apiKey, "note", {
       label: uniqueName("contributor-entity"),
     }, { space_id: space.id });
 
@@ -112,7 +107,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
       maxWriteLevel: 2,
     });
 
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("perm-entity"),
     }, {
       permissions: [
@@ -133,7 +128,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
     const grantee1 = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
     const grantee2 = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
 
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("multi-perm"),
     }, {
       permissions: [
@@ -152,10 +147,10 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   // --- Entity + space_id + permissions combined ---
 
   test("Create entity with both space_id and permissions", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("combo-space"));
+    const space = await createSpace(actor.apiKey, uniqueName("combo-space"));
     const grantee = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
 
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("combo-entity"),
     }, {
       space_id: space.id,
@@ -177,7 +172,7 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   // --- Backwards compatibility ---
 
   test("Create entity without space_id or permissions still works", async () => {
-    const entity = await createEntity(actor.apiKey, arkeId, "note", {
+    const entity = await createEntity(actor.apiKey, "note", {
       label: uniqueName("no-extras"),
     });
     expect(entity.id).toBeTruthy();
@@ -191,7 +186,6 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
       method: "POST",
       apiKey: actor.apiKey,
       json: {
-        arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("bad-perm") },
         permissions: [{ grantee_type: "invalid", grantee_id: "x", role: "editor" }],
@@ -203,9 +197,9 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   // --- Relationship + space_id + permissions ---
 
   test("Create relationship with space_id adds it to space", async () => {
-    const space = await createSpace(actor.apiKey, arkeId, uniqueName("rel-space"));
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-src") });
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-tgt") });
+    const space = await createSpace(actor.apiKey, uniqueName("rel-space"));
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-src") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-tgt") });
 
     const { response, body } = await jsonRequest(`/entities/${source.id}/relationships`, {
       method: "POST",
@@ -228,8 +222,8 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
 
   test("Create relationship with permissions grants them", async () => {
     const grantee = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-perm-src") });
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-perm-tgt") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-perm-src") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-perm-tgt") });
 
     const { response, body } = await jsonRequest(`/entities/${source.id}/relationships`, {
       method: "POST",
@@ -253,8 +247,8 @@ describe("Inline space_id and permissions on entity/relationship creation", () =
   });
 
   test("Create relationship with invalid space_id returns 404", async () => {
-    const source = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-bad-space-src") });
-    const target = await createEntity(actor.apiKey, arkeId, "note", { label: uniqueName("rel-bad-space-tgt") });
+    const source = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-bad-space-src") });
+    const target = await createEntity(actor.apiKey, "note", { label: uniqueName("rel-bad-space-tgt") });
 
     const { response } = await jsonRequest(`/entities/${source.id}/relationships`, {
       method: "POST",

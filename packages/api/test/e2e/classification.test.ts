@@ -5,7 +5,6 @@ import {
   createActor,
   createEntity,
   createSpace,
-  getArkeId,
   getJson,
   grantEntityPermission,
   jsonRequest,
@@ -13,12 +12,10 @@ import {
 } from "./helpers";
 
 describe("Classification model", () => {
-  let arkeId: string;
   let level2Actor: Awaited<ReturnType<typeof createActor>>;
   let level4Actor: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create actors", async () => {
-    arkeId = await getArkeId();
+  test("setup: create actors", async () => {
     level2Actor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
@@ -35,7 +32,6 @@ describe("Classification model", () => {
     for (const level of [0, 1, 2]) {
       const entity = await createEntity(
         level4Actor.apiKey,
-        arkeId,
         "note",
         { label: uniqueName(`read-l${level}`) },
         { read_level: level, write_level: level },
@@ -49,7 +45,6 @@ describe("Classification model", () => {
     for (const level of [3, 4]) {
       const entity = await createEntity(
         level4Actor.apiKey,
-        arkeId,
         "note",
         { label: uniqueName(`hidden-l${level}`) },
         { read_level: level, write_level: level },
@@ -63,7 +58,6 @@ describe("Classification model", () => {
     for (const level of [0, 1, 2]) {
       const entity = await createEntity(
         level2Actor.apiKey,
-        arkeId,
         "note",
         { label: uniqueName(`create-l${level}`) },
         { read_level: level, write_level: level },
@@ -77,7 +71,6 @@ describe("Classification model", () => {
       method: "POST",
       apiKey: level2Actor.apiKey,
       json: {
-        arke_id: arkeId,
         type: "note",
         properties: { label: uniqueName("too-high") },
         read_level: 3,
@@ -90,7 +83,6 @@ describe("Classification model", () => {
   test("PUBLIC (read_level=0) entities are visible without authentication", async () => {
     const entity = await createEntity(
       level2Actor.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("public") },
       { read_level: 0, write_level: 0 },
@@ -104,7 +96,6 @@ describe("Classification model", () => {
   test("Unauthenticated request cannot see INTERNAL (read_level=1) entities", async () => {
     const entity = await createEntity(
       level2Actor.apiKey,
-      arkeId,
       "note",
       { label: uniqueName("internal") },
       { read_level: 1, write_level: 1 },
@@ -116,7 +107,6 @@ describe("Classification model", () => {
   test("Owner can edit their own entity", async () => {
     const entity = await createEntity(
       level2Actor.apiKey,
-      arkeId,
       "note",
       { label: "before" },
       { read_level: 1, write_level: 1 },
@@ -141,7 +131,6 @@ describe("Classification model", () => {
     });
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: "owned" },
       { read_level: 1, write_level: 1 },
@@ -165,7 +154,6 @@ describe("Classification model", () => {
     });
     const entity = await createEntity(
       owner.apiKey,
-      arkeId,
       "note",
       { label: "to-edit" },
       { read_level: 1, write_level: 1 },
@@ -184,7 +172,6 @@ describe("Classification model", () => {
   test("Admin (is_admin=true) can edit any entity", async () => {
     const entity = await createEntity(
       level2Actor.apiKey,
-      arkeId,
       "note",
       { label: "admin-target" },
       { read_level: 1, write_level: 1 },
@@ -203,7 +190,6 @@ describe("Classification model", () => {
     // level4 creates a write_level=3 entity
     const entity = await createEntity(
       level4Actor.apiKey,
-      arkeId,
       "note",
       { label: "high-write" },
       { read_level: 1, write_level: 3 },
@@ -223,7 +209,7 @@ describe("Classification model", () => {
       maxReadLevel: 1,
       maxWriteLevel: 1,
     });
-    const space = await createSpace(level4Actor.apiKey, arkeId, uniqueName("secret-space"), {
+    const space = await createSpace(level4Actor.apiKey, uniqueName("secret-space"), {
       read_level: 2,
     });
 
@@ -234,9 +220,9 @@ describe("Classification model", () => {
   // --- Relationship classification (#6) ---
 
   test("Relationship inherits max(source, target) classification by default", async () => {
-    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const src = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-src-l1") }, { read_level: 1, write_level: 1 });
-    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const tgt = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-tgt-l2") }, { read_level: 2, write_level: 2 });
 
     const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
@@ -251,9 +237,9 @@ describe("Classification model", () => {
   });
 
   test("Relationship read_level can be set above the endpoint floor", async () => {
-    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const src = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-src-up") }, { read_level: 1, write_level: 1 });
-    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const tgt = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-tgt-up") }, { read_level: 1, write_level: 1 });
 
     const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
@@ -268,9 +254,9 @@ describe("Classification model", () => {
   });
 
   test("Relationship read_level below endpoint floor is rejected with 400", async () => {
-    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const src = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-src-lo") }, { read_level: 2, write_level: 2 });
-    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const tgt = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-tgt-lo") }, { read_level: 3, write_level: 1 });
 
     const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {
@@ -283,9 +269,9 @@ describe("Classification model", () => {
   });
 
   test("Relationship write_level below endpoint floor is rejected with 400", async () => {
-    const src = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const src = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-src-wlo") }, { read_level: 1, write_level: 3 });
-    const tgt = await createEntity(level4Actor.apiKey, arkeId, "note",
+    const tgt = await createEntity(level4Actor.apiKey, "note",
       { label: uniqueName("rel-tgt-wlo") }, { read_level: 1, write_level: 1 });
 
     const { response, body } = await jsonRequest(`/entities/${src.id}/relationships`, {

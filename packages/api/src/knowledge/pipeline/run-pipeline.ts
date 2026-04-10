@@ -18,7 +18,6 @@ import { withResolveWriteLock } from "./lock";
 export interface PipelineOpts {
   jobId: string;
   documentId: string;
-  arkeId: string;
   spaceId?: string;
   readLevel?: number;
   writeLevel?: number;
@@ -56,7 +55,7 @@ export async function runExtractionPipeline(
   plan: ExtractPlan,
   opts: PipelineOpts,
 ): Promise<PipelineResult> {
-  const { jobId, documentId, arkeId, spaceId } = opts;
+  const { jobId, documentId, spaceId } = opts;
 
   if (plan.entities.length === 0) {
     appendLog(jobId, "info", "No entities in plan, skipping pipeline");
@@ -84,7 +83,7 @@ export async function runExtractionPipeline(
   const resolverLlm = new LlmClient(resolverConfig);
 
   appendLog(jobId, "info", "Resolving against existing graph");
-  const resolveResult = await resolveEntities(resolverLlm, materializedPlan, arkeId, spaceId);
+  const resolveResult = await resolveEntities(resolverLlm, materializedPlan, spaceId);
   for (const u of resolveResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "resolve" }, u); }
   const matched = resolveResult.decisions.filter((d) => d.same_as_ids?.length > 0).length;
   appendLog(jobId, "info", `Resolved: ${matched} matched, ${materializedPlan.entities.length - matched} new`);
@@ -93,7 +92,7 @@ export async function runExtractionPipeline(
   // Write (inside lock)
   const writeResult = await withResolveWriteLock(async () => {
     appendLog(jobId, "info", "Writing to graph");
-    const wr = await writeSubgraph(entities, relationships, documentId, arkeId, {
+    const wr = await writeSubgraph(entities, relationships, documentId, {
       spaceId: opts.spaceId,
       readLevel: opts.readLevel,
       writeLevel: opts.writeLevel,
@@ -109,7 +108,7 @@ export async function runExtractionPipeline(
   let mergedCount = 0;
   if (writeResult.createdEntityIds.length > 0) {
     appendLog(jobId, "info", "Deduplicating");
-    const dedupeResult = await dedupeEntities(resolverLlm, writeResult.createdEntityIds, arkeId, spaceId, { concurrency: extractionConfig.max_concurrency });
+    const dedupeResult = await dedupeEntities(resolverLlm, writeResult.createdEntityIds, spaceId, { concurrency: extractionConfig.max_concurrency });
     for (const u of dedupeResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "dedupe" }, u); }
     mergedCount = dedupeResult.duplicates.length;
     if (mergedCount > 0) {

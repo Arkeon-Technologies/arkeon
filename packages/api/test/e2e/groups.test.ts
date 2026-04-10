@@ -5,21 +5,14 @@ import {
   apiRequest,
   createActor,
   createGroup,
-  getArkeId,
   getJson,
   jsonRequest,
   uniqueName,
 } from "./helpers";
 
 describe("Groups", () => {
-  let arkeId: string;
-
-  test("setup: get arkeId", async () => {
-    arkeId = await getArkeId();
-  });
-
   test("Admin can create group", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("test-group"));
+    const group = await createGroup(adminApiKey, uniqueName("test-group"));
     expect(group.id).toBeTruthy();
     expect(group.name).toContain("test-group");
   });
@@ -35,14 +28,13 @@ describe("Groups", () => {
       json: {
         name: uniqueName("no-create"),
         type: "project",
-        arke_id: arkeId,
       },
     });
     expect(response.status).toBe(403);
   });
 
   test("List groups", async () => {
-    await createGroup(adminApiKey, arkeId, uniqueName("list-group"));
+    await createGroup(adminApiKey, uniqueName("list-group"));
 
     const { response, body } = await getJson("/groups", adminApiKey);
     expect(response.status).toBe(200);
@@ -50,7 +42,7 @@ describe("Groups", () => {
   });
 
   test("Add member to group", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("add-member"));
+    const group = await createGroup(adminApiKey, uniqueName("add-member"));
     const actor = await createActor(adminApiKey, {
       maxReadLevel: 1,
       maxWriteLevel: 1,
@@ -64,7 +56,7 @@ describe("Groups", () => {
   });
 
   test("Get group with members", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("get-group"));
+    const group = await createGroup(adminApiKey, uniqueName("get-group"));
     const actor1 = await createActor(adminApiKey, {
       maxReadLevel: 1,
       maxWriteLevel: 1,
@@ -86,7 +78,7 @@ describe("Groups", () => {
   });
 
   test("Remove member", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("remove-member"));
+    const group = await createGroup(adminApiKey, uniqueName("remove-member"));
     const actor = await createActor(adminApiKey, {
       maxReadLevel: 1,
       maxWriteLevel: 1,
@@ -106,7 +98,7 @@ describe("Groups", () => {
   });
 
   test("Delete group", async () => {
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("delete-group"));
+    const group = await createGroup(adminApiKey, uniqueName("delete-group"));
 
     const { response } = await apiRequest(`/groups/${group.id}`, {
       method: "DELETE",

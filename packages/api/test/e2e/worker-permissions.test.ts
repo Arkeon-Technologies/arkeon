@@ -6,7 +6,6 @@ import {
   createActor,
   createGroup,
   createWorker,
-  getArkeId,
   getJson,
   grantWorkerPermission,
   jsonRequest,
@@ -14,11 +13,9 @@ import {
 } from "./helpers";
 
 describe("Worker permissions", () => {
-  let arkeId: string;
   let owner: Awaited<ReturnType<typeof createActor>>;
 
-  test("setup: get arkeId and create owner actor", async () => {
-    arkeId = await getArkeId();
+  test("setup: create owner actor", async () => {
     owner = await createActor(adminApiKey, {
       maxReadLevel: 3,
       maxWriteLevel: 3,
@@ -128,7 +125,7 @@ describe("Worker permissions", () => {
 
   test("Group-based invoker permission", async () => {
     const worker = await createWorker(owner.apiKey);
-    const group = await createGroup(adminApiKey, arkeId, uniqueName("invoker-group"));
+    const group = await createGroup(adminApiKey, uniqueName("invoker-group"));
     const member = await createActor(adminApiKey, { maxReadLevel: 1, maxWriteLevel: 1 });
 
     await addGroupMember(adminApiKey, group.id, member.id);

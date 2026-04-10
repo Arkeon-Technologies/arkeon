@@ -65,7 +65,6 @@ DELETE FROM api_keys;
 DELETE FROM agent_keys;
 DELETE FROM spaces;
 DELETE FROM entities;
-DELETE FROM arkes;
 DELETE FROM actors;
 
 -- Actors at various clearance levels
@@ -78,35 +77,31 @@ VALUES
   ('01INTERNAL0000000000000000', 'agent', 1, 1, false, false, '{"label": "Internal Agent"}'),
   ('01PUBLIC0000000000000000000', 'agent', 0, 0, false, false, '{"label": "Public Agent"}');
 
--- Network (Arke)
-INSERT INTO arkes (id, name, owner_id)
-VALUES ('01NETWORK0000000000000000000', 'Test Network', '01ADMIN0000000000000000000');
-
 -- Entities at various classification levels
-INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
 VALUES
-  ('01ENT_PUBLIC0000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Public Doc"}',       '01ADMIN0000000000000000000', 0, 0, '01ADMIN0000000000000000000', NOW(), NOW()),
-  ('01ENT_INTERNAL000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Internal Doc"}',     '01ADMIN0000000000000000000', 1, 1, '01ADMIN0000000000000000000', NOW(), NOW()),
-  ('01ENT_TEAM00000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Team Doc"}',         '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW()),
-  ('01ENT_CONFID000000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Confidential Doc"}', '01ADMIN0000000000000000000', 3, 3, '01ADMIN0000000000000000000', NOW(), NOW()),
-  ('01ENT_RESTRICT0000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Restricted Doc"}',   '01ADMIN0000000000000000000', 4, 4, '01ADMIN0000000000000000000', NOW(), NOW());
+  ('01ENT_PUBLIC0000000000000', 'entity', 'doc', '{"label": "Public Doc"}',       '01ADMIN0000000000000000000', 0, 0, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_INTERNAL000000000000', 'entity', 'doc', '{"label": "Internal Doc"}',     '01ADMIN0000000000000000000', 1, 1, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_TEAM00000000000000', 'entity', 'doc', '{"label": "Team Doc"}',         '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_CONFID000000000000', 'entity', 'doc', '{"label": "Confidential Doc"}', '01ADMIN0000000000000000000', 3, 3, '01ADMIN0000000000000000000', NOW(), NOW()),
+  ('01ENT_RESTRICT0000000000', 'entity', 'doc', '{"label": "Restricted Doc"}',   '01ADMIN0000000000000000000', 4, 4, '01ADMIN0000000000000000000', NOW(), NOW());
 
 -- Entity owned by TEAM agent (for ownership tests)
-INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
 VALUES
-  ('01ENT_TEAM_OWN0000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Team Owned"}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
+  ('01ENT_TEAM_OWN0000000000', 'entity', 'doc', '{"label": "Team Owned"}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
 
 -- Mixed classification: public read, restricted write
-INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
 VALUES
-  ('01ENT_PUB_RESTR000000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{"label": "Public Read Restricted Write"}', '01ADMIN0000000000000000000', 0, 4, '01ADMIN0000000000000000000', NOW(), NOW());
+  ('01ENT_PUB_RESTR000000000', 'entity', 'doc', '{"label": "Public Read Restricted Write"}', '01ADMIN0000000000000000000', 0, 4, '01ADMIN0000000000000000000', NOW(), NOW());
 
 -- Spaces at various levels
-INSERT INTO spaces (id, network_id, name, owner_id, read_level, write_level)
+INSERT INTO spaces (id, name, owner_id, read_level, write_level)
 VALUES
-  ('01SPACE_PUBLIC00000000000', '01NETWORK0000000000000000000', 'Public Space',   '01ADMIN0000000000000000000', 0, 0),
-  ('01SPACE_INTERNAL000000000', '01NETWORK0000000000000000000', 'Internal Space', '01ADMIN0000000000000000000', 1, 1),
-  ('01SPACE_TEAM0000000000000', '01NETWORK0000000000000000000', 'Team Space',     '01ADMIN0000000000000000000', 2, 2);
+  ('01SPACE_PUBLIC00000000000', 'Public Space',   '01ADMIN0000000000000000000', 0, 0),
+  ('01SPACE_INTERNAL000000000', 'Internal Space', '01ADMIN0000000000000000000', 1, 1),
+  ('01SPACE_TEAM0000000000000', 'Team Space',     '01ADMIN0000000000000000000', 2, 2);
 
 -- Entity versions (for parent classification inheritance)
 INSERT INTO entity_versions (entity_id, ver, properties, edited_by, created_at)
@@ -125,9 +120,9 @@ VALUES
   ('01INTERNAL0000000000000000', '01ENT_INTERNAL000000000000', '01ADMIN0000000000000000000', 'content_updated');
 
 -- Relationship between internal and team docs
-INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
 VALUES
-  ('01REL_INT_TEAM0000000000', 'relationship', 'relationship', '01NETWORK0000000000000000000', '{}', '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW());
+  ('01REL_INT_TEAM0000000000', 'relationship', 'relationship', '{}', '01ADMIN0000000000000000000', 2, 2, '01ADMIN0000000000000000000', NOW(), NOW());
 
 INSERT INTO relationship_edges (id, source_id, target_id, predicate)
 VALUES
@@ -144,8 +139,8 @@ VALUES
   ('01ENT_INTERNAL000000000000', 'actor', '01INTERNAL0000000000000000', 'editor', '01ADMIN0000000000000000000');
 
 -- Group for ACL tests
-INSERT INTO groups (id, name, network_id, created_by)
-VALUES ('01GRP_EDITORS00000000000', 'Editors', '01NETWORK0000000000000000000', '01ADMIN0000000000000000000');
+INSERT INTO groups (id, name, created_by)
+VALUES ('01GRP_EDITORS00000000000', 'Editors', '01ADMIN0000000000000000000');
 
 INSERT INTO group_memberships (actor_id, group_id, role_in_group)
 VALUES ('01CONFID0000000000000000000', '01GRP_EDITORS00000000000', 'member');
@@ -236,8 +231,8 @@ DO $$ BEGIN
   PERFORM set_config('app.actor_read_level', '1', true);
   PERFORM set_config('app.actor_write_level', '1', true);
 
-  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
-  VALUES ('01TEST_WRITE_FAIL0000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01INTERNAL0000000000000000', 2, 2, '01INTERNAL0000000000000000', NOW(), NOW());
+  INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_WRITE_FAIL0000000', 'entity', 'doc', '{}', '01INTERNAL0000000000000000', 2, 2, '01INTERNAL0000000000000000', NOW(), NOW());
 
   PERFORM test_fail('entity_write_ceiling_blocks_insert', 'Insert should have been blocked');
 EXCEPTION WHEN insufficient_privilege THEN
@@ -250,8 +245,8 @@ DO $$ BEGIN
   PERFORM set_config('app.actor_read_level', '2', true);
   PERFORM set_config('app.actor_write_level', '2', true);
 
-  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
-  VALUES ('01TEST_WRITE_OK00000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
+  INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_WRITE_OK00000000', 'entity', 'doc', '{}', '01TEAM00000000000000000000', 2, 2, '01TEAM00000000000000000000', NOW(), NOW());
 
   PERFORM test_pass('entity_write_ceiling_allows_insert');
 EXCEPTION WHEN insufficient_privilege THEN
@@ -264,8 +259,8 @@ DO $$ BEGIN
   PERFORM set_config('app.actor_read_level', '2', true);
   PERFORM set_config('app.actor_write_level', '2', true);
 
-  INSERT INTO entities (id, kind, type, network_id, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
-  VALUES ('01TEST_READ_FAIL0000000', 'entity', 'doc', '01NETWORK0000000000000000000', '{}', '01TEAM00000000000000000000', 3, 2, '01TEAM00000000000000000000', NOW(), NOW());
+  INSERT INTO entities (id, kind, type, properties, owner_id, read_level, write_level, edited_by, created_at, updated_at)
+  VALUES ('01TEST_READ_FAIL0000000', 'entity', 'doc', '{}', '01TEAM00000000000000000000', 3, 2, '01TEAM00000000000000000000', NOW(), NOW());
 
   PERFORM test_fail('entity_cannot_create_above_read_level', 'Insert should have been blocked');
 EXCEPTION WHEN insufficient_privilege THEN

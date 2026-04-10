@@ -77,7 +77,6 @@ const createActorRoute = createRoute({
       content: jsonContent(
         z.object({
           kind: z.enum(["agent", "worker"]).describe("Actor kind: user or agent"),
-          arke_id: EntityIdParam.optional().describe("Arke to assign the actor to (defaults to creator's arke)"),
           properties: JsonObjectSchema.optional().describe("Actor properties"),
           max_read_level: ClassificationLevel.optional().describe("Max read level (0-4)"),
           max_write_level: ClassificationLevel.optional().describe("Max write level (0-4)"),
@@ -160,7 +159,7 @@ const updateActorRoute = createRoute({
   summary: "Update an actor (admin or self)",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /actors/{id}"],
-  "x-arke-rules": ["Only the actor themselves or a system admin may update", "Only admins can change arke_id, is_admin, status, or can_publish_public", "Cannot set clearance levels higher than your own"],
+  "x-arke-rules": ["Only the actor themselves or a system admin may update", "Cannot set clearance levels higher than your own"],
   request: {
     params: entityIdParams("Actor ULID"),
     body: {
@@ -168,7 +167,6 @@ const updateActorRoute = createRoute({
       content: jsonContent(
         z.object({
           properties: JsonObjectSchema.optional().describe("New properties"),
-          arke_id: EntityIdParam.nullable().optional().describe("Assign to arke (admin only, null = unrestricted)"),
           max_read_level: ClassificationLevel.optional().describe("New max read level"),
           max_write_level: ClassificationLevel.optional().describe("New max write level"),
         }),
@@ -278,9 +276,6 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing or invalid kind");
   }
 
-  // Resolve arke_id: explicit value for admins, inherit from creator for regular actors
-  const newArkeId = typeof body.arke_id === "string" ? body.arke_id : actor.arkeId;
-
   const maxReadLevel = typeof body.max_read_level === "number" ? body.max_read_level : 0;
   const maxWriteLevel = typeof body.max_write_level === "number" ? body.max_write_level : 0;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
@@ -355,10 +350,10 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     const results = await sql.transaction([
       ...setActorContext(sql, actor),
       sql.query(
-        `INSERT INTO actors (id, kind, arke_id, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, false, $6, $7, $8::jsonb, 'active', $9::timestamptz, $9::timestamptz)
+        `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, false, $5, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
          RETURNING *`,
-        [id, "worker", newArkeId, maxReadLevel, maxWriteLevel, false, actor.id, JSON.stringify(workerProperties), now],
+        [id, "worker", maxReadLevel, maxWriteLevel, false, actor.id, JSON.stringify(workerProperties), now],
       ),
       sql.query(
         `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
@@ -367,7 +362,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
       ),
     ]);
 
-    const created = (results[5] as ActorRecord[])[0];
+    const created = (results.at(-2) as ActorRecord[])[0];
     if (!created) {
       throw new ApiError(500, "internal_error", "Failed to create worker");
     }
@@ -384,10 +379,10 @@ actorsRouter.openapi(createActorRoute, async (c) => {
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
-      `INSERT INTO actors (id, kind, arke_id, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, false, false, $6, $7::jsonb, 'active', $8::timestamptz, $8::timestamptz)
+      `INSERT INTO actors (id, kind, max_read_level, max_write_level, is_admin, can_publish_public, owner_id, properties, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, false, false, $5, $6::jsonb, 'active', $7::timestamptz, $7::timestamptz)
        RETURNING *`,
-      [id, body.kind, newArkeId, maxReadLevel, maxWriteLevel, actor.id, JSON.stringify(properties), now],
+      [id, body.kind, maxReadLevel, maxWriteLevel, actor.id, JSON.stringify(properties), now],
     ),
     sql.query(
       `INSERT INTO api_keys (id, actor_id, key_hash, key_prefix, created_at)
@@ -396,7 +391,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     ),
   ]);
 
-  const created = (results[5] as ActorRecord[])[0];
+  const created = (results.at(-2) as ActorRecord[])[0];
   if (!created) {
     throw new ApiError(500, "internal_error", "Failed to create actor");
   }
@@ -412,7 +407,7 @@ actorsRouter.openapi(listActorsRoute, async (c) => {
   const status = c.req.query("status");
   const kind = c.req.query("kind");
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -427,6 +422,7 @@ actorsRouter.openapi(listActorsRoute, async (c) => {
       [status ?? null, kind ?? null, cursor?.t ?? null, limit + 1],
     ),
   ]);
+  const rows = results.at(-1) as ActorRecord[];
 
   const actors = (rows as ActorRecord[]).slice(0, limit);
   const next = (rows as ActorRecord[]).length > limit ? actors[actors.length - 1] : null;
@@ -470,13 +466,6 @@ actorsRouter.openapi(updateActorRoute, async (c) => {
     sets.push(`properties = $${paramIdx++}::jsonb`);
     params.push(JSON.stringify(body.properties));
   }
-  if (body.arke_id !== undefined) {
-    if (!actor.isAdmin) {
-      throw new ApiError(403, "forbidden", "Only admins can change arke_id");
-    }
-    sets.push(`arke_id = $${paramIdx++}`);
-    params.push(body.arke_id === null ? null : body.arke_id);
-  }
   if (typeof body.max_read_level === "number") {
     if (body.max_read_level > actor.maxReadLevel && !actor.isAdmin) {
       throw new ApiError(403, "forbidden", "Cannot set max_read_level higher than your own");
@@ -501,7 +490,7 @@ actorsRouter.openapi(updateActorRoute, async (c) => {
   const idParamIdx = paramIdx++;
   params.push(actorId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -513,6 +502,7 @@ actorsRouter.openapi(updateActorRoute, async (c) => {
       params,
     ),
   ]);
+  const rows = results.at(-1) as ActorRecord[];
 
   const updated = (rows as ActorRecord[])[0];
   if (!updated) {
@@ -532,7 +522,7 @@ actorsRouter.openapi(deactivateActorRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Admin access required");
   }
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -544,6 +534,7 @@ actorsRouter.openapi(deactivateActorRoute, async (c) => {
       [now, actorId],
     ),
   ]);
+  const rows = results.at(-1) as ActorRecord[];
 
   const deactivated = (rows as ActorRecord[])[0];
   if (!deactivated) {
@@ -610,7 +601,7 @@ actorsRouter.openapi(actorActivityRoute, async (c) => {
   const cursor = parseCursorParam(c);
 
   const actorCtx = c.get("actor") ?? null;
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -627,9 +618,10 @@ actorsRouter.openapi(actorActivityRoute, async (c) => {
       [actorId, action ?? null, since, cursor?.t ?? null, cursor?.i ?? null, limit + 1],
     ),
   ]);
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
 
-  const activity = (rows as Array<Record<string, unknown>>).slice(0, limit);
-  const next = (rows as Array<Record<string, unknown>>).length > limit ? activity[activity.length - 1] : null;
+  const activity = rows.slice(0, limit);
+  const next = rows.length > limit ? activity[activity.length - 1] : null;
 
   return c.json({
     activity,

@@ -3,7 +3,6 @@ import type { SqlClient } from "./sql";
 
 export type SpaceRecord = {
   id: string;
-  arke_id: string;
   name: string;
   description: string | null;
   owner_id: string;

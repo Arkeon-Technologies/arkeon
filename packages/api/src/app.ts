@@ -1,4 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+import { existsSync } from "fs";
 
 import type { AppBindings } from "./types";
 import type { OpenAPISpec } from "arkeon-shared";
@@ -12,7 +16,6 @@ import { createSql } from "./lib/sql";
 import { activityRouter, entityActivityRouter } from "./routes/activity";
 import { actorsRouter } from "./routes/actors";
 import { adminRouter } from "./routes/admin";
-import { arkesRouter } from "./routes/arkes";
 import { authRouter } from "./routes/auth";
 import { commentsRouter } from "./routes/comments";
 import { contentRouter } from "./routes/content";
@@ -42,6 +45,27 @@ export function createApp() {
   app.use("*", requestContextMiddleware);
   app.use("*", authMiddleware);
 
+  // Serve explorer SPA static assets
+  const explorerDist = resolve(dirname(fileURLToPath(import.meta.url)), "../../explorer/dist");
+  if (!existsSync(explorerDist)) {
+    console.warn(`[explorer] dist not found at ${explorerDist} — /explore will 404. Run: npm run build -w packages/explorer`);
+  }
+  app.use("/explore/*", serveStatic({
+    root: explorerDist,
+    rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
+  }));
+  // SPA fallback: only serve index.html for extension-less paths (route navigations).
+  // Asset requests with extensions (.js, .css, .png, etc.) should 404 properly so
+  // missing chunks don't silently get the HTML shell.
+  app.get("/explore/*", async (c, next) => {
+    const path = c.req.path;
+    if (/\.[a-zA-Z0-9]+$/.test(path)) {
+      return next();
+    }
+    return serveStatic({ root: explorerDist, path: "index.html" })(c, next);
+  });
+  app.get("/explore", (c) => c.redirect("/explore/"));
+
   app.get("/", (c) =>
     c.json({
       name: "arkeon-api",
@@ -57,6 +81,7 @@ export function createApp() {
         cli: "npm install -g @arkeon-technologies/cli",
         sdk: "npm install @arkeon-technologies/sdk",
       },
+      explorer: "/explore",
     }),
   );
 
@@ -88,7 +113,6 @@ export function createApp() {
   app.route("/activity", activityRouter);
   app.route("/actors", actorsRouter);
   app.route("/admin", adminRouter);
-  app.route("/arkes", arkesRouter);
   app.route("/auth", authRouter);
   app.route("/auth", inboxRouter);
   app.route("/entities", commentsRouter);

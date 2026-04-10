@@ -359,14 +359,14 @@ workersRouter.openapi(invokeWorkerRoute, async (c) => {
     if (wait) {
       await result.batchPromise;
       // Fetch all invocations from DB for the response
-      const [,,,,, rows] = await sql.transaction([
+      const results = await sql.transaction([
         ...setActorContext(sql, actor),
         sql.query(
           `SELECT * FROM worker_invocations WHERE batch_id = $1 ORDER BY batch_seq`,
           [result.batchId],
         ),
       ]);
-      const invocations = rows as Array<Record<string, unknown>>;
+      const invocations = results.at(-1) as Array<Record<string, unknown>>;
       const lastItem = invocations[invocations.length - 1];
       const allSuccess = invocations.every((i) => i.status === "completed");
       return c.json(
@@ -528,7 +528,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     props.llm = existingLlm;
   }
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `UPDATE actors SET properties = properties || $1::jsonb, updated_at = $2::timestamptz WHERE id = $3 RETURNING *`,
@@ -536,7 +536,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     ),
   ]);
 
-  const updated = (rows as ActorRecord[])[0];
+  const updated = (results.at(-1) as ActorRecord[])[0];
   if (!updated) {
     throw new ApiError(500, "internal_error", "Failed to update worker");
   }
@@ -667,7 +667,7 @@ workersRouter.openapi(listInvocationsRoute, async (c) => {
 
   await requireWorker(sql, actor, workerId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations
@@ -679,8 +679,9 @@ workersRouter.openapi(listInvocationsRoute, async (c) => {
     ),
   ]);
 
-  const invocations = (rows as Array<Record<string, unknown>>).slice(0, limit);
-  const next = (rows as Array<Record<string, unknown>>).length > limit
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
+  const invocations = rows.slice(0, limit);
+  const next = rows.length > limit
     ? invocations[invocations.length - 1]
     : null;
 
@@ -702,7 +703,7 @@ workersRouter.openapi(latestInvocationRoute, async (c) => {
 
   await requireWorker(sql, actor, workerId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations
@@ -713,7 +714,7 @@ workersRouter.openapi(latestInvocationRoute, async (c) => {
     ),
   ]);
 
-  const invocation = (rows as Array<Record<string, unknown>>)[0] ?? null;
+  const invocation = (results.at(-1) as Array<Record<string, unknown>>)[0] ?? null;
   return c.json({ invocation }, 200);
 });
 
@@ -722,7 +723,7 @@ workersRouter.openapi(getInvocationRoute, async (c) => {
   const invocationId = Number(c.req.param("invocationId"));
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations WHERE id = $1`,
@@ -730,7 +731,7 @@ workersRouter.openapi(getInvocationRoute, async (c) => {
     ),
   ]);
 
-  const invocation = (rows as Array<Record<string, unknown>>)[0];
+  const invocation = (results.at(-1) as Array<Record<string, unknown>>)[0];
   if (!invocation) {
     throw new ApiError(404, "not_found", "Invocation not found");
   }
@@ -775,7 +776,7 @@ workersRouter.openapi(getInvocationTreeRoute, async (c) => {
   const invocationId = Number(c.req.param("invocationId"));
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `WITH RECURSIVE tree AS (
@@ -789,7 +790,7 @@ workersRouter.openapi(getInvocationTreeRoute, async (c) => {
     ),
   ]);
 
-  const invocations = rows as Array<Record<string, unknown>>;
+  const invocations = results.at(-1) as Array<Record<string, unknown>>;
   if (invocations.length === 0) {
     throw new ApiError(404, "not_found", "Invocation not found");
   }
@@ -849,7 +850,7 @@ workersRouter.openapi(getBatchRoute, async (c) => {
   const batchId = c.req.param("batchId");
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT * FROM worker_invocations
@@ -859,7 +860,7 @@ workersRouter.openapi(getBatchRoute, async (c) => {
     ),
   ]);
 
-  const invocations = rows as Array<Record<string, unknown>>;
+  const invocations = results.at(-1) as Array<Record<string, unknown>>;
   if (invocations.length === 0) {
     throw new ApiError(404, "not_found", "Batch not found");
   }
@@ -998,10 +999,11 @@ workersRouter.openapi(listWorkerPermissionsRoute, async (c) => {
 
   const worker = await requireWorker(sql, actor, workerId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`SELECT * FROM worker_permissions WHERE worker_id = ${workerId} ORDER BY granted_at`,
   ]);
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
 
   return c.json(
     {
@@ -1036,7 +1038,7 @@ workersRouter.openapi(grantWorkerPermissionRoute, async (c) => {
   await requireWorker(sql, actor, workerId);
 
   // RLS also enforces this, but the upsert uses ON CONFLICT
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `INSERT INTO worker_permissions (worker_id, grantee_type, grantee_id, role, granted_by)
@@ -1048,7 +1050,7 @@ workersRouter.openapi(grantWorkerPermissionRoute, async (c) => {
     ),
   ]);
 
-  const perm = (rows as Array<Record<string, unknown>>)[0];
+  const perm = (results.at(-1) as Array<Record<string, unknown>>)[0];
   if (!perm) {
     throw new ApiError(403, "forbidden", "Only the worker owner or an admin can grant permissions");
   }
@@ -1065,12 +1067,13 @@ workersRouter.openapi(revokeWorkerPermissionRoute, async (c) => {
   // Owner/admin check
   await requireWorker(sql, actor, workerId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`DELETE FROM worker_permissions WHERE worker_id = ${workerId} AND grantee_id = ${granteeId} RETURNING worker_id`,
   ]);
 
-  if ((rows as Array<Record<string, unknown>>).length === 0) {
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
+  if (rows.length === 0) {
     throw new ApiError(404, "not_found", "Permission not found");
   }
 

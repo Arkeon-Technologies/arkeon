@@ -42,7 +42,6 @@ export async function writeSubgraph(
   entities: CanonicalEntity[],
   relationships: CanonicalRelationship[],
   documentId: string,
-  arkeId: string,
   opts?: WriteOpts,
 ): Promise<WriteResult> {
   const refToId: Record<string, string> = {};
@@ -59,7 +58,6 @@ export async function writeSubgraph(
         // Create entity with permissions inline (atomic — entity + grants in one call)
         const id = await createEntity({
           type: entity.type,
-          arke_id: arkeId,
           properties: {
             label: entity.label,
             description: entity.description,
@@ -149,14 +147,12 @@ export interface SourceEntityDef {
 export async function writeSourceEntities(
   sources: SourceEntityDef[],
   parentEntityId: string,
-  arkeId: string,
   opts?: WriteOpts,
 ): Promise<{ sourceEntityIds: string[] }> {
   const results = await parallelLimit(
     sources, async (source) => {
       const id = await createEntity({
         type: source.type,
-        arke_id: arkeId,
         space_id: opts?.spaceId,
         read_level: opts?.readLevel,
         write_level: opts?.writeLevel,

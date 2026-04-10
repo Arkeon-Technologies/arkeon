@@ -43,7 +43,6 @@ export const EntitySchema = z
     id: UlidSchema,
     kind: z.enum(["entity", "relationship"]),
     type: z.string(),
-    arke_id: UlidSchema,
     ver: z.number().int(),
     properties: JsonObjectSchema,
     owner_id: UlidSchema,
@@ -68,7 +67,6 @@ export const ActorSchema = z
   .object({
     id: UlidSchema,
     kind: z.enum(["agent", "worker"]),
-    arke_id: UlidSchema.nullable(),
     max_read_level: ClassificationLevel,
     max_write_level: ClassificationLevel,
     is_admin: z.boolean(),
@@ -111,28 +109,11 @@ export const WorkerConfigSchema = z
   })
   .openapi("WorkerConfig");
 
-// --- Arke (Network) ---
-
-export const ArkeSchema = z
-  .object({
-    id: UlidSchema,
-    name: z.string(),
-    description: z.string().nullable(),
-    owner_id: UlidSchema,
-    default_read_level: ClassificationLevel,
-    default_write_level: ClassificationLevel,
-    properties: JsonObjectSchema,
-    created_at: DateTimeSchema,
-    updated_at: DateTimeSchema,
-  })
-  .openapi("Arke");
-
 // --- Space ---
 
 export const SpaceSchema = z
   .object({
     id: UlidSchema,
-    arke_id: UlidSchema,
     name: z.string(),
     description: z.string().nullable(),
     owner_id: UlidSchema,
@@ -154,7 +135,6 @@ export const GroupSchema = z
     id: UlidSchema,
     name: z.string(),
     type: z.enum(["org", "project", "editorial", "admin"]),
-    arke_id: UlidSchema,
     read_level: ClassificationLevel,
     created_by: UlidSchema,
     created_at: DateTimeSchema,

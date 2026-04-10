@@ -139,11 +139,11 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
   const sql = createSql();
 
   if (parentId) {
-    const [,,,,, parentRows] = await sql.transaction([
+    const results = await sql.transaction([
       ...setActorContext(sql, actor),
       sql`SELECT id, parent_id FROM comments WHERE id = ${parentId} AND entity_id = ${entityId} LIMIT 1`,
     ]);
-    const parent = (parentRows as Array<{ id: string; parent_id: string | null }>)[0];
+    const parent = (results.at(-1) as Array<{ id: string; parent_id: string | null }>)[0];
     if (!parent) {
       throw new ApiError(404, "not_found", "Parent comment not found");
     }
@@ -152,7 +152,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
     }
   }
 
-  const [,,,,, rows] = await sql.transaction([
+  const createResults = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       INSERT INTO comments (id, entity_id, author_id, body, parent_id, created_at)
@@ -177,7 +177,7 @@ commentsRouter.openapi(createCommentRoute, async (c) => {
     }),
   );
 
-  return c.json((rows as Array<Record<string, unknown>>)[0], 201);
+  return c.json((createResults.at(-2) as Array<Record<string, unknown>>)[0], 201);
 });
 
 commentsRouter.openapi(listCommentsRoute, async (c) => {
@@ -188,7 +188,7 @@ commentsRouter.openapi(listCommentsRoute, async (c) => {
   const cursor = parseCursorParam(c);
 
   const actorCtx = c.get("actor");
-  const [,,,,, topRows, replyRows] = await sql.transaction([
+  const listResults = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
       `
@@ -211,16 +211,18 @@ commentsRouter.openapi(listCommentsRoute, async (c) => {
     `,
   ]);
 
-  const top = (topRows as Array<Record<string, unknown>>).slice(0, limit);
+  const topRows = listResults.at(-2) as Array<Record<string, unknown>>;
+  const replyRows = listResults.at(-1) as Array<Record<string, unknown>>;
+  const top = topRows.slice(0, limit);
   const repliesByParent = new Map<string, Array<Record<string, unknown>>>();
-  for (const reply of replyRows as Array<Record<string, unknown>>) {
+  for (const reply of replyRows) {
     const parent = String(reply.parent_id);
     const list = repliesByParent.get(parent) ?? [];
     list.push(reply);
     repliesByParent.set(parent, list);
   }
 
-  const next = (topRows as Array<Record<string, unknown>>).length > limit ? top[top.length - 1] : null;
+  const next = topRows.length > limit ? top[top.length - 1] : null;
   return c.json({
     comments: top.map((row) => ({
       ...row,
@@ -237,7 +239,7 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -251,7 +253,7 @@ commentsRouter.openapi(deleteCommentRoute, async (c) => {
       [commentId],
     ),
   ]);
-  const info = (rows as Array<{ author_id: string; owner_id: string; is_entity_admin: boolean }>)[0];
+  const info = (results.at(-1) as Array<{ author_id: string; owner_id: string; is_entity_admin: boolean }>)[0];
   if (!info) {
     throw new ApiError(404, "not_found", "Comment not found");
   }

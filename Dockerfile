@@ -35,6 +35,22 @@ RUN mkdir -p /sdk-standalone \
     && cp packages/sdk-ts/package.json /sdk-standalone/ \
     && cp -r packages/sdk-ts/dist /sdk-standalone/dist
 
+# Build explorer SPA
+# Root lockfile references all workspaces, so all sibling package.json files must be present.
+FROM node:22-slim AS explorer-build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/cli/package.json packages/cli/
+COPY packages/sdk-ts/package.json packages/sdk-ts/
+COPY packages/api/package.json packages/api/
+COPY packages/runtime/package.json packages/runtime/
+COPY packages/schema/package.json packages/schema/
+COPY packages/explorer/package.json packages/explorer/
+RUN npm ci -w packages/explorer
+COPY packages/explorer packages/explorer
+RUN cd packages/explorer && npm run build
+
 # Main app stage with production deps + pre-built CLI
 FROM base AS app
 COPY package.json package-lock.json ./
@@ -53,6 +69,9 @@ COPY packages/schema packages/schema
 # Copy pre-built SDK into the workspace so the API can import it at runtime.
 # Also used by worker sandboxes via the /node_modules symlink below.
 COPY --from=cli-build /sdk-standalone/dist packages/sdk-ts/dist
+
+# Copy pre-built explorer SPA
+COPY --from=explorer-build /app/packages/explorer/dist packages/explorer/dist
 
 # Install pre-built CLI globally for worker sandboxes
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli

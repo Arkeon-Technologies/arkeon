@@ -5,14 +5,12 @@ import {
   createActor,
   createEntity,
   createRelationship,
-  getArkeId,
   getJson,
   jsonRequest,
   uniqueName,
 } from "./helpers";
 
 describe("Context-rich retrieval", () => {
-  let arkeId: string;
   let actor: Awaited<ReturnType<typeof createActor>>;
 
   // Shared entities for tests
@@ -22,26 +20,25 @@ describe("Context-rich retrieval", () => {
   let reportEntity: Record<string, any>;
 
   test("setup: create actor and test entities with relationships", async () => {
-    arkeId = await getArkeId();
     actor = await createActor(adminApiKey, {
       maxReadLevel: 2,
       maxWriteLevel: 2,
     });
 
     // Create entities
-    personA = await createEntity(actor.apiKey, arkeId, "person", {
+    personA = await createEntity(actor.apiKey, "person", {
       label: uniqueName("ctx-person-a"),
       description: "Intelligence analyst",
     });
-    personB = await createEntity(actor.apiKey, arkeId, "person", {
+    personB = await createEntity(actor.apiKey, "person", {
       label: uniqueName("ctx-person-b"),
       description: "Field operative",
     });
-    orgEntity = await createEntity(actor.apiKey, arkeId, "organization", {
+    orgEntity = await createEntity(actor.apiKey, "organization", {
       label: uniqueName("ctx-org"),
       description: "Defense contractor",
     });
-    reportEntity = await createEntity(actor.apiKey, arkeId, "report", {
+    reportEntity = await createEntity(actor.apiKey, "report", {
       label: uniqueName("ctx-report"),
       description: "Quarterly assessment",
     });
@@ -113,7 +110,7 @@ describe("Context-rich retrieval", () => {
     });
 
     test("entity with no relationships returns empty _relationships", async () => {
-      const loner = await createEntity(actor.apiKey, arkeId, "note", {
+      const loner = await createEntity(actor.apiKey, "note", {
         label: uniqueName("ctx-loner"),
       });
       const { response, body } = await getJson(
@@ -284,7 +281,7 @@ describe("Context-rich retrieval", () => {
 
     test("RLS hides entities above actor clearance", async () => {
       // Create a high-clearance entity
-      const secret = await createEntity(adminApiKey, arkeId, "report", {
+      const secret = await createEntity(adminApiKey, "report", {
         label: uniqueName("ctx-secret"),
       }, { read_level: 4 });
 

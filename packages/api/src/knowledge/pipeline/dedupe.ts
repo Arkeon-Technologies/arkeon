@@ -38,7 +38,6 @@ Rules:
 async function dedupeOne(
   llm: LlmClient,
   entityId: string,
-  arkeId: string,
   spaceId?: string,
 ): Promise<{
   duplicate?: { entityId: string; duplicateIds: string[]; rationale: string };
@@ -58,7 +57,7 @@ async function dedupeOne(
   const hits = new Map<string, EntityCandidate>();
 
   for (const q of queries) {
-    const results = await search(q, { arke_id: arkeId, space_id: spaceId, limit: 20 });
+    const results = await search(q, { space_id: spaceId, limit: 20 });
     for (const hit of results) {
       if (hit.id && hit.id !== entityId && !hits.has(hit.id)) {
         const full = await getEntity(hit.id);
@@ -123,7 +122,6 @@ async function dedupeOne(
 export async function dedupeEntities(
   llm: LlmClient,
   entityIds: string[],
-  arkeId: string,
   spaceId?: string,
   opts?: { concurrency?: number },
 ): Promise<{
@@ -139,7 +137,7 @@ export async function dedupeEntities(
 
   const results = await Promise.all(
     entityIds.map((id) =>
-      dedupeOne(llm, id, arkeId, spaceId).catch((err) => {
+      dedupeOne(llm, id, spaceId).catch((err) => {
         console.warn(`[knowledge:dedupe] Failed for ${id}, skipping:`, err instanceof Error ? err.message : err);
         return {} as { duplicate?: undefined; usage?: undefined };
       }),

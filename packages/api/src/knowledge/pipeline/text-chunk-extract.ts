@@ -24,7 +24,6 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
   const chunkOrdinal = metadata.chunk_ordinal as number;
   const totalChunks = metadata.total_chunks as number;
   const survey = metadata.survey as DocumentSurvey;
-  const arkeId = metadata.arke_id as string;
   const readLevel = metadata.read_level as number | undefined;
   const writeLevel = metadata.write_level as number | undefined;
   const ownerId = metadata.owner_id as string | undefined;
@@ -74,7 +73,6 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
     await runGroupFinalization(parentJobId, "text.chunk_extract", {
       jobId: parentJobId,
       documentId: entityId,
-      arkeId,
       spaceId,
       readLevel,
       writeLevel,

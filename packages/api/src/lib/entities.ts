@@ -13,7 +13,6 @@ export type EntityRecord = Record<string, unknown> & {
   id: string;
   kind: string;
   type: string;
-  arke_id: string;
   ver: number;
   properties: Record<string, unknown>;
   owner_id: string;

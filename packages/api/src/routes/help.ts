@@ -48,12 +48,8 @@ The route index (GET /help) shows each route's auth requirement.
      "type": "note",
      "properties": { "title": "Hello", "body": "My first entity." }
    }
-   Your arke_id is automatically set from your actor's membership.
-   Admin actors must pass arke_id explicitly.
-
 2. List entities
    GET /entities
-   Results are automatically scoped to your arke.
 
 3. Create a relationship
    POST /entities/{sourceId}/relationships
@@ -146,16 +142,6 @@ This guide covers operations that require admin privileges.
 - Rebuild search indexes
 - View instance-wide statistics
 
-## Managing Networks
-
-Create a network:
-  POST /arkes
-  { "name": "Research", "description": "..." }
-
-Each network has default read/write levels that new entities inherit:
-  default_read_level   (0-4, default 1)
-  default_write_level  (0-4, default 1)
-
 ## Managing Actors
 
 Create an actor:
@@ -244,14 +230,13 @@ Organize with spaces.
   Spaces are like directories for your knowledge graph. Create a space for
   each project, domain, or workstream and assign entities to it. Most entities
   should live in at least one space — ungrouped entities become hard to manage
-  as the network grows. Spaces can be nested, so you can build a hierarchy
+  as the graph grows. Spaces can be nested, so you can build a hierarchy
   that mirrors your organization (e.g., "Engineering" > "Backend" > "API v2").
 
 Encourage connected graphs.
-  When creating arkes and onboarding actors, set the expectation that entities
-  should be linked via relationships rather than left as isolated nodes. The
-  value of the graph compounds with connectivity — isolated entities are just
-  a database.
+  Set the expectation that entities should be linked via relationships rather
+  than left as isolated nodes. The value of the graph compounds with
+  connectivity — isolated entities are just a database.
 
 ## Next Steps
 

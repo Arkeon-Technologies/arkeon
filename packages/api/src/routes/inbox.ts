@@ -100,7 +100,7 @@ inboxRouter.openapi(listInboxRoute, async (c) => {
   const cursor = parseCursorParam(c);
   const actions = c.req.query("action")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -117,8 +117,9 @@ inboxRouter.openapi(listInboxRoute, async (c) => {
       [actor.id, since, before, actions.length ? actions : null, cursor?.t ?? null, cursor?.i ?? null, limit + 1],
     ),
   ]);
-  const items = (rows as Array<Record<string, unknown>>).slice(0, limit);
-  const next = (rows as Array<Record<string, unknown>>).length > limit ? items[items.length - 1] : null;
+  const rows = results.at(-1) as Array<Record<string, unknown>>;
+  const items = rows.slice(0, limit);
+  const next = rows.length > limit ? items[items.length - 1] : null;
 
   return c.json({
     items,
@@ -134,7 +135,7 @@ inboxRouter.openapi(countInboxRoute, async (c) => {
   }
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql`
       SELECT COUNT(*)::int AS count
@@ -144,5 +145,5 @@ inboxRouter.openapi(countInboxRoute, async (c) => {
     `,
   ]);
 
-  return c.json({ count: (rows as Array<{ count: number }>)[0]?.count ?? 0 }, 200);
+  return c.json({ count: (results.at(-1) as Array<{ count: number }>)[0]?.count ?? 0 }, 200);
 });

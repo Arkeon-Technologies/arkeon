@@ -19,7 +19,6 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   const parentJobId = job.parent_job_id as string | null;
   const metadata = (job.metadata ?? {}) as Record<string, unknown>;
   const text = metadata.text as string;
-  const arkeId = metadata.arke_id as string;
   const readLevel = metadata.read_level as number | undefined;
   const writeLevel = metadata.write_level as number | undefined;
   const ownerId = metadata.owner_id as string | undefined;
@@ -27,7 +26,6 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   const spaceId = metadata.space_id as string | undefined;
 
   if (!text) throw new Error("No text in job metadata");
-  if (!arkeId) throw new Error("No arke_id in job metadata");
 
   // Extract
   const extractorConfig = await resolveLlmConfig("extractor");
@@ -46,7 +44,6 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   const pipelineResult = await runExtractionPipeline(extractResult.data, {
     jobId,
     documentId: entityId,
-    arkeId,
     spaceId,
     readLevel,
     writeLevel,

@@ -76,7 +76,6 @@ const statsRoute = createRoute({
             entity_count: z.number().int(),
             actor_count: z.number().int(),
             relationship_count: z.number().int(),
-            arke_count: z.number().int(),
             db_size_bytes: z.number().int(),
           }),
         }),
@@ -99,7 +98,6 @@ const instanceRoute = createRoute({
       description: "Instance metadata",
       content: jsonContent(
         z.object({
-          arke_id: z.string().nullable(),
           version: z.string(),
         }),
       ),
@@ -233,7 +231,7 @@ adminRouter.openapi(updateAdminActorRoute, async (c) => {
   const idParamIdx = paramIdx++;
   params.push(actorId);
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
@@ -246,7 +244,7 @@ adminRouter.openapi(updateAdminActorRoute, async (c) => {
     ),
   ]);
 
-  const updated = (rows as Array<Record<string, unknown>>)[0];
+  const updated = (results.at(-1) as Array<Record<string, unknown>>)[0];
   if (!updated) {
     throw new ApiError(404, "not_found", "Actor not found");
   }
@@ -258,19 +256,18 @@ adminRouter.openapi(statsRoute, async (c) => {
   const actor = requireAdmin(c);
   const sql = createSql();
 
-  const [, , , , , rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `SELECT
         (SELECT count(*)::int FROM entities) AS entity_count,
         (SELECT count(*)::int FROM actors) AS actor_count,
         (SELECT count(*)::int FROM relationship_edges) AS relationship_count,
-        (SELECT count(*)::int FROM arkes) AS arke_count,
         (SELECT pg_database_size(current_database())) AS db_size_bytes`,
     ),
   ]);
 
-  const row = (rows as Array<Record<string, unknown>>)[0];
+  const row = (results.at(-1) as Array<Record<string, unknown>>)[0];
   return c.json({ stats: row }, 200);
 });
 
@@ -279,7 +276,6 @@ adminRouter.openapi(instanceRoute, async (c) => {
 
   return c.json(
     {
-      arke_id: process.env.ARKE_ID ?? null,
       version: "2.0.0",
     },
     200,

@@ -2,7 +2,6 @@ import Conf from "conf";
 
 type ConfigSchema = {
   apiUrl: string;
-  arkeId?: string;
   spaceId?: string;
 };
 
@@ -21,9 +20,6 @@ export const config = {
   get<K extends keyof ConfigSchema>(key: K): ConfigSchema[K] {
     if (key === "apiUrl" && process.env.ARKE_API_URL) {
       return process.env.ARKE_API_URL as ConfigSchema[K];
-    }
-    if (key === "arkeId" && process.env.ARKE_ID) {
-      return process.env.ARKE_ID as ConfigSchema[K];
     }
     if (key === "spaceId" && process.env.ARKE_SPACE_ID) {
       return process.env.ARKE_SPACE_ID as ConfigSchema[K];

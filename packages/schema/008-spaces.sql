@@ -2,8 +2,8 @@
 -- Spaces, Space Permissions & Space-Entity Membership
 -- =============================================================================
 --
--- A space is a curated collection of entities within a network. Spaces are
--- NOT entities — they are a separate table with their own permissions.
+-- A space is a curated collection of entities. Spaces are NOT entities —
+-- they are a separate table with their own permissions.
 --
 -- An entity can belong to multiple spaces (via space_entities join table).
 -- The space is a lens/collection — it does not override entity-level
@@ -19,7 +19,6 @@
 
 CREATE TABLE spaces (
   id               TEXT PRIMARY KEY,                       -- ULID
-  network_id       TEXT NOT NULL REFERENCES arkes(id),      -- which Arke this space belongs to
   name             TEXT NOT NULL,
   description      TEXT,
   owner_id         TEXT NOT NULL REFERENCES actors(id),    -- implicit Admin
@@ -35,7 +34,6 @@ CREATE TABLE spaces (
   CONSTRAINT valid_space_status CHECK (status IN ('active', 'archived', 'deleted'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_spaces_network ON spaces (network_id);
 CREATE INDEX IF NOT EXISTS idx_spaces_owner ON spaces (owner_id);
 CREATE INDEX IF NOT EXISTS idx_spaces_read_level ON spaces (read_level);
 CREATE INDEX IF NOT EXISTS idx_spaces_last_activity ON spaces (last_activity_at DESC NULLS LAST);

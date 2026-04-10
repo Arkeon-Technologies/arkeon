@@ -29,7 +29,7 @@ export async function createInvocationRecord(
   depth = 0,
 ): Promise<number> {
   const sql = createSql();
-  const [,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     sql.query(`SELECT set_config('app.actor_id', $1, true)`, [invokerId]),
     sql.query(`SELECT set_config('app.actor_is_admin', 'false', true)`, []),
     sql.query(
@@ -40,7 +40,7 @@ export async function createInvocationRecord(
       [workerId, invokerId, source, prompt, parentInvocationId ?? null, depth],
     ),
   ]);
-  const row = (rows as Array<{ id: number }>)[0];
+  const row = (results.at(-1) as Array<{ id: number }>)[0];
   if (!row) throw new Error("Failed to create invocation record");
   return row.id;
 }

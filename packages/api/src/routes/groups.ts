@@ -1,7 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
 import { ApiError } from "../lib/errors";
-import { requireActor, resolveArkeId, parseJsonBody, parseLimit, parseCursorParam } from "../lib/http";
+import { requireActor, parseJsonBody, parseLimit, parseCursorParam } from "../lib/http";
 import { generateUlid } from "../lib/ids";
 import { createRouter } from "../lib/openapi";
 import { encodeCursor } from "../lib/cursor";
@@ -25,7 +25,6 @@ type GroupRecord = {
   id: string;
   name: string;
   type: string;
-  arke_id: string;
   read_level: number;
   created_by: string;
   created_at: string;
@@ -65,7 +64,6 @@ const createGroupRoute = createRoute({
         z.object({
           name: z.string().min(1).describe("Group name"),
           type: z.enum(["org", "project", "editorial", "admin"]).optional().describe("Group type (default: project)"),
-          arke_id: EntityIdParam.optional().describe("Arke ULID (derived from actor for regular users, required for admins)"),
           read_level: z.number().int().min(0).max(4).optional().describe("Classification level (default: 1 = INTERNAL)"),
         }),
       ),
@@ -91,7 +89,6 @@ const listGroupsRoute = createRoute({
   "x-arke-rules": [],
   request: {
     query: paginationQuerySchema(50, 200).extend({
-      arke_id: queryParam("arke_id", EntityIdParam.optional(), "Filter by arke"),
       type: queryParam(
         "type",
         z.enum(["org", "project", "editorial", "admin"]).optional(),
@@ -267,8 +264,6 @@ groupsRouter.openapi(createGroupRoute, async (c) => {
   if (!["org", "project", "editorial", "admin"].includes(groupType)) {
     throw new ApiError(400, "invalid_body", "Invalid type");
   }
-  const arkeId = resolveArkeId(body, actor);
-
   if (!actor.isAdmin) {
     throw new ApiError(403, "forbidden", "Admin access required");
   }
@@ -279,19 +274,19 @@ groupsRouter.openapi(createGroupRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
 
-  const [,,,,, rows] = await sql.transaction([
+  const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `
-        INSERT INTO groups (id, name, type, arke_id, read_level, created_by, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+        INSERT INTO groups (id, name, type, read_level, created_by, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6::timestamptz)
         RETURNING *
       `,
-      [id, body.name, groupType, arkeId, readLevel, actor.id, now],
+      [id, body.name, groupType, readLevel, actor.id, now],
     ),
   ]);
 
-  const group = (rows as GroupRecord[])[0];
+  const group = (results.at(-1) as GroupRecord[])[0];
   if (!group) {
     throw new ApiError(500, "internal_error", "Failed to create group");
   }
@@ -304,7 +299,6 @@ groupsRouter.openapi(listGroupsRoute, async (c) => {
   const sql = createSql();
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
-  const arkeId = c.get("actor")?.arkeId ?? c.req.query("arke_id") ?? null;
   const type = c.req.query("type");
 
   const results = await sql.transaction([
@@ -313,13 +307,12 @@ groupsRouter.openapi(listGroupsRoute, async (c) => {
       `
         SELECT *
         FROM groups
-        WHERE ($1::text IS NULL OR arke_id = $1)
-          AND ($2::text IS NULL OR type = $2)
-          AND ($3::timestamptz IS NULL OR created_at < $3::timestamptz)
+        WHERE ($1::text IS NULL OR type = $1)
+          AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
         ORDER BY created_at DESC
-        LIMIT $4
+        LIMIT $3
       `,
-      [arkeId, type ?? null, cursor?.t ?? null, limit + 1],
+      [type ?? null, cursor?.t ?? null, limit + 1],
     ),
   ]);
 
