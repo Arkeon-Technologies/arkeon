@@ -22,10 +22,12 @@ import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
 import { ApiError, apiRequest } from "../../lib/http.js";
 import {
+  buildLlmConfigFromFlags,
   composeExists,
   dockerCompose,
   envExists,
   generateSecrets,
+  type InitLlmFlags,
   parseEnv,
   readEnv,
   renderEnv,
@@ -50,54 +52,8 @@ function localApiUrl(env: Record<string, string>): string {
   return `http://localhost:${port}`;
 }
 
-interface InitLlmFlags {
-  llmProvider?: string;
-  llmBaseUrl?: string;
-  llmApiKey?: string;
-  llmModel?: string;
-}
-
-/**
- * Build a PendingLlmConfig from the CLI flags, or null if the user passed
- * no LLM flags at all. Partial flag sets are an error — either all four of
- * provider/base_url/api_key/model or none. We deliberately do not prompt
- * interactively; `arkeon init` assumes a non-interactive caller (human via
- * script or LLM agent).
- */
-function buildLlmConfigFromFlags(flags: InitLlmFlags): PendingLlmConfig | null {
-  const { llmProvider, llmBaseUrl, llmApiKey, llmModel } = flags;
-  const provided = [llmProvider, llmBaseUrl, llmApiKey, llmModel].filter((v): v is string => Boolean(v));
-
-  if (provided.length === 0) {
-    return null;
-  }
-  if (provided.length < 4) {
-    const missing: string[] = [];
-    if (!llmProvider) missing.push("--llm-provider");
-    if (!llmBaseUrl) missing.push("--llm-base-url");
-    if (!llmApiKey) missing.push("--llm-api-key");
-    if (!llmModel) missing.push("--llm-model");
-    throw new Error(
-      `Partial LLM config — all four of --llm-provider, --llm-base-url, --llm-api-key, --llm-model must be provided together. Missing: ${missing.join(", ")}.`,
-    );
-  }
-
-  // URL sanity check — catch typos before they get written to the conf store
-  // and cause a confusing PUT /knowledge/config failure in `arkeon up`.
-  try {
-    // eslint-disable-next-line no-new
-    new URL(llmBaseUrl!);
-  } catch {
-    throw new Error(`--llm-base-url "${llmBaseUrl}" is not a valid URL.`);
-  }
-
-  return {
-    provider: llmProvider!,
-    base_url: llmBaseUrl!,
-    api_key: llmApiKey!,
-    model: llmModel!,
-  };
-}
+// InitLlmFlags + buildLlmConfigFromFlags live in lib/local.ts so the
+// validation logic is unit-testable without pulling in commander.
 
 // ---------------------------------------------------------------------------
 // arkeon init

@@ -34,8 +34,11 @@ export class ApiError extends Error {
  * Translate node:undici's cryptic "fetch failed" into a human-friendly
  * message that tells the user which URL failed and why. Preserves the
  * original cause chain on the rethrown Error via `cause`.
+ *
+ * Exported for unit testing; not part of the CLI's public surface.
+ * @internal
  */
-function translateFetchError(error: unknown, apiUrl: string): Error {
+export function translateFetchError(error: unknown, apiUrl: string): Error {
   const cause = (error as { cause?: { code?: string; syscall?: string } }).cause;
   const message = (error as Error).message ?? String(error);
 

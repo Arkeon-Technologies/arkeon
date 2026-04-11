@@ -14,6 +14,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import type { PendingLlmConfig } from "./pending-config.js";
+
 // ---------------------------------------------------------------------------
 // Secret generation
 // ---------------------------------------------------------------------------
@@ -131,6 +133,63 @@ export function writeCompose(content: string): string {
   const path = COMPOSE_PATH();
   writeFileSync(path, content);
   return path;
+}
+
+// ---------------------------------------------------------------------------
+// LLM flag handling (shared by `arkeon init`)
+// ---------------------------------------------------------------------------
+
+/** Raw commander options for the --llm-* flags on `arkeon init`. */
+export interface InitLlmFlags {
+  llmProvider?: string;
+  llmBaseUrl?: string;
+  llmApiKey?: string;
+  llmModel?: string;
+}
+
+/**
+ * Build a PendingLlmConfig from the CLI flags, or null if the caller
+ * passed no LLM flags at all. Partial flag sets are an error — either
+ * all four of provider/base_url/api_key/model or none. We deliberately
+ * do not prompt interactively; `arkeon init` assumes a non-interactive
+ * caller (deployment script or LLM agent).
+ *
+ * Throws Error with a message naming the missing flags on partial input,
+ * or naming the offending URL on base-URL validation failure.
+ */
+export function buildLlmConfigFromFlags(flags: InitLlmFlags): PendingLlmConfig | null {
+  const { llmProvider, llmBaseUrl, llmApiKey, llmModel } = flags;
+  const provided = [llmProvider, llmBaseUrl, llmApiKey, llmModel].filter((v): v is string => Boolean(v));
+
+  if (provided.length === 0) {
+    return null;
+  }
+  if (provided.length < 4) {
+    const missing: string[] = [];
+    if (!llmProvider) missing.push("--llm-provider");
+    if (!llmBaseUrl) missing.push("--llm-base-url");
+    if (!llmApiKey) missing.push("--llm-api-key");
+    if (!llmModel) missing.push("--llm-model");
+    throw new Error(
+      `Partial LLM config — all four of --llm-provider, --llm-base-url, --llm-api-key, --llm-model must be provided together. Missing: ${missing.join(", ")}.`,
+    );
+  }
+
+  // URL sanity check — catch typos before they get written to the conf store
+  // and cause a confusing PUT /knowledge/config failure in `arkeon up`.
+  try {
+    // eslint-disable-next-line no-new
+    new URL(llmBaseUrl!);
+  } catch {
+    throw new Error(`--llm-base-url "${llmBaseUrl}" is not a valid URL.`);
+  }
+
+  return {
+    provider: llmProvider!,
+    base_url: llmBaseUrl!,
+    api_key: llmApiKey!,
+    model: llmModel!,
+  };
 }
 
 // ---------------------------------------------------------------------------
