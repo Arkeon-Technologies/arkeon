@@ -3,7 +3,7 @@
 
 import { MeiliSearch } from "meilisearch";
 import type { Actor } from "../types";
-import type { SqlClient } from "./sql";
+import { withSystemActorContext } from "./actor-context";
 
 const ENTITIES_INDEX = "entities";
 const MAX_RETRIES = 5;
@@ -137,22 +137,40 @@ export async function ensureMeiliIndex(): Promise<void> {
 // Sync helpers
 // ---------------------------------------------------------------------------
 
-/** Fetch the space IDs an entity belongs to. */
-async function fetchSpaceIds(sql: SqlClient, entityId: string): Promise<string[]> {
-  const rows = await sql`SELECT space_id FROM space_entities WHERE entity_id = ${entityId}`;
-  return (rows as Array<{ space_id: string }>).map((r) => r.space_id);
+/**
+ * Fetch the space IDs an entity belongs to.
+ *
+ * Runs under a system-level RLS context because background indexing is
+ * a privileged system operation — the index must reflect every entity
+ * regardless of read_level, and `space_entities_select` would otherwise
+ * drop rows for level-1+ spaces. See `withSystemActorContext`.
+ */
+async function fetchSpaceIds(entityId: string): Promise<string[]> {
+  return withSystemActorContext(async (tx) => {
+    const rows = await tx`SELECT space_id FROM space_entities WHERE entity_id = ${entityId}`;
+    return (rows as Array<{ space_id: string }>).map((r) => r.space_id);
+  });
 }
 
 /**
  * Index a single entity by fetching it + its space memberships from Postgres.
  * Use this when only the entity ID is available (e.g., after classification change).
+ *
+ * Reads run under a system-level RLS context (see `fetchSpaceIds`).
  */
-export async function indexEntityById(sql: SqlClient, entityId: string): Promise<void> {
+export async function indexEntityById(entityId: string): Promise<void> {
   if (!isMeilisearchConfigured()) return;
-  const rows = await sql`SELECT * FROM entities WHERE id = ${entityId} LIMIT 1`;
-  const entity = (rows as Record<string, unknown>[])[0];
+  const { entity, spaceIds } = await withSystemActorContext(async (tx) => {
+    const rows = await tx`SELECT * FROM entities WHERE id = ${entityId} LIMIT 1`;
+    const row = (rows as Record<string, unknown>[])[0];
+    if (!row) return { entity: null, spaceIds: [] };
+    const spaceRows = await tx`SELECT space_id FROM space_entities WHERE entity_id = ${entityId}`;
+    return {
+      entity: row,
+      spaceIds: (spaceRows as Array<{ space_id: string }>).map((r) => r.space_id),
+    };
+  });
   if (!entity) return;
-  const spaceIds = await fetchSpaceIds(sql, entityId);
   const doc = toMeiliDoc(entity, spaceIds);
   await withRetry(`index ${entityId}`, () =>
     getClient().index(ENTITIES_INDEX).addDocuments([doc]),
@@ -160,9 +178,9 @@ export async function indexEntityById(sql: SqlClient, entityId: string): Promise
 }
 
 /** Add or update a single entity in the search index. */
-export async function indexEntity(entity: Record<string, unknown>, sql?: SqlClient): Promise<void> {
+export async function indexEntity(entity: Record<string, unknown>): Promise<void> {
   if (!isMeilisearchConfigured()) return;
-  const spaceIds = sql ? await fetchSpaceIds(sql, String(entity.id)) : [];
+  const spaceIds = await fetchSpaceIds(String(entity.id));
   const doc = toMeiliDoc(entity, spaceIds);
   await withRetry(`index ${entity.id}`, () =>
     getClient().index(ENTITIES_INDEX).addDocuments([doc]),

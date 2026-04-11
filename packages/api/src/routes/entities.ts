@@ -597,7 +597,7 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Insufficient classification level");
   }
 
-  backgroundTask(indexEntity(inserted, sql));
+  backgroundTask(indexEntity(inserted));
 
   return c.json({ entity: inserted }, 201);
 });
@@ -737,7 +737,7 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
       ),
     ]).then(() => undefined).catch(console.error),
   );
-  backgroundTask(indexEntity(updated, sql));
+  backgroundTask(indexEntity(updated));
 
   return c.json({ entity: updated }, 200);
 });
@@ -819,7 +819,7 @@ entitiesRouter.openapi(changeLevelRoute, async (c) => {
       ),
     ]).then(() => undefined).catch(console.error),
   );
-  backgroundTask(indexEntity(updated, sql));
+  backgroundTask(indexEntity(updated));
 
   return c.json({ entity: updated }, 200);
 });
@@ -1148,7 +1148,7 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
 
   // Background tasks: clean up search index
   backgroundTask(removeEntity(sourceId));
-  backgroundTask(indexEntity(updated, sql));
+  backgroundTask(indexEntity(updated));
 
   return c.json({ entity: updated }, 200);
 });

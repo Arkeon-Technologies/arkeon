@@ -748,7 +748,7 @@ spacesRouter.openapi(addSpaceEntityRoute, async (c) => {
     return c.json({ space_id: spaceId, entity_id: body.entity_id }, 201);
   }
 
-  backgroundTask(indexEntityById(sql, String(body.entity_id)));
+  backgroundTask(indexEntityById(String(body.entity_id)));
 
   return c.json(added, 201);
 });
@@ -790,7 +790,7 @@ spacesRouter.openapi(removeSpaceEntityRoute, async (c) => {
     sql`DELETE FROM space_entities WHERE space_id = ${spaceId} AND entity_id = ${entityId}`,
   ]);
 
-  backgroundTask(indexEntityById(sql, entityId));
+  backgroundTask(indexEntityById(entityId));
 
   return new Response(null, { status: 204 });
 });
