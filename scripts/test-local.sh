@@ -13,59 +13,63 @@ step() { echo -e "\n${BOLD}=== $1 ===${NC}"; }
 pass() { echo -e "${GREEN}PASS${NC}: $1"; }
 fail() { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# A scratch ARKEON_HOME so we don't stomp on the developer's real ~/.arkeon
+SCRATCH_DIR="$(mktemp -d -t arkeon-test-XXXXXX)"
+PIDFILE="/tmp/arkeon-test-local.$$.pid"
+LOGFILE="/tmp/arkeon-test-local.$$.log"
+cleanup() {
+  if [ -f "$PIDFILE" ]; then
+    kill -TERM "$(cat "$PIDFILE")" 2>/dev/null || true
+  fi
+  rm -rf "$SCRATCH_DIR" "$PIDFILE" "$LOGFILE"
+}
+trap cleanup EXIT
+
 # Typecheck
 step "Typecheck: API"
 npm run typecheck -w packages/api || fail "API typecheck"
 pass "API typecheck"
 
-step "Typecheck: Control Plane"
-npm run typecheck -w apps/control-plane || fail "Control plane typecheck"
-pass "Control plane typecheck"
+# Build SDK (required by API imports + CLI codegen)
+step "Build: SDK"
+npm run build -w packages/sdk-ts || fail "SDK build"
+pass "SDK build"
 
-# User-data validation
-step "Validate user-data script"
-npx tsx apps/control-plane/scripts/test-userdata.ts || fail "User-data validation"
-pass "User-data script"
+# Build explorer SPA (served by the API at /explore)
+step "Build: Explorer"
+npm run build -w @arkeon-technologies/explorer || fail "Explorer build"
+pass "Explorer build"
 
-# Docker build
-step "Building Docker image"
-docker build -t arke:ci . || fail "Docker build"
-pass "Docker build"
+# Start Arkeon stack via the CLI in the background
+step "Starting Arkeon stack"
+ARKEON_HOME="$SCRATCH_DIR" nohup npx tsx packages/cli/src/index.ts start \
+  --port 8000 --pg-port 15433 --meili-port 17700 \
+  > "$LOGFILE" 2>&1 &
+echo $! > "$PIDFILE"
 
-# Start stack
-step "Starting test stack"
-docker compose -f docker-compose.ci.yml down -v 2>/dev/null || true
-docker compose -f docker-compose.ci.yml up -d || fail "Docker compose up"
-
-# Wait for health
 step "Waiting for API health"
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
     pass "API is healthy"
     break
   fi
-  if [ $i -eq 30 ]; then
+  if [ $i -eq 60 ]; then
     echo "Logs:"
-    docker compose -f docker-compose.ci.yml logs
-    fail "API did not start within 60s"
+    tail -100 "$LOGFILE"
+    fail "API did not start within 120s"
   fi
   sleep 2
 done
 
-# E2E tests
+# E2E tests — the admin key is generated on first start, read it from the log
+ADMIN_KEY=$(grep "Admin API key" "$LOGFILE" | tail -1 | awk '{print $NF}')
 step "Running e2e tests"
 E2E_BASE_URL=http://localhost:8000 \
-ADMIN_BOOTSTRAP_KEY=ak_test_ci_key \
-npm run test:e2e -w packages/api || {
-  docker compose -f docker-compose.ci.yml logs
-  docker compose -f docker-compose.ci.yml down -v
-  fail "E2E tests"
-}
+ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
+npm run test:e2e -w packages/api || fail "E2E tests"
 pass "E2E tests"
-
-# Cleanup
-step "Cleanup"
-docker compose -f docker-compose.ci.yml down -v
-pass "Cleanup"
 
 echo -e "\n${GREEN}${BOLD}All checks passed.${NC} Safe to push."
