@@ -1,6 +1,6 @@
 {
   "name": "arkeon",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Command-line interface for the Arkeon API",
   "repository": {
     "type": "git",
@@ -21,7 +21,7 @@
     "bundle-assets": "tsx scripts/bundle-assets.ts",
     "bundle-explorer": "npm run build -w @arkeon-technologies/explorer && tsx scripts/copy-explorer.ts",
     "bundle-migrations": "tsx scripts/copy-migrations.ts",
-    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && npm run bundle-explorer && npm run bundle-migrations && tsup",
+    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && tsup && npm run bundle-explorer && npm run bundle-migrations",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
