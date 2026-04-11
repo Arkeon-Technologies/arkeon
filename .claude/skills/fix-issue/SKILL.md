@@ -3,7 +3,7 @@ name: fix-issue
 description: Fix a GitHub issue in an isolated worktree, test, commit, and open a PR.
 disable-model-invocation: true
 argument-hint: [issue-number]
-allowed-tools: Read, Grep, Glob, Bash(git *, gh *, npm *, psql *, curl *, docker *, pkill *, sleep *, ls *), Edit, Write, Agent, EnterPlanMode, ExitPlanMode, ExitWorktree
+allowed-tools: Read, Grep, Glob, Bash(git *, gh *, npm *, npx *, psql *, curl *, pkill *, sleep *, ls *), Edit, Write, Agent, EnterPlanMode, ExitPlanMode, ExitWorktree
 ---
 
 # Fix GitHub Issue in Worktree
@@ -84,8 +84,9 @@ If tests fail, fix the issue and re-run. Do not proceed to the PR step with fail
 # Stop the isolated stack when done
 # (use /local-dev stop from the worktree, or manually:)
 source .claude/worktrees/issue-$ARGUMENTS/.devports
-lsof -ti:$API_PORT | xargs kill 2>/dev/null || true
-PG_PORT=$PG_PORT docker compose -p $PROJECT down
+if [ -f /tmp/arkeon-$API_PORT.pid ]; then
+  kill -TERM "$(cat /tmp/arkeon-$API_PORT.pid)" 2>/dev/null || true
+fi
 ```
 
 ### 6. Commit and push
@@ -145,7 +146,7 @@ git branch -d fix/issue-$ARGUMENTS
 - All work happens inside the worktree
 - Run migrations if any SQL files changed
 - Run e2e tests before opening the PR
-- If changing `packages/runtime/src/sandbox.ts` or `packages/api/src/lib/worker-invoke.ts`, run `./scripts/test-sandbox.sh` to test bwrap inside Docker — macOS won't catch bwrap issues
+- If changing `packages/runtime/src/sandbox.ts` or `packages/api/src/lib/worker-invoke.ts`, run `./scripts/test-sandbox.sh`. On Linux this exercises real bubblewrap; on macOS it exercises the direct-execution fallback. The CI workflow installs bubblewrap on Ubuntu and runs the same script, so full-isolation tests still run in CI even if you develop on a Mac.
 - If tests fail, fix and re-test — don't open a broken PR
 - **Labeling is mandatory**: `in-progress` must be added before any work begins; transition to `in-review` when the PR is opened
 - If you abandon the issue (user says stop, or it's blocked), remove the `in-progress` label: `gh issue edit $ARGUMENTS --remove-label "in-progress"`

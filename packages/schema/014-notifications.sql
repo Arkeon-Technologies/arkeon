@@ -23,9 +23,6 @@ CREATE INDEX IF NOT EXISTS idx_notifications_ts ON notifications(ts);
 GRANT SELECT, INSERT, DELETE ON notifications TO arke_app;
 GRANT USAGE, SELECT ON SEQUENCE notifications_id_seq TO arke_app;
 
--- Retention: prune after 15 days
-SELECT cron.schedule(
-  'prune-notifications',
-  '0 3 * * *',
-  $$DELETE FROM notifications WHERE ts < NOW() - INTERVAL '15 days'$$
-);
+-- Retention runs in-process (see packages/api/src/lib/retention.ts),
+-- not via pg_cron. An admin-context RLS policy in 015-rls-policies.sql
+-- lets the system retention job delete rows across all recipients.

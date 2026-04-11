@@ -1,64 +1,50 @@
 # arkeon
 
-Monorepo for the Arkeon platform. npm workspaces with four packages:
+Monorepo for the Arkeon platform. npm workspaces with:
 
 - `packages/api` — Node.js API server (Hono + Postgres + local/S3 file storage)
-- `packages/cli` — CLI auto-generated from the API's OpenAPI spec
+- `packages/cli` — CLI (`arkeon`) — auto-generated from the API's OpenAPI spec, plus the hand-written local-mode commands (`start`/`stop`/`status`/`migrate`/`reset`)
 - `packages/schema` — Database migration SQL files
 - `packages/runtime` — Sandboxed worker/agent runtime
+- `packages/sdk-ts` — TypeScript SDK
+- `packages/shared`, `packages/explorer` — supporting libraries
 
 ## Quick Start
 
+Arkeon runs as a single Node process that manages its own Postgres and Meilisearch. No Docker, no system services.
+
 ```bash
-# 1. Copy the env template and fill in the required secrets
-cp .env.example .env
-# edit .env: ADMIN_BOOTSTRAP_KEY, ENCRYPTION_KEY, MEILI_MASTER_KEY, POSTGRES_PASSWORD
-
-# Option A: Full stack via Docker (api + postgres + meilisearch + redis + migrate)
-docker compose up
-
-# Option B: Host API against an existing Postgres
-# Set DATABASE_URL in .env to your external instance
-npm run migrate
-npm run dev -w packages/api
+npm install
+npm run build -w packages/sdk-ts              # prebuilt SDK is required
+npx tsx packages/cli/src/index.ts start       # bring up the full stack
 ```
 
-See `.env.example` for the full list of environment variables. The API
-and compose stack will refuse to boot if any required secret is missing.
+First run downloads a Meilisearch binary into `~/.arkeon/bin/` (one-time, ~100MB), initializes an embedded Postgres cluster in `~/.arkeon/data/postgres/`, runs migrations, and starts the API on `http://localhost:8000`. The admin API key is generated on first start and printed to the console (and persisted in `~/.arkeon/secrets.json` for subsequent starts).
+
+`Ctrl+C` drains gracefully. From another terminal: `arkeon status`, `arkeon stop`, `arkeon reset`.
+
+State lives in `~/.arkeon/` by default (override with `ARKEON_HOME`). `arkeon reset` wipes data but keeps secrets + binary; `arkeon reset --hard` wipes everything.
 
 ## Workspace Commands
 
 ```bash
-npm run dev -w packages/api        # Start API dev server (port 8000)
-npm run migrate                    # Run schema migrations
-npm run build -w packages/cli      # Build CLI
-npm run typecheck -w packages/api  # Typecheck API
-npm run test:e2e -w packages/api   # Run API e2e tests
-./scripts/test-sandbox.sh          # Test bwrap sandbox in Docker (required for sandbox/worker-invoke changes)
+npx tsx packages/cli/src/index.ts start   # Start the full local stack
+npx tsx packages/cli/src/index.ts stop    # Stop it
+npx tsx packages/cli/src/index.ts migrate # Run migrations without starting API
+npm run typecheck -w packages/api         # Typecheck API
+npm run test:e2e -w packages/api          # Run API e2e tests (needs a running stack)
+./scripts/test-local.sh                   # Full pre-push check: typecheck + start + e2e
+./scripts/test-sandbox.sh                 # Worker sandbox tests (requires bubblewrap on Linux)
 ```
-
-## Docker
-
-```bash
-docker compose up            # full stack: api + postgres + meilisearch + redis + migrate
-docker compose down -v       # tear down and drop volumes
-```
-
-Migrations run automatically on every `docker compose up` via the
-`migrate` service, which the `api` service blocks on.
 
 ## Configuration
 
-See `.env.example` for all options. Required secrets (no defaults):
-- `ADMIN_BOOTSTRAP_KEY` — seeds the first admin API key
-- `ENCRYPTION_KEY` — 64-char hex (AES-256-GCM for secrets at rest)
-- `MEILI_MASTER_KEY` — Meilisearch master key
-- `POSTGRES_PASSWORD` — local compose Postgres password
-
-Optional features:
-- `ENABLE_KNOWLEDGE_PIPELINE=true` — opt in to the LLM knowledge
-  extraction pipeline (off by default; see `docs/ADVANCED.md`)
+Local-mode defaults are fine out of the box — secrets are generated on first run. For advanced setups see `.env.example` for host-mode overrides:
+- `DATABASE_URL` — point at an external Postgres instead of embedded
+- `MEILI_URL` / `MEILI_MASTER_KEY` — point at an external Meilisearch
+- `ENABLE_KNOWLEDGE_PIPELINE=true` — opt in to the LLM knowledge extraction pipeline (requires `OPENAI_API_KEY`; see `docs/ADVANCED.md`)
 - `STORAGE_BACKEND=s3` — switch from local filesystem to S3/R2/MinIO
+- `ARKEON_HOME` — override the `~/.arkeon` state directory
 
 ## Do NOT add in-process rate limiting
 
@@ -104,7 +90,8 @@ Rules:
 - `ALTER TABLE DROP COLUMN` / `DROP CONSTRAINT` — always use `IF EXISTS`
 - `DROP TABLE` / `DROP INDEX` — always use `IF EXISTS`
 - Never assume a previous migration's intermediate state still exists (e.g., a constraint created in migration N may already be dropped by migration N+3)
-- Test migrations by running `npm run migrate` twice in a row — the second run must succeed cleanly
+- Test migrations by running `arkeon migrate` twice in a row — the second run must succeed cleanly
+- Do not use loadable extensions (`CREATE EXTENSION`). The local stack uses embedded Postgres which does not ship extensions beyond what's built-in. Retention jobs that used to live in `pg_cron` now run in-process via `packages/api/src/lib/retention.ts` — follow that pattern for new periodic tasks.
 
 ## API: LLM Help System
 

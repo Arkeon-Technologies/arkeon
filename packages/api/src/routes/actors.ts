@@ -326,7 +326,7 @@ actorsRouter.openapi(createActorRoute, async (c) => {
       throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
     }
     if (schedule && !isSchedulerAvailable()) {
-      throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — Redis is not configured on this instance");
+      throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — the scheduler has not started yet");
     }
 
     const workerProperties: Record<string, unknown> = {

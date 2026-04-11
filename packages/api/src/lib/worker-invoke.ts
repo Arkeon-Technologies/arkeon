@@ -3,7 +3,7 @@
 
 /**
  * Shared worker invocation logic used by both the HTTP endpoint
- * and the BullMQ scheduler.
+ * and the in-process cron scheduler.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";

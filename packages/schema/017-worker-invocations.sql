@@ -30,8 +30,11 @@ CREATE TABLE worker_invocations (
 CREATE INDEX IF NOT EXISTS idx_invocations_worker ON worker_invocations(worker_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_invocations_invoker ON worker_invocations(invoker_id, ts DESC);
 
--- Immutable log: SELECT and INSERT only, no UPDATE or DELETE
-GRANT SELECT, INSERT ON worker_invocations TO arke_app;
+-- User-visible semantics: SELECT and INSERT only. DELETE is granted for
+-- the in-process retention job (see packages/api/src/lib/retention.ts)
+-- and is gated by an admin-context RLS policy in 015-rls-policies.sql —
+-- no route hands a DELETE on this table to a user-authenticated actor.
+GRANT SELECT, INSERT, DELETE ON worker_invocations TO arke_app;
 GRANT USAGE ON SEQUENCE worker_invocations_id_seq TO arke_app;
 
 -- RLS: visible to worker owner or admin
@@ -52,9 +55,9 @@ CREATE POLICY invocations_insert ON worker_invocations
 FOR INSERT TO arke_app
 WITH CHECK (true);
 
--- Retention: prune invocations older than 30 days
-SELECT cron.schedule(
-  'prune-worker-invocations',
-  '0 4 * * *',
-  $$DELETE FROM worker_invocations WHERE ts < NOW() - INTERVAL '30 days'$$
-);
+-- DELETE: admin-context only. The in-process retention job
+-- (packages/api/src/lib/retention.ts) runs with admin context and is
+-- the only caller — no route exposes DELETE to user-authenticated actors.
+CREATE POLICY invocations_delete ON worker_invocations
+FOR DELETE TO arke_app
+USING (current_actor_is_admin());

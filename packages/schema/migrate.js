@@ -14,10 +14,10 @@ const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL ?? pr
 
 // Template variables substituted into .sql files before execution. Tokens
 // of the form :'name' are replaced with a SQL-quoted literal of the
-// matching value. The default for arke_app_password keeps the host-mode
-// local-dev and CI flows (which intentionally use the weak `arke`
-// password) working without extra config; docker compose enforces a real
-// value via ${ARKE_APP_PASSWORD:?...}.
+// matching value. The default for arke_app_password keeps ad-hoc
+// `node migrate.js` runs (intentionally using the weak `arke` password)
+// working without extra config; the arkeon CLI passes a real value via
+// ARKE_APP_PASSWORD from ~/.arkeon/secrets.json.
 const TEMPLATE_VARS = {
   arke_app_password: process.env.ARKE_APP_PASSWORD ?? "arke",
 };
@@ -133,12 +133,6 @@ for (const file of files) {
         skipped = true;
       } else if (err.code === "42703" && msg.includes("does not exist")) {
         // Column was renamed by a later migration — index already covers it
-        skipped = true;
-      } else if (
-        msg.includes("cron") ||
-        msg.includes("pg_cron") ||
-        msg.includes("is not available")
-      ) {
         skipped = true;
       } else {
         console.log(`ERROR: ${msg}`);
