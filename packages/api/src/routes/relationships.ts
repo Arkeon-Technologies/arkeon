@@ -437,7 +437,7 @@ entityRelationshipsRouter.openapi(createRelationshipRoute, async (c) => {
   if (!relEntity) {
     throw new ApiError(500, "internal_error", "Failed to create relationship entity");
   }
-  backgroundTask(indexEntity(relEntity, sql));
+  backgroundTask(indexEntity(relEntity));
 
   return c.json(
     {
@@ -542,7 +542,7 @@ relationshipDirectRouter.openapi(updateRelationshipRoute, async (c) => {
       [relId, actor.id, JSON.stringify({ relationship_id: relId, ver: row.ver }), now],
     ),
   ]);
-  backgroundTask(indexEntity(row as Record<string, unknown>, sql));
+  backgroundTask(indexEntity(row as Record<string, unknown>));
   return c.json({ relationship: row }, 200);
 });
 

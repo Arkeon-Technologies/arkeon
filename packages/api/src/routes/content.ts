@@ -113,7 +113,7 @@ async function updateContentMetadata(options: {
     ),
   ]);
 
-  backgroundTask(indexEntity(updated, sql));
+  backgroundTask(indexEntity(updated));
 
   return { updated, nextVer, ts: now };
 }
