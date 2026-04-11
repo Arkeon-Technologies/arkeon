@@ -26,9 +26,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 (not 22) is required: npm's trusted-publishing OIDC handshake
+      # needs npm >= 11.5.1, and Node 22 ships with npm 10.x. With the old
+      # npm, the handshake silently fails and the registry treats the
+      # publish as anonymous — surfacing as a misleading `404 Not Found` on
+      # the PUT. See https://github.com/npm/cli/issues/8730 and the failed
+      # run for arkeon-v0.0.1 (GH Actions run 24284553520).
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Extract version from tag
@@ -62,9 +68,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 (not 22) is required: npm's trusted-publishing OIDC handshake
+      # needs npm >= 11.5.1, and Node 22 ships with npm 10.x. With the old
+      # npm, the handshake silently fails and the registry treats the
+      # publish as anonymous — surfacing as a misleading `404 Not Found` on
+      # the PUT. See https://github.com/npm/cli/issues/8730 and the failed
+      # run for arkeon-v0.0.1 (GH Actions run 24284553520).
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Extract version from tag
