@@ -2,9 +2,14 @@
   "name": "arkeon",
   "version": "0.0.1",
   "description": "Command-line interface for the Arkeon API",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Arkeon-Technologies/arkeon",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
-    "arkeon": "./dist/index.js"
+    "arkeon": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [
