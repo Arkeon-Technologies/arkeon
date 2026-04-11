@@ -93,6 +93,19 @@ After changes that rename concepts, remove/replace features, add features previo
 
 Pay special attention to changes that span multiple services (e.g., renaming "commons" to "spaces" touched schema, routes, and 8 docs). These are the hardest to discover later.
 
+## Schema Migrations
+
+Migrations in `packages/schema/` run on every deploy — there is no migration state tracker, so **every migration must be idempotent**. A migration that worked once will run again on the next deploy and must not fail.
+
+Rules:
+- `CREATE TABLE` / `CREATE INDEX` — always use `IF NOT EXISTS`
+- `INSERT` seed data — always use `ON CONFLICT ... DO NOTHING` (or `DO UPDATE` if the seed should evolve)
+- `ALTER TABLE ADD COLUMN` — wrap in a `DO $$ ... IF NOT EXISTS` check, or use `ADD COLUMN IF NOT EXISTS` (PG 9.6+)
+- `ALTER TABLE DROP COLUMN` / `DROP CONSTRAINT` — always use `IF EXISTS`
+- `DROP TABLE` / `DROP INDEX` — always use `IF EXISTS`
+- Never assume a previous migration's intermediate state still exists (e.g., a constraint created in migration N may already be dropped by migration N+3)
+- Test migrations by running `npm run migrate` twice in a row — the second run must succeed cleanly
+
 ## API: LLM Help System
 
 The API has a layered, self-documenting help system served at `/llms.txt` and `/help`. It is the primary way LLMs discover and understand the API.
