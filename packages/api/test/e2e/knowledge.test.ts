@@ -124,6 +124,8 @@ describe("Knowledge Config", () => {
         llm: {
           test_role: {
             provider: "openai",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-key-for-delete",
             model: "gpt-test",
           },
         },

@@ -64,7 +64,12 @@ knowledgeRouter.openapi(getConfigRoute, async (c) => {
 
 const llmConfigValueSchema = z.object({
   provider: z.string(),
-  base_url: z.string().optional(),
+  // Required: every provider must declare its OpenAI-compatible base URL.
+  // No defaults — see packages/api/src/knowledge/lib/config.ts.
+  base_url: z.string().url(),
+  // Optional only on update: lets callers tweak model/base_url without
+  // re-supplying the key. resolveLlmConfig refuses to return a config
+  // unless a key has been stored at some point.
   api_key: z.string().optional(),
   model: z.string(),
   max_tokens: z.number().optional(),

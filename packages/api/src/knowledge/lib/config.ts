@@ -33,16 +33,14 @@ export interface ExtractionConfig {
   updated_at: string;
 }
 
-const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
-  openai: {
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-4.1-nano",
-  },
-};
-
 /**
  * Resolve LLM config for a given agent role.
- * Falls back: agent-specific -> default -> env vars.
+ *
+ * Looks up `knowledge_config` for the agent-specific id first, then "default".
+ * Returns the first row that has both a stored API key and a base URL. There
+ * is no env-var fallback and no provider-specific default — every field must
+ * be explicitly configured. Configure via `arkeon init`, the dashboard, or
+ * `PUT /knowledge/config`.
  */
 export async function resolveLlmConfig(agentId: string): Promise<LlmConfig> {
   return withAdminSql(async (sql) => {
@@ -53,11 +51,10 @@ export async function resolveLlmConfig(agentId: string): Promise<LlmConfig> {
         WHERE id = ${id}
       `;
 
-      if (row?.api_key_encrypted) {
+      if (row?.api_key_encrypted && row.base_url) {
         const apiKey = await decrypt(row.api_key_encrypted as string);
-        const defaults = PROVIDER_DEFAULTS[row.provider as string];
         return {
-          baseUrl: (row.base_url as string) ?? defaults?.baseUrl ?? "",
+          baseUrl: row.base_url as string,
           apiKey,
           model: row.model as string,
           maxTokens: row.max_tokens as number,
@@ -65,19 +62,8 @@ export async function resolveLlmConfig(agentId: string): Promise<LlmConfig> {
       }
     }
 
-    // Env var fallback
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (openaiKey) {
-      return {
-        baseUrl: PROVIDER_DEFAULTS.openai.baseUrl,
-        apiKey: openaiKey,
-        model: PROVIDER_DEFAULTS.openai.model,
-        maxTokens: 4096,
-      };
-    }
-
     throw new Error(
-      `No LLM config found for "${agentId}". Configure via PUT /knowledge/config or set OPENAI_API_KEY env var.`,
+      `No LLM provider configured for "${agentId}". Run \`arkeon init\` or PUT /knowledge/config with provider, base_url, api_key, and model.`,
     );
   });
 }
