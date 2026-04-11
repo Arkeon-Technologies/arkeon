@@ -8,7 +8,6 @@ on:
       - 'packages/api/**'
       - 'packages/cli/src/**'
       - 'packages/sdk-ts/src/**'
-      - 'packages/sdk-python/arkeon_sdk/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
       - 'Dockerfile'
@@ -22,7 +21,6 @@ on:
       - 'packages/api/**'
       - 'packages/cli/src/**'
       - 'packages/sdk-ts/src/**'
-      - 'packages/sdk-python/arkeon_sdk/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
       - 'Dockerfile'
@@ -98,8 +96,10 @@ jobs:
           docker push $ECR_REPO:latest
           docker push $ECR_REPO:sha-${GITHUB_SHA::8}
 
-  publish-cli:
-    # Only publish from push-to-main, never from PR runs.
+  regenerate-cli-spec:
+    # Regenerates the CLI's OpenAPI snapshot against the current API and
+    # commits it back to main so the checked-in CLI codegen never drifts.
+    # Releases are separate — see .github/workflows/publish.yml.
     if: github.event_name != 'pull_request'
     needs: test-and-push
     runs-on: ubuntu-latest
@@ -111,7 +111,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: npm ci
@@ -139,16 +138,3 @@ jobs:
           git add packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts
           git commit -m "chore: regenerate CLI spec from current API [skip ci]"
           git push
-
-      - name: Publish next patch version to npm
-        if: steps.check.outputs.changed == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          cd packages/cli
-          PKG=$(node -p "require('./package.json').name")
-          LATEST=$(npm view "$PKG" version 2>/dev/null || echo "0.0.0")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
-          NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          npm version "$NEXT" --no-git-tag-version
-          npm publish --access public

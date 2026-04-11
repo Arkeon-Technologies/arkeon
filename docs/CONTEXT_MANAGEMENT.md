@@ -90,8 +90,6 @@ The most critical context surface. Workers are LLMs running in sandboxes — the
     [Flag syntax, output format (default vs --raw), idempotency guidance]
   ### TypeScript SDK
     [Import, CRUD, pagination, relationships, errors, config (space_id)]
-  ### Python SDK
-    [Same coverage, Python syntax]
   ### API Response Patterns
     [CRITICAL: how responses wrap objects — entity.id not .id, relationship shapes, etc.]
   ### Filtering

@@ -83,14 +83,11 @@ RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 # Add bare "arkeon-sdk" alias so worker sandboxes can import it from any directory.
 RUN ln -s /app/packages/sdk-ts /app/node_modules/arkeon-sdk
 
-# Install Python SDK and common document-processing packages for worker sandboxes
-COPY packages/sdk-python /tmp/sdk-python
+# Install common document-processing packages for worker sandboxes
 RUN pip install --break-system-packages --no-cache-dir \
-    /tmp/sdk-python \
     reportlab pypdf python-docx openpyxl python-pptx \
     ebooklib beautifulsoup4 lxml \
-    Pillow pandas markdown chardet \
-    && rm -rf /tmp/sdk-python
+    Pillow pandas markdown chardet
 
 FROM app AS api
 EXPOSE 8000
