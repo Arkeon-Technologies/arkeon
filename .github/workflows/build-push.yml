@@ -79,11 +79,18 @@ jobs:
           key: arkeon-bin-${{ runner.os }}-${{ runner.arch }}-meili-1.41.0
 
       - name: Start Arkeon stack
+        # --knowledge enables the extraction pipeline so the Knowledge
+        # Poller e2e test (test/e2e/knowledge.test.ts) can observe an
+        # ingest job row being created on upload. Child LLM calls will
+        # fail silently because no provider is configured, but the
+        # test only checks that the poller-triggered ingest row
+        # appears, not that extraction succeeds.
         run: |
           nohup npx tsx packages/cli/src/index.ts start \
             --port 8000 \
             --pg-port 15433 \
             --meili-port 17700 \
+            --knowledge \
             > /tmp/arkeon.log 2>&1 &
           echo $! > /tmp/arkeon.pid
 
