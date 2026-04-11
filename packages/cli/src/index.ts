@@ -15,7 +15,7 @@ const program = new Command();
 program
   .name("arkeon")
   .description("CLI for the Arkeon API")
-  .version("0.1.0")
+  .version("0.2.0")
   .option("--api-url <url>", "Override API base URL for this process")
   .option("--space-id <id>", "Override default space ID for this process");
 
