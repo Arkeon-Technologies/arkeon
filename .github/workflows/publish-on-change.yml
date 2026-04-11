@@ -43,6 +43,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # CLI's `fetch-spec` step imports the API to render the OpenAPI snapshot,
+      # and the API's knowledge service imports `@arkeon-technologies/sdk` from
+      # its built dist. Build the SDK first so the import resolves.
+      - name: Build SDK (required by CLI fetch-spec via API import)
+        run: npm run build -w packages/sdk-ts
+
       - name: Build CLI
         run: npm run build -w packages/cli
 
