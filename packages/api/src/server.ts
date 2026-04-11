@@ -139,8 +139,10 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
   startRetention();
 
   // Knowledge extraction service — opt-in via ENABLE_KNOWLEDGE_PIPELINE=true.
-  // See docs/ADVANCED.md for setup, required secrets (OPENAI_API_KEY), and
-  // cost/behavior notes.
+  // The LLM provider is configured at runtime via /knowledge/config (see
+  // `arkeon init --llm-*` and `arkeon knowledge config update`) and stored
+  // in the knowledge_config table. There is no env-var fallback for the
+  // key. See docs/ADVANCED.md for cost/behavior notes.
   const knowledgeEnabled = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
   if (knowledgeEnabled) {
     await bootstrapKnowledgeService();

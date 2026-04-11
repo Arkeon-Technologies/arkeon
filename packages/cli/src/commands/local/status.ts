@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `arkeon status` — report whether the local stack is running, what
- * port the API is on, and whether /health is responding.
+ * `arkeon status` — report the local stack's running state, HTTP
+ * health, readiness, whether the Genesis seed has been loaded, and
+ * whether the knowledge pipeline has an LLM provider configured.
  *
  * Exit codes:
- *   0  — running and healthy
- *   1  — running but unhealthy (e.g. stopped responding)
- *   2  — not running
+ *   0 — running + /health and /ready both OK
+ *   1 — running but unhealthy or not ready
+ *   2 — not running
  */
 
 import type { Command } from "commander";
@@ -18,47 +19,189 @@ import {
   DEFAULT_API_PORT,
   isProcessAlive,
   readPidfile,
+  readSecrets,
   removePidfile,
 } from "../../lib/local-runtime.js";
+import { output } from "../../lib/output.js";
+
+interface StatusOptions {
+  port?: string;
+}
+
+interface EntitiesListResponse {
+  entities?: Array<{ id: string; type?: string; properties?: Record<string, unknown> }>;
+  next_cursor?: string | null;
+}
+
+interface KnowledgeConfigResponse {
+  llm?: Array<{ id: string; provider: string; model: string; has_key: boolean }>;
+}
 
 export function registerStatusCommand(program: Command): void {
   program
     .command("status")
-    .description("Show the status of the local Arkeon stack")
-    .option("--port <port>", "API port to probe (defaults to the configured port)", String(DEFAULT_API_PORT))
-    .action(async (options: { port: string }) => {
-      const pid = readPidfile();
-      if (!pid) {
-        console.log("arkeon: not running");
-        console.log(`  state dir: ${arkeonDir()}`);
-        process.exit(2);
-      }
-
-      if (!isProcessAlive(pid)) {
-        console.log(`arkeon: not running (stale pidfile for pid ${pid})`);
-        removePidfile();
-        process.exit(2);
-      }
-
-      const port = Number(options.port);
-      const url = `http://localhost:${port}/health`;
-
-      let healthy = false;
+    .description("Show the local Arkeon stack's process, health, seed, and LLM state")
+    .option(
+      "--port <port>",
+      "API port to probe (defaults to the configured local port)",
+      String(DEFAULT_API_PORT),
+    )
+    .action(async (opts: StatusOptions) => {
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeout);
-        healthy = res.ok;
-      } catch {
-        healthy = false;
+        await runStatus(opts);
+      } catch (error) {
+        output.error(error, { operation: "status" });
+        process.exitCode = 1;
       }
-
-      console.log(`arkeon: running (pid ${pid})`);
-      console.log(`  API:       http://localhost:${port}`);
-      console.log(`  health:    ${healthy ? "OK" : "NOT RESPONDING"}`);
-      console.log(`  state dir: ${arkeonDir()}`);
-
-      process.exit(healthy ? 0 : 1);
     });
 }
+
+async function runStatus(opts: StatusOptions): Promise<void> {
+  const port = Number(opts.port ?? DEFAULT_API_PORT);
+  const apiUrl = `http://localhost:${port}`;
+  const pid = readPidfile();
+
+  // Not running — still show state_dir + admin key prefix so the user
+  // has what they need to bring the stack back up and authenticate.
+  if (!pid) {
+    const secrets = readSecrets();
+    output.result({
+      operation: "status",
+      state: "not_running",
+      state_dir: arkeonDir(),
+      admin_key_prefix: secrets ? `${secrets.adminBootstrapKey.slice(0, 8)}...` : null,
+      hint: "Run `arkeon up` to start the stack.",
+    });
+    process.exit(2);
+  }
+
+  if (!isProcessAlive(pid)) {
+    removePidfile();
+    const secrets = readSecrets();
+    output.result({
+      operation: "status",
+      state: "not_running",
+      reason: "stale_pidfile",
+      stale_pid: pid,
+      state_dir: arkeonDir(),
+      admin_key_prefix: secrets ? `${secrets.adminBootstrapKey.slice(0, 8)}...` : null,
+    });
+    process.exit(2);
+  }
+
+  // Running — probe the HTTP surface. We do /health and /ready
+  // unauthenticated (they bypass auth middleware) and the entity +
+  // knowledge probes authenticated.
+  const health = await probeHealth(`${apiUrl}/health`);
+  const ready = await probeHealth(`${apiUrl}/ready`);
+
+  if (!health) {
+    output.result({
+      operation: "status",
+      state: "running_unhealthy",
+      pid,
+      api_url: apiUrl,
+      health: false,
+      ready: false,
+      state_dir: arkeonDir(),
+      hint: "Process is alive but /health is not responding. Check `arkeon logs` for errors.",
+    });
+    process.exit(1);
+  }
+
+  // Healthy — do the authenticated probes for seed / LLM state.
+  // Use read-only secrets so status doesn't create state if the dir
+  // wasn't there (shouldn't happen when a daemon is live, but guard
+  // against surprising state creation regardless).
+  const secrets = readSecrets();
+  if (!secrets) {
+    output.result({
+      operation: "status",
+      state: "running",
+      pid,
+      api_url: apiUrl,
+      health: true,
+      ready,
+      state_dir: arkeonDir(),
+      hint: "No secrets.json in the state dir — cannot run authenticated probes. Run `arkeon init` to generate one.",
+    });
+    process.exit(ready ? 0 : 1);
+  }
+  const adminKey = secrets.adminBootstrapKey;
+
+  const [seedState, llmState] = await Promise.all([
+    probeSeedLoaded(apiUrl, adminKey),
+    probeLlmConfigured(apiUrl, adminKey),
+  ]);
+
+  output.result({
+    operation: "status",
+    state: "running",
+    pid,
+    api_url: apiUrl,
+    health: true,
+    ready,
+    seed_loaded: seedState.loaded,
+    seed_book_id: seedState.bookId,
+    llm_configured: llmState.configured,
+    llm_provider: llmState.provider,
+    llm_model: llmState.model,
+    state_dir: arkeonDir(),
+    admin_key_prefix: `${adminKey.slice(0, 8)}...`,
+  });
+  process.exit(ready ? 0 : 1);
+}
+
+async function probeHealth(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function probeSeedLoaded(
+  apiUrl: string,
+  adminKey: string,
+): Promise<{ loaded: boolean; bookId: string | null }> {
+  try {
+    const res = await fetch(`${apiUrl}/entities?type=book&limit=20`, {
+      headers: { authorization: `ApiKey ${adminKey}` },
+    });
+    if (!res.ok) return { loaded: false, bookId: null };
+    const body = (await res.json()) as EntitiesListResponse;
+    const book = body.entities?.find((e) => {
+      const label = ((e.properties?.label as string | undefined) ?? "").toLowerCase();
+      return label.includes("genesis");
+    });
+    return { loaded: Boolean(book), bookId: book?.id ?? null };
+  } catch {
+    return { loaded: false, bookId: null };
+  }
+}
+
+async function probeLlmConfigured(
+  apiUrl: string,
+  adminKey: string,
+): Promise<{ configured: boolean; provider: string | null; model: string | null }> {
+  try {
+    const res = await fetch(`${apiUrl}/knowledge/config`, {
+      headers: { authorization: `ApiKey ${adminKey}` },
+    });
+    if (!res.ok) return { configured: false, provider: null, model: null };
+    const body = (await res.json()) as KnowledgeConfigResponse;
+    const def = body.llm?.find((c) => c.id === "default" && c.has_key);
+    return {
+      configured: Boolean(def),
+      provider: def?.provider ?? null,
+      model: def?.model ?? null,
+    };
+  } catch {
+    return { configured: false, provider: null, model: null };
+  }
+}
+

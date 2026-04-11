@@ -35,6 +35,7 @@ import { homedir, platform, arch } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 
 import EmbeddedPostgres from "embedded-postgres";
 
@@ -61,6 +62,7 @@ export function binDir(): string { return join(arkeonHome(), "bin"); }
 export function secretsFile(): string { return join(arkeonHome(), "secrets.json"); }
 export function pidfile(): string { return join(arkeonHome(), "arkeon.pid"); }
 export function logfile(): string { return join(arkeonHome(), "arkeon.log"); }
+export function pendingLlmFile(): string { return join(arkeonHome(), "pending-llm.json"); }
 
 // Meilisearch version pinned for reproducibility. Bump deliberately.
 const MEILI_VERSION = "v1.41.0";
@@ -93,6 +95,22 @@ export interface ArkeonSecrets {
   // still generate a random one so the data dir isn't trivially
   // accessible by other users on a shared machine.
   pgPassword: string;
+}
+
+/**
+ * Read secrets.json if it exists. Returns null when the file is
+ * missing. Unlike loadOrCreateSecrets, this never writes to disk —
+ * safe to call from status/probe commands where generating state
+ * would be surprising.
+ */
+export function readSecrets(): ArkeonSecrets | null {
+  const path = secretsFile();
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as ArkeonSecrets;
+  } catch {
+    return null;
+  }
 }
 
 export function loadOrCreateSecrets(): ArkeonSecrets {
@@ -134,6 +152,24 @@ export function loadOrCreateSecrets(): ArkeonSecrets {
 // =====================================================================
 // Meilisearch binary lifecycle
 // =====================================================================
+//
+// Expected SHA256 digests for the v1.41.0 binaries we download. Sourced
+// from GitHub's release asset API (`asset.digest` field, prefixed
+// `sha256:`). Bump together with MEILI_VERSION whenever the pin moves.
+//
+//   curl -sL "https://api.github.com/repos/meilisearch/meilisearch/releases/tags/${MEILI_VERSION}" \
+//     | python3 -c 'import sys, json; [print(a["name"], "=", a.get("digest")) for a in json.load(sys.stdin)["assets"]]'
+//
+// If someone ever replaces a release asset in-place (which GitHub
+// allows!) this map catches it before we execute a swapped binary.
+
+const MEILI_SHA256: Record<string, string> = {
+  "meilisearch-linux-amd64":         "7c94284f47dcbcb2950f5dcb154c396be7157e16d4f4dd600109f3587247dded",
+  "meilisearch-linux-aarch64":       "c51d58906b4da862dcd59b9352b93e3590f435caa3da09d2a6aa1d1c2c6405c2",
+  "meilisearch-macos-amd64":         "0ddd61465a6291351af3df679cc65a6798d590190fae9069290f4ed7d828c0fd",
+  "meilisearch-macos-apple-silicon": "42b5178c6d30e13b2fd71dfd50383eaa5eefd385acf80f5bf67e2c100023b08d",
+  "meilisearch-windows-amd64.exe":   "66d16db8d114cd8992ddc71ff7778fff98ac8d8aba1229a5ac6f842995dd3553",
+};
 
 function meiliAssetName(): string {
   const p = platform();
@@ -194,6 +230,31 @@ export async function ensureMeiliBinary(): Promise<string> {
     throw new Error(
       `Downloaded Meilisearch asset was only ${size} bytes — expected a binary. ` +
       `Check your network or retry.`,
+    );
+  }
+
+  // SHA256 verification. GitHub permits in-place replacement of release
+  // assets, so we pin the hash and fail loud if it ever drifts. The
+  // hashes in MEILI_SHA256 are derived from the release API's
+  // `asset.digest` field at pin time — see the comment on MEILI_SHA256.
+  const expectedHash = MEILI_SHA256[asset];
+  if (expectedHash) {
+    const actualHash = sha256File(partPath);
+    if (actualHash !== expectedHash) {
+      unlinkSync(partPath);
+      throw new Error(
+        `Meilisearch binary checksum mismatch for ${asset}:\n` +
+        `  expected sha256: ${expectedHash}\n` +
+        `  actual sha256:   ${actualHash}\n` +
+        `Refusing to install a binary we don't recognize. This is either a transient ` +
+        `download corruption (retry) or an indication that the upstream asset has been ` +
+        `replaced — in which case MEILI_SHA256 in local-runtime.ts needs to be updated.`,
+      );
+    }
+  } else {
+    console.warn(
+      `[arkeon] No checksum pinned for ${asset}. Skipping verification — ` +
+      `consider adding one to MEILI_SHA256 in local-runtime.ts.`,
     );
   }
 
@@ -424,4 +485,103 @@ export function fmtPgUrl(
   db: string,
 ): string {
   return `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${db}`;
+}
+
+// =====================================================================
+// Pending LLM config (written by `arkeon init`, consumed by `arkeon up`)
+// =====================================================================
+//
+// One-shot carrier for the LLM provider settings collected at init time,
+// applied against the running API by `arkeon up` once /health is green.
+//
+// Persisted to ~/.arkeon/pending-llm.json with mode 0600. The file is
+// deleted on successful apply; `arkeon reset` wipes it along with the
+// rest of the data directory so stale creds never linger.
+
+export interface PendingLlmConfig {
+  /** Free-form provider label — "openai", "anthropic", "openrouter", etc. */
+  provider: string;
+  /** OpenAI-compatible base URL. No defaults. */
+  base_url: string;
+  /** API key for the provider. */
+  api_key: string;
+  /** Model identifier — "gpt-4.1-nano", "claude-3-5-sonnet-20241022", etc. */
+  model: string;
+}
+
+export function readPendingLlm(): PendingLlmConfig | null {
+  const path = pendingLlmFile();
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as PendingLlmConfig;
+  } catch {
+    return null;
+  }
+}
+
+export function writePendingLlm(cfg: PendingLlmConfig): void {
+  const path = pendingLlmFile();
+  if (!existsSync(arkeonHome())) mkdirSync(arkeonHome(), { recursive: true });
+  writeFileSync(path, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  // Belt-and-suspenders — writeFileSync's `mode` only applies on create.
+  if (platform() !== "win32") {
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      // ignore — happens if another process grabbed it between write + chmod
+    }
+  }
+}
+
+export function clearPendingLlm(): void {
+  const path = pendingLlmFile();
+  if (existsSync(path)) unlinkSync(path);
+}
+
+// =====================================================================
+// Resolve the CLI entry point for spawning `arkeon start` as a detached
+// child process during `arkeon up`.
+// =====================================================================
+//
+// The child needs to run the SAME code that the parent is running, from
+// the same package, so there's no version skew between a user's globally
+// installed `arkeon` and the one they just invoked.
+//
+// Three layouts we care about:
+//   1. Monorepo dev (tsx) — import.meta.url points at
+//      packages/cli/src/lib/local-runtime.ts. Spawn via `npx tsx` at
+//      packages/cli/src/index.ts so the child also runs through tsx.
+//   2. Published npm / tsup-bundled — import.meta.url points inside
+//      packages/cli/dist/index.js (everything gets inlined into one
+//      file). Spawn via `node` at that same path.
+//   3. Global install — `npm install -g arkeon` puts a symlink at
+//      <prefix>/bin/arkeon pointing at node_modules/arkeon/dist/index.js.
+//      Same as #2 for this code's purposes.
+
+export function findCliEntry(): { cmd: string; args: string[] } {
+  const here = dirname(fileURLToPath(import.meta.url));
+
+  // Bundled case: we're inside packages/cli/dist/index.js (or the
+  // corresponding published location). The bundled entry is a sibling
+  // of this file's parent.
+  const bundledCandidates = [
+    join(here, "index.js"),              // same dir (if everything flattens)
+    join(here, "..", "index.js"),        // src → dist fallback (future-proofing)
+  ];
+  for (const candidate of bundledCandidates) {
+    if (existsSync(candidate)) {
+      return { cmd: process.execPath, args: [candidate] };
+    }
+  }
+
+  // Monorepo dev case: lib/local-runtime.ts → ../index.ts
+  const devEntry = join(here, "..", "index.ts");
+  if (existsSync(devEntry)) {
+    return { cmd: "npx", args: ["tsx", devEntry] };
+  }
+
+  // Last-resort fallback: ask the shell to find the installed binary.
+  // Useful when a user has both a global `arkeon` and is running via a
+  // weird setup we didn't think of.
+  return { cmd: "arkeon", args: [] };
 }

@@ -87,10 +87,12 @@ export function registerMigrateCommand(program: Command): void {
 function findMigrateScript(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    // Monorepo dev (packages/cli/src/commands/local → packages/schema/migrate.js)
     join(here, "..", "..", "..", "..", "schema", "migrate.js"),
-    join(here, "..", "..", "..", "schema", "migrate.js"),
-    join(here, "..", "..", "..", "..", "@arkeon-technologies", "schema", "migrate.js"),
-    join(here, "..", "..", "..", "@arkeon-technologies", "schema", "migrate.js"),
+    // Bundled CLI / published npm — schema copied into dist/schema by
+    // copy-migrations.ts during the CLI build.
+    join(here, "schema", "migrate.js"),
+    join(here, "..", "schema", "migrate.js"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;

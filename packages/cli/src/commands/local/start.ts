@@ -21,7 +21,7 @@
  */
 
 import type { Command } from "commander";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,7 +160,7 @@ async function runStart(options: StartOptions): Promise<void> {
   // --- Meilisearch ---
   // Same escape hatch: if MEILI_URL is set we skip downloading and
   // spawning the binary and just pass the URL through to the API.
-  let meili: { kill: (sig: NodeJS.Signals) => void } | null = null;
+  let meili: ChildProcess | null = null;
   let meiliUrlForApi: string;
   let meiliKeyForApi: string;
 
@@ -254,7 +254,29 @@ async function runStart(options: StartOptions): Promise<void> {
     }
     if (meili) {
       try {
-        meili.kill("SIGTERM");
+        // Wait for Meilisearch to actually flush + exit rather than
+        // fire-and-forgetting the signal. The child has its own
+        // checkpoint-on-shutdown logic and can take a second or two;
+        // we don't want process.exit() to race it.
+        const child = meili;
+        await new Promise<void>((resolve) => {
+          let resolved = false;
+          const done = () => {
+            if (resolved) return;
+            resolved = true;
+            resolve();
+          };
+          child.once("exit", done);
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            done();
+            return;
+          }
+          // Hard cap: if Meilisearch doesn't exit in 5 seconds, stop
+          // waiting and let the Postgres + pidfile cleanup continue.
+          setTimeout(done, 5000);
+        });
       } catch (err) {
         console.warn("[arkeon] meili stop error:", (err as Error).message);
       }
@@ -287,15 +309,11 @@ async function runMigrations(opts: {
   databaseUrl: string;
   arkeAppPassword: string;
 }): Promise<void> {
-  // packages/schema/migrate.js lives at a known relative path from the
-  // installed CLI. During dev (tsx), import.meta.url points at
-  // packages/cli/src/... and the schema dir is two levels up. After
-  // tsup bundling, the dist path is packages/cli/dist/index.js and
-  // schema is still at packages/schema relative to the repo root.
-  //
-  // In the published-npm case, packages/schema lives alongside the CLI
-  // in node_modules (as @arkeon-technologies/schema). Resolve it via
-  // require.resolve-style lookup with a couple of fallback locations.
+  // packages/schema/migrate.js is located by findMigrateScript() below.
+  // In the published-npm case the schema files ship inside the CLI's
+  // own dist/schema/ directory (copied in by scripts/copy-migrations.ts
+  // during the build) so there's no need for @arkeon-technologies/schema
+  // to be a published sibling package.
   const migratePath = findMigrateScript();
   if (!migratePath) {
     throw new Error(
@@ -322,15 +340,15 @@ async function runMigrations(opts: {
 
 function findMigrateScript(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
-  // Candidates, most-likely first:
   const candidates = [
-    // Monorepo dev (packages/cli/src → packages/schema/migrate.js)
+    // Monorepo dev (packages/cli/src/commands/local → packages/schema/migrate.js)
     join(here, "..", "..", "..", "..", "schema", "migrate.js"),
-    // Monorepo dist (packages/cli/dist → packages/schema/migrate.js)
-    join(here, "..", "..", "..", "schema", "migrate.js"),
-    // Published npm — sibling in node_modules
-    join(here, "..", "..", "..", "..", "@arkeon-technologies", "schema", "migrate.js"),
-    join(here, "..", "..", "..", "@arkeon-technologies", "schema", "migrate.js"),
+    // Bundled CLI / published npm — schema copied into dist/schema by
+    // copy-migrations.ts during the CLI build. `here` is
+    // packages/cli/dist (when everything collapses into dist/index.js),
+    // so dist/schema/migrate.js is a sibling.
+    join(here, "schema", "migrate.js"),
+    join(here, "..", "schema", "migrate.js"),
   ];
 
   for (const candidate of candidates) {
