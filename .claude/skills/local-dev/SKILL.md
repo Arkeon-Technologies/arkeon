@@ -129,6 +129,7 @@ The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI
    ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
    MEILI_MASTER_KEY=dev_meili_key
    POSTGRES_PASSWORD=arke
+   ARKE_APP_PASSWORD=arke
    EOF
    ```
 

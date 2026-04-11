@@ -81,8 +81,8 @@ const createActorRoute = createRoute({
         z.object({
           kind: z.enum(["agent", "worker"]).describe("Actor kind: user or agent"),
           properties: JsonObjectSchema.optional().describe("Actor properties"),
-          max_read_level: ClassificationLevel.optional().describe("Max read level (0-4)"),
-          max_write_level: ClassificationLevel.optional().describe("Max write level (0-4)"),
+          max_read_level: ClassificationLevel.optional().describe("Max read level (0-4, default 1=INTERNAL)"),
+          max_write_level: ClassificationLevel.optional().describe("Max write level (0-4, default 1=INTERNAL)"),
         }),
       ),
     },
@@ -279,8 +279,8 @@ actorsRouter.openapi(createActorRoute, async (c) => {
     throw new ApiError(400, "missing_required_field", "Missing or invalid kind");
   }
 
-  const maxReadLevel = typeof body.max_read_level === "number" ? body.max_read_level : 0;
-  const maxWriteLevel = typeof body.max_write_level === "number" ? body.max_write_level : 0;
+  const maxReadLevel = typeof body.max_read_level === "number" ? body.max_read_level : 1;
+  const maxWriteLevel = typeof body.max_write_level === "number" ? body.max_write_level : 1;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
 
   // RLS: caller cannot grant higher levels than their own
