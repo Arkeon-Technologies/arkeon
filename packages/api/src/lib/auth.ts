@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 const textEncoder = new TextEncoder();
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {

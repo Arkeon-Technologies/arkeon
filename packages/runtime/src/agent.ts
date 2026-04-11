@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { readFile, writeFile, mkdir, stat, access } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join } from "node:path";
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Text chunker: splits large text into paragraph-boundary-aligned chunks
  * for extraction. Chunks are large (~chapter-sized) because this is for

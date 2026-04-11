@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Normalize an entity label for comparison.
  * Strips common prefixes (titles), collapses whitespace, lowercases.

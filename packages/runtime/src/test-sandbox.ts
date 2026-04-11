@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Test the sandbox in isolation (no LLM needed).
  * Usage: tsx src/test-sandbox.ts

@@ -1,7 +1,9 @@
 {
-  "name": "@arke-institute/schema",
+  "name": "@arkeon-technologies/schema",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Arkeon Technologies, Inc.",
   "type": "module",
   "description": "Arke database schema migrations",
   "scripts": {

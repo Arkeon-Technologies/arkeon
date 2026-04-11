@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Postgres-backed knowledge extraction job queue.
  * Dispatches jobs to typed handlers based on job_type.

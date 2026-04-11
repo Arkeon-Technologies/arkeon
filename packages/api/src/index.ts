@@ -1,10 +1,13 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Arkeon API entry point
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { createApp, openApiConfig } from "./app";
 import { ensureBootstrap } from "./lib/bootstrap";
 import { ensureMeiliIndex, isMeilisearchConfigured } from "./lib/meilisearch";
-import { type OpenAPISpec } from "arkeon-shared";
+import { type OpenAPISpec } from "@arkeon-technologies/shared";
 import { renderFullReferenceFromSpec } from "./lib/openapi-help";
 import { startScheduler, stopScheduler } from "./lib/scheduler";
 import { initQueue, drainQueue } from "./lib/invocation-queue";

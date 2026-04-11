@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { createHash, randomUUID, webcrypto } from "node:crypto";
 
 const baseUrl = process.env.E2E_BASE_URL ?? "https://arke-api.nick-chimicles-professional.workers.dev";

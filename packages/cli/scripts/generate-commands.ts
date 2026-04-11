@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +10,7 @@ import {
   type GeneratedField,
   type GeneratedOperation,
   parseOperations,
-} from "arkeon-shared";
+} from "@arkeon-technologies/shared";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const specPath = join(__dirname, "..", "spec", "openapi.snapshot.json");

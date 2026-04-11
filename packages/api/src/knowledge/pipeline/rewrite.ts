@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Map local refs to canonical IDs based on merge decisions.
  * Entities matched to existing graph entries get linked rather than duplicated.

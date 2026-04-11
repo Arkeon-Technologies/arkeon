@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * AES-256-GCM encryption for worker secrets (BYOK LLM keys, system-managed Arke keys).
  * Uses the ENCRYPTION_KEY env var (64-char hex = 32 bytes).

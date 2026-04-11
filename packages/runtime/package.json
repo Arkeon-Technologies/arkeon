@@ -1,7 +1,9 @@
 {
-  "name": "@arke-institute/runtime",
+  "name": "@arkeon-technologies/runtime",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Arkeon Technologies, Inc.",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

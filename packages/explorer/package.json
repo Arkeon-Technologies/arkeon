@@ -1,6 +1,8 @@
 {
-  "name": "@arke-institute/explorer",
+  "name": "@arkeon-technologies/explorer",
   "private": true,
+  "license": "Apache-2.0",
+  "author": "Arkeon Technologies, Inc.",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Resolve extracted entities against the existing graph.
  * For each entity, search for candidates, then use LLM to judge matches.

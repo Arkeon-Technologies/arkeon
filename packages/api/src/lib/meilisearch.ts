@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { MeiliSearch } from "meilisearch";
 import type { Actor } from "../types";
 import type { SqlClient } from "./sql";

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import type { MiddlewareHandler } from "hono";
 
 import { extractApiKey, sha256Hex } from "../lib/auth";

@@ -1,7 +1,10 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Builds the full system prompt for worker invocations.
  *
- * Concept text comes from arkeon-shared (single source of truth).
+ * Concept text comes from @arkeon-technologies/shared (single source of truth).
  * The CLI reference is generated once at server startup from the OpenAPI spec
  * and injected so workers have complete tool knowledge from the first call.
  */
@@ -12,7 +15,7 @@ import {
   CLASSIFICATION_LEVELS,
   BEST_PRACTICES,
   FILTERING_HINT,
-} from "arkeon-shared";
+} from "@arkeon-technologies/shared";
 
 import type { InvocationContext } from "./worker-invoke.js";
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { type ArkeEntity, type ArkeRelationship, type ActivityItem, type ArkeActor, type ArkeComment } from './arke-types'
 
 type RelPage = { relationships: ArkeRelationship[]; cursor: string | null }

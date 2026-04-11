@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Entity/relationship extraction from document text via LLM.
  * Single LLM call with JSON mode -> structured ExtractPlan.

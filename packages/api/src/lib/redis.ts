@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared Redis connection for BullMQ worker scheduling.
  * Returns null if REDIS_URL is not configured (scheduling disabled).

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Cross-chunk merge: combines per-chunk ExtractPlans into a single plan,
  * deduplicating entities that appear in multiple chunks.

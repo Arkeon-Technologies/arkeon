@@ -20,11 +20,11 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "arkeon-shared": "*",
     "commander": "^14.0.1",
     "conf": "^13.0.1"
   },
   "devDependencies": {
+    "@arkeon-technologies/shared": "*",
     "@types/node": "^24.6.0",
     "tsup": "^8.5.0",
     "tsx": "^4.20.5",
@@ -36,6 +36,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "author": "Arkeon Technologies",
-  "license": "MIT"
+  "author": "Arkeon Technologies, Inc.",
+  "license": "Apache-2.0"
 }

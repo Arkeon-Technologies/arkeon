@@ -1,10 +1,13 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import {
   type OpenAPISpec as SharedOpenAPISpec,
   type GeneratedField,
   type GeneratedOperation,
   parseOperations,
   toFlagName,
-} from "arkeon-shared";
+} from "@arkeon-technologies/shared";
 
 import type { Actor } from "../types";
 

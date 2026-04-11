@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createArkeClient } from '@/lib/arke-client'
 import { NetworkGraph } from '@/components/NetworkGraph'

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared worker invocation logic used by both the HTTP endpoint
  * and the BullMQ scheduler.

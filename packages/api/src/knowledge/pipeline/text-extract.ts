@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * text.extract handler: extraction for small documents.
  * extract → runExtractionPipeline (materialize → resolve → write → dedupe)

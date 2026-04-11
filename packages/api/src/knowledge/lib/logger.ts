@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Knowledge job logger — writes job logs and token usage to Postgres.
  * Fire-and-forget pattern: log calls don't block the pipeline.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * LLM wrapper using the OpenAI SDK.
  * Supports JSON mode (for extract pipeline) and tool calling.

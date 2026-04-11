@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * One-time manual test for live LLM invocation features.
  * Tests: token tracking, structured results, log persistence.

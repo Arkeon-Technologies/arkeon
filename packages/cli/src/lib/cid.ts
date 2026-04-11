@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 export const MAX_FILE_SIZE = 500 * 1024 * 1024;
 const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 

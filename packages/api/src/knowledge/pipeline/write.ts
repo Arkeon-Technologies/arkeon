@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Write resolved entities and relationships to the graph via the Arkeon API.
  * Also handles creating chunk entities for large-document extraction.

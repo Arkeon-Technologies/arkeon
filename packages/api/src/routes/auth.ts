@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { createRoute, z } from "@hono/zod-openapi";
 
 import { createApiKey, sha256Hex } from "../lib/auth";

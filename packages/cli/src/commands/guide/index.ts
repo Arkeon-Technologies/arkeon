@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { Command } from "commander";
 
 import {
@@ -6,7 +9,7 @@ import {
   AUTHENTICATION,
   BEST_PRACTICES,
   FILTERING_HINT,
-} from "arkeon-shared";
+} from "@arkeon-technologies/shared";
 
 const CLI_GUIDE = `# Arkeon CLI — Getting Started
 

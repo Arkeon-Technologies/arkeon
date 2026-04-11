@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Arkeon SDK wrapper for the knowledge extraction pipeline.
  * Configures the SDK with a service API key at runtime.

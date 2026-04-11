@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * text.chunk_extract handler: extracts from one chunk of a large document.
  * Stores ExtractPlan in job result. When the last sibling completes,

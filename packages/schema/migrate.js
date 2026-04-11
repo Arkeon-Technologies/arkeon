@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import postgres from "postgres";
 import { readdir, readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";

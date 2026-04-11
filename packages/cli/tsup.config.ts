@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { defineConfig } from "tsup";
 
 export default defineConfig({
@@ -9,7 +12,7 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   shims: true,
-  noExternal: ["arkeon-shared"],
+  noExternal: ["@arkeon-technologies/shared"],
   banner: {
     js: "#!/usr/bin/env node",
   },

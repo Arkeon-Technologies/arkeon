@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { useState, useEffect, useRef } from 'react'
 import { type LoadedEntity, type ArkeRelationship, type ArkeComment } from '@/lib/arke-types'
 import { type ArkeInstanceClient } from '@/lib/arke-client'

@@ -25,9 +25,11 @@ COPY packages/runtime packages/runtime
 RUN cd packages/sdk-ts && npx tsup
 RUN cd packages/cli && npm run fetch-spec && npm run generate && npx tsup --no-dts
 # Re-install production-only deps in an isolated directory for the final image.
-# Remove arkeon-shared from deps — it's already bundled into dist by tsup (noExternal).
+# The standalone CLI is just dist/index.js + runtime deps. Strip devDependencies
+# entirely — npm install --omit=dev still resolves dev deps against the registry,
+# and @arkeon-technologies/shared (a private workspace package) would 404.
 RUN mkdir /cli-standalone \
-    && node -e "const p=require('./packages/cli/package.json'); delete p.dependencies['arkeon-shared']; require('fs').writeFileSync('/cli-standalone/package.json', JSON.stringify(p,null,2))" \
+    && node -e "const p=require('./packages/cli/package.json'); delete p.devDependencies; require('fs').writeFileSync('/cli-standalone/package.json', JSON.stringify(p,null,2))" \
     && cp -r packages/cli/dist /cli-standalone/dist \
     && cd /cli-standalone && npm install --omit=dev
 # SDK has zero runtime deps — just copy the built output

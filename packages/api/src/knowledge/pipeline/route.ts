@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Content router: produces normalized text from an entity by combining
  * inline properties with file content fetched via the API.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Mutex for the write section of the pipeline.
  * Serializes graph writes so each job sees entities written by prior jobs.

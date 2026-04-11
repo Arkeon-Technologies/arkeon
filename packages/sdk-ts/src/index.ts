@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 const baseUrl = process.env.ARKE_API_URL ?? "http://localhost:8000";
 const apiKey = process.env.ARKE_API_KEY ?? "";
 let defaultSpaceId = process.env.ARKE_SPACE_ID ?? "";

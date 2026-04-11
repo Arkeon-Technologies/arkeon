@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Content poller: watches entity_activity for 'content_uploaded' events
  * and auto-enqueues knowledge extraction jobs for new content.

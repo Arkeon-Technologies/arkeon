@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Actor } from "../types";
 import { setActorContext } from "./actor-context";
 import type { SqlClient } from "./sql";

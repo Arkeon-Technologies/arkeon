@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { Hono } from "hono";
 
 import {
@@ -5,7 +8,7 @@ import {
   CORE_CONCEPTS,
   AUTHENTICATION,
   BEST_PRACTICES,
-} from "arkeon-shared";
+} from "@arkeon-technologies/shared";
 import {
   renderIndexFromSpec,
   renderPreamble,

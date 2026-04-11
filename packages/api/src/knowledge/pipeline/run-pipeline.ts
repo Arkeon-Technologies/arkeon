@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared extraction pipeline tail: materialize → resolve → write → dedupe.
  * Every job type prepares an ExtractPlan and hands off here.

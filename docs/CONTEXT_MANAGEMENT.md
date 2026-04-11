@@ -69,7 +69,7 @@ arkeon <group> <command> --help       # full usage, params, auth, route
 arkeon guide                          # getting-started guide with CLI examples
 ```
 
-**Auto-generated commands** (~78 operations, 12 groups) are created by `scripts/generate-commands.ts`, which imports `parseOperations` from `arkeon-shared` and produces `src/generated/index.ts`.
+**Auto-generated commands** (~78 operations, 12 groups) are created by `scripts/generate-commands.ts`, which imports `parseOperations` from `@arkeon-technologies/shared` and produces `src/generated/index.ts`.
 
 ### Worker System Prompt (`packages/api/src/lib/worker-prompt.ts`)
 

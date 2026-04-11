@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 const TYPE_COLOR_MAP: Record<string, string> = {
   user: '#6366f1',
   collection: '#22c55e',

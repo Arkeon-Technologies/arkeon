@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, test } from "vitest";
 import { parseOps } from "../../src/lib/ops-parse";
 import type { OpsEnvelope } from "../../src/lib/ops-schema";

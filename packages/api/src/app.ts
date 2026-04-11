@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { fileURLToPath } from "url";
@@ -5,7 +8,7 @@ import { dirname, resolve } from "path";
 import { existsSync } from "fs";
 
 import type { AppBindings } from "./types";
-import type { OpenAPISpec } from "arkeon-shared";
+import type { OpenAPISpec } from "@arkeon-technologies/shared";
 import { renderFullApiReferenceFromSpec, renderPreamble } from "./lib/openapi-help";
 import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";

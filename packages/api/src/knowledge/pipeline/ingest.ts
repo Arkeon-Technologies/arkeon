@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ingest handler: the entry point for all knowledge extraction.
  * Routes content and fans out to typed child jobs.
