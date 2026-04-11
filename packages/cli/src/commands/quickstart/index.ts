@@ -12,7 +12,6 @@
  */
 
 import { Command } from "commander";
-import { createInterface } from "node:readline/promises";
 
 import {
   DOCKER_COMPOSE_YML,
@@ -51,59 +50,53 @@ function localApiUrl(env: Record<string, string>): string {
   return `http://localhost:${port}`;
 }
 
-async function prompt(
-  rl: ReturnType<typeof createInterface>,
-  label: string,
-  options: { default?: string; required?: boolean; hint?: string } = {},
-): Promise<string> {
-  while (true) {
-    const suffix = options.default ? ` [${options.default}]` : "";
-    const hint = options.hint ? `\n  ${options.hint}\n` : "";
-    const answer = (await rl.question(`${hint}${label}${suffix}: `)).trim();
-    if (answer) return answer;
-    if (options.default) return options.default;
-    if (!options.required) return "";
-    output.warn("This field is required.");
-  }
+interface InitLlmFlags {
+  llmProvider?: string;
+  llmBaseUrl?: string;
+  llmApiKey?: string;
+  llmModel?: string;
 }
 
-async function collectLlmConfig(rl: ReturnType<typeof createInterface>): Promise<PendingLlmConfig | null> {
-  output.progress("");
-  output.progress("LLM provider configuration");
-  output.progress("---------------------------");
-  output.progress("The knowledge extraction pipeline needs an OpenAI-compatible LLM endpoint.");
-  output.progress("This is optional — press enter at the first prompt to skip and configure later");
-  output.progress("via `arkeon knowledge-config update` or PUT /knowledge/config.");
-  output.progress("");
+/**
+ * Build a PendingLlmConfig from the CLI flags, or null if the user passed
+ * no LLM flags at all. Partial flag sets are an error — either all four of
+ * provider/base_url/api_key/model or none. We deliberately do not prompt
+ * interactively; `arkeon init` assumes a non-interactive caller (human via
+ * script or LLM agent).
+ */
+function buildLlmConfigFromFlags(flags: InitLlmFlags): PendingLlmConfig | null {
+  const { llmProvider, llmBaseUrl, llmApiKey, llmModel } = flags;
+  const provided = [llmProvider, llmBaseUrl, llmApiKey, llmModel].filter((v): v is string => Boolean(v));
 
-  const provider = await prompt(rl, "Provider label", {
-    default: "",
-    hint: "e.g. openai, anthropic, openrouter, local — free-form, no behavioral meaning",
-  });
-
-  if (!provider) {
+  if (provided.length === 0) {
     return null;
   }
+  if (provided.length < 4) {
+    const missing: string[] = [];
+    if (!llmProvider) missing.push("--llm-provider");
+    if (!llmBaseUrl) missing.push("--llm-base-url");
+    if (!llmApiKey) missing.push("--llm-api-key");
+    if (!llmModel) missing.push("--llm-model");
+    throw new Error(
+      `Partial LLM config — all four of --llm-provider, --llm-base-url, --llm-api-key, --llm-model must be provided together. Missing: ${missing.join(", ")}.`,
+    );
+  }
 
-  const base_url = await prompt(rl, "Base URL", {
-    required: true,
-    hint:
-      "openai:     https://api.openai.com/v1\n  " +
-      "anthropic:  https://api.anthropic.com/v1\n  " +
-      "openrouter: https://openrouter.ai/api/v1",
-  });
+  // URL sanity check — catch typos before they get written to the conf store
+  // and cause a confusing PUT /knowledge/config failure in `arkeon up`.
+  try {
+    // eslint-disable-next-line no-new
+    new URL(llmBaseUrl!);
+  } catch {
+    throw new Error(`--llm-base-url "${llmBaseUrl}" is not a valid URL.`);
+  }
 
-  const api_key = await prompt(rl, "API key", {
-    required: true,
-    hint: "stored locally in the CLI conf store; pushed to the API by `arkeon up`",
-  });
-
-  const model = await prompt(rl, "Model", {
-    required: true,
-    hint: "e.g. gpt-4.1-nano, claude-3-5-sonnet-20241022, anthropic/claude-3.5-sonnet",
-  });
-
-  return { provider, base_url, api_key, model };
+  return {
+    provider: llmProvider!,
+    base_url: llmBaseUrl!,
+    api_key: llmApiKey!,
+    model: llmModel!,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,59 +106,80 @@ async function collectLlmConfig(rl: ReturnType<typeof createInterface>): Promise
 function registerInitCommand(program: Command): void {
   program
     .command("init")
-    .description("Generate .env, docker-compose.yml, and LLM provider config for a fresh local stack")
+    .description("Generate .env and docker-compose.yml for a fresh local stack. Optionally configure an LLM provider via flags.")
     .option("--force", "Overwrite an existing .env in cwd")
-    .option("--no-llm", "Skip the interactive LLM provider prompts")
-    .action(async (opts: { force?: boolean; llm?: boolean }) => {
-      try {
-        if (envExists() && !opts.force) {
-          throw new Error(".env already exists in this directory. Re-run with --force to overwrite (this rotates all secrets).");
-        }
-
-        const secrets = generateSecrets();
-        const envContent = renderEnv(ENV_EXAMPLE, secrets);
-        const envPath = writeEnv(envContent);
-
-        let composePath: string | null = null;
-        let composeWritten = false;
-        if (!composeExists()) {
-          composePath = writeCompose(DOCKER_COMPOSE_YML);
-          composeWritten = true;
-        }
-
-        let llm: PendingLlmConfig | null = null;
-        if (opts.llm !== false) {
-          const rl = createInterface({ input: process.stdin, output: process.stdout });
-          try {
-            llm = await collectLlmConfig(rl);
-          } finally {
-            rl.close();
+    .option(
+      "--llm-provider <name>",
+      "LLM provider label (free-form, e.g. openai, anthropic, openrouter, local)",
+    )
+    .option(
+      "--llm-base-url <url>",
+      "OpenAI-compatible base URL (e.g. https://api.openai.com/v1, https://openrouter.ai/api/v1)",
+    )
+    .option("--llm-api-key <key>", "API key for the LLM provider")
+    .option(
+      "--llm-model <model>",
+      "Model identifier (e.g. gpt-4.1-nano, claude-3-5-sonnet-20241022)",
+    )
+    .addHelpText(
+      "after",
+      "\nLLM flags: pass all four of --llm-provider, --llm-base-url, --llm-api-key, --llm-model\n" +
+        "together to configure the knowledge pipeline on first `arkeon up`. Omit them\n" +
+        "entirely to skip — you can configure later via `arkeon knowledge config update`.",
+    )
+    .action(
+      async (opts: { force?: boolean } & InitLlmFlags) => {
+        try {
+          if (envExists() && !opts.force) {
+            throw new Error(
+              ".env already exists in this directory. Re-run with --force to overwrite (this rotates all secrets).",
+            );
           }
+
+          // Validate LLM flags up front so we don't write .env / compose and
+          // then fail on the LLM step — all-or-nothing validation keeps init
+          // atomic.
+          const llm = buildLlmConfigFromFlags(opts);
+
+          const secrets = generateSecrets();
+          const envContent = renderEnv(ENV_EXAMPLE, secrets);
+          const envPath = writeEnv(envContent);
+
+          let composePath: string | null = null;
+          let composeWritten = false;
+          if (!composeExists()) {
+            composePath = writeCompose(DOCKER_COMPOSE_YML);
+            composeWritten = true;
+          }
+
           if (llm) {
             pendingConfig.setLlm(llm);
           } else {
             // Make sure no stale pending state survives a re-init.
             pendingConfig.clearLlm();
           }
-        }
 
-        output.result({
-          operation: "init",
-          env_path: envPath,
-          compose_path: composePath ?? "(already present, left untouched)",
-          compose_written: composeWritten,
-          api_url: localApiUrl(parseEnv(envContent)),
-          admin_key_prefix: `${secrets.ADMIN_BOOTSTRAP_KEY.slice(0, 8)}...`,
-          llm_pending: llm
-            ? { provider: llm.provider, base_url: llm.base_url, model: llm.model }
-            : null,
-          next: "arkeon up",
-        });
-      } catch (error) {
-        output.error(error, { operation: "init" });
-        process.exitCode = 1;
-      }
-    });
+          output.result({
+            operation: "init",
+            env_path: envPath,
+            compose_path: composePath ?? "(already present, left untouched)",
+            compose_written: composeWritten,
+            api_url: localApiUrl(parseEnv(envContent)),
+            admin_key_prefix: `${secrets.ADMIN_BOOTSTRAP_KEY.slice(0, 8)}...`,
+            llm_pending: llm
+              ? { provider: llm.provider, base_url: llm.base_url, model: llm.model }
+              : null,
+            llm_hint: llm
+              ? null
+              : "No LLM provider configured. Pass --llm-provider, --llm-base-url, --llm-api-key, --llm-model to configure on first `arkeon up`, or run `arkeon knowledge config update` later against the running stack.",
+            next: "arkeon up",
+          });
+        } catch (error) {
+          output.error(error, { operation: "init" });
+          process.exitCode = 1;
+        }
+      },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -411,8 +425,14 @@ function registerStatusCommand(program: Command): void {
     .description("Report local stack health, seed state, dreamer state, and LLM provider state")
     .action(async () => {
       try {
+        // URL resolution order (most explicit wins):
+        //   1. --api-url / ARKE_API_URL override (set by the preAction hook)
+        //   2. .env PORT in cwd (local stack convention)
+        //   3. CLI config store
         const env = envExists() ? readEnv() : {};
-        const apiUrl = env.PORT ? localApiUrl(env) : config.get("apiUrl");
+        const apiUrl =
+          process.env.ARKE_API_URL?.trim()
+          || (env.PORT ? localApiUrl(env) : config.get("apiUrl"));
 
         // Probe /health and /ready directly (no auth needed) so we get a
         // clear answer regardless of which key is stored.
