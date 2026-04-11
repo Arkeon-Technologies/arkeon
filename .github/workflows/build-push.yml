@@ -30,7 +30,11 @@ on:
       - '.github/workflows/build-push.yml'
 
 jobs:
-  test:
+  # Job name pinned to `test-and-push` because branch protection on `main`
+  # requires a status check with exactly that name (historical — it used
+  # to also push to ECR, which this job no longer does). Rename carefully;
+  # any change here needs a matching branch-protection update.
+  test-and-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
