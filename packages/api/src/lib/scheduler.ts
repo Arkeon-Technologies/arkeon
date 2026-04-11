@@ -2,133 +2,136 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * BullMQ-based cron scheduler for workers.
- * Runs in the same process as the API server.
- * Requires Redis (REDIS_URL env var). If Redis is unavailable, scheduling is disabled.
+ * In-process cron scheduler for workers.
+ *
+ * Each active worker with a `schedule` property in its actor properties
+ * gets a node-cron task that enqueues a run on the in-process invocation
+ * queue at the configured cadence. Runs in the same process as the API
+ * server — no external broker, no Redis.
+ *
+ * At startup, every worker with a schedule is synced. When workers are
+ * created or updated via the HTTP routes, `syncWorkerSchedule` adds,
+ * replaces, or removes the task for that worker.
  */
 
-import { Queue, Worker as BullWorker } from "bullmq";
+import cron, { type ScheduledTask } from "node-cron";
 
-import { getRedis, closeRedis } from "./redis.js";
 import { enqueueInvocation } from "./invocation-queue.js";
 import { createSql } from "./sql.js";
 
-const QUEUE_NAME = "arke-worker-schedules";
-
-let queue: Queue | null = null;
-let processor: BullWorker | null = null;
-
-type JobData = {
-  workerId: string;
-  scheduledPrompt: string;
-};
+/**
+ * Tracks the currently-scheduled tasks, keyed by worker id.
+ * We replace entries on update and destroy them on removal.
+ */
+const tasks = new Map<string, ScheduledTask>();
 
 /**
- * Start the scheduler. Scans DB for workers with schedules and syncs them.
- * If Redis is not configured, logs a message and returns (scheduling disabled).
+ * Tracks workers whose most recent scheduled run is still in flight,
+ * so concurrent ticks skip rather than pile up.
  */
+const active = new Set<string>();
+
+let started = false;
+
 export async function startScheduler(): Promise<void> {
-  const redis = getRedis();
-  if (!redis) {
-    console.log("[scheduler] REDIS_URL not set — scheduling disabled");
-    return;
-  }
-
-  queue = new Queue(QUEUE_NAME, { connection: redis });
-
-  // Process scheduled jobs
-  processor = new BullWorker<JobData>(
-    QUEUE_NAME,
-    async (job) => {
-      const { workerId, scheduledPrompt } = job.data;
-      console.log(`[scheduler] running worker ${workerId}`);
-
-      // Check for overlapping runs — skip if already active
-      const active = await queue!.getActive();
-      const alreadyRunning = active.some(
-        (j) => j.id !== job.id && j.data.workerId === workerId,
-      );
-      if (alreadyRunning) {
-        console.log(`[scheduler] skipping ${workerId} — already running`);
-        return { skipped: true };
-      }
-
-      // Look up owner_id for the invoker field
-      const sql = createSql();
-      const [workerRow] = await sql`SELECT owner_id, properties FROM actors WHERE id = ${workerId} LIMIT 1`;
-      const ownerId = (workerRow as Record<string, unknown>)?.owner_id as string ?? workerId;
-      const storeLogs = ((workerRow as Record<string, unknown>)?.properties as Record<string, unknown>)?.store_logs === true;
-
-      // Route through shared invocation queue (handles DB recording)
-      const { promise } = await enqueueInvocation(workerId, ownerId, "scheduler", scheduledPrompt, storeLogs);
-      const result = await promise;
-
-      console.log(
-        `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
-      );
-
-      return { success: result.success, result: result.result, iterations: result.iterations };
-    },
-    {
-      connection: redis,
-      concurrency: 3,
-    },
-  );
-
-  processor.on("error", (err) => {
-    console.error("[scheduler] worker error:", err.message);
-  });
-
-  // Sync existing schedules from DB
+  if (started) return;
+  started = true;
   await syncAllSchedules();
-  console.log("[scheduler] started");
+  console.log(`[scheduler] started — ${tasks.size} active schedule(s)`);
 }
 
 /**
- * Returns true if the scheduler is available (Redis connected, queue initialized).
+ * Returns true iff the scheduler is running. Always true after
+ * startScheduler resolves — kept as a function so routes that ask
+ * "can I schedule right now?" don't have to care about internal state.
  */
 export function isSchedulerAvailable(): boolean {
-  return queue !== null;
+  return started;
 }
 
 /**
- * Sync a single worker's schedule. Called when a worker is created/updated.
- * Pass schedule=null to remove the schedule.
+ * Sync a single worker's schedule. Pass schedule=null to remove it.
+ * Called from the workers/actors routes whenever a worker's schedule
+ * or scheduled_prompt changes.
  */
 export async function syncWorkerSchedule(
   workerId: string,
   schedule: string | null,
   scheduledPrompt: string | null,
 ): Promise<void> {
-  if (!queue) return; // Redis not available
-
-  // Remove any existing repeatable for this worker
-  const existing = await queue.getRepeatableJobs();
-  const found = existing.find((r) => r.id === workerId);
-  if (found) {
-    await queue.removeRepeatableByKey(found.key);
+  // Remove any existing task first — even if we're about to install a new
+  // one, we want a clean replace rather than leaving the old cron live.
+  const existing = tasks.get(workerId);
+  if (existing) {
+    existing.stop();
+    existing.destroy();
+    tasks.delete(workerId);
   }
 
-  // Add new schedule if provided
-  if (schedule && scheduledPrompt) {
-    await queue.add(
-      "run-worker",
-      { workerId, scheduledPrompt } satisfies JobData,
-      {
-        repeat: { pattern: schedule },
-        jobId: workerId,
-        removeOnComplete: { count: 20 },
-        removeOnFail: { count: 10 },
-        attempts: 2,
-        backoff: { type: "exponential", delay: 30_000 },
-      },
-    );
-    console.log(`[scheduler] scheduled ${workerId}: ${schedule}`);
+  if (!schedule || !scheduledPrompt) return;
+
+  if (!cron.validate(schedule)) {
+    console.warn(`[scheduler] ${workerId}: invalid cron expression '${schedule}', skipping`);
+    return;
   }
+
+  const task = cron.schedule(schedule, async () => {
+    if (active.has(workerId)) {
+      console.log(`[scheduler] skipping ${workerId} — already running`);
+      return;
+    }
+    active.add(workerId);
+    try {
+      // Re-read owner + storeLogs from the DB each tick — cheaper than
+      // keeping it in memory and cache-invalidating on every worker edit,
+      // and scheduled ticks are rare enough that the extra query is free.
+      const sql = createSql();
+      const [row] = await sql`
+        SELECT owner_id, properties FROM actors WHERE id = ${workerId} LIMIT 1
+      `;
+      const workerRow = row as Record<string, unknown> | undefined;
+      if (!workerRow) {
+        // Worker was deleted between sync and this tick. Drop our task
+        // so we don't keep firing.
+        const dead = tasks.get(workerId);
+        if (dead) {
+          dead.stop();
+          dead.destroy();
+          tasks.delete(workerId);
+        }
+        return;
+      }
+      const ownerId = (workerRow.owner_id as string) ?? workerId;
+      const storeLogs =
+        ((workerRow.properties as Record<string, unknown>)?.store_logs === true);
+
+      console.log(`[scheduler] running worker ${workerId}`);
+      const { promise } = await enqueueInvocation(
+        workerId,
+        ownerId,
+        "scheduler",
+        scheduledPrompt,
+        storeLogs,
+      );
+      const result = await promise;
+      console.log(
+        `[scheduler] worker ${workerId} finished: success=${result.success}, iterations=${result.iterations}`,
+      );
+    } catch (err) {
+      console.error(`[scheduler] worker ${workerId} failed:`, err);
+    } finally {
+      active.delete(workerId);
+    }
+  });
+
+  tasks.set(workerId, task);
+  console.log(`[scheduler] scheduled ${workerId}: ${schedule}`);
 }
 
 /**
- * Scan all active workers with schedules and sync them into BullMQ.
+ * Scan every active worker that has a schedule set and install its task.
+ * Called once at startup; the workers/actors routes call
+ * syncWorkerSchedule directly for incremental updates.
  */
 async function syncAllSchedules(): Promise<void> {
   const sql = createSql();
@@ -138,33 +141,25 @@ async function syncAllSchedules(): Promise<void> {
     AND properties->>'schedule' IS NOT NULL
   `;
 
-  let count = 0;
   for (const row of rows as Array<{ id: string; properties: Record<string, unknown> }>) {
     const schedule = row.properties.schedule as string | undefined;
     const scheduledPrompt = row.properties.scheduled_prompt as string | undefined;
     if (schedule && scheduledPrompt) {
       await syncWorkerSchedule(row.id, schedule, scheduledPrompt);
-      count++;
     }
-  }
-
-  if (count > 0) {
-    console.log(`[scheduler] synced ${count} worker schedule(s)`);
   }
 }
 
 /**
- * Graceful shutdown.
+ * Graceful shutdown — stop every cron task and clear state.
  */
 export async function stopScheduler(): Promise<void> {
-  if (processor) {
-    await processor.close();
-    processor = null;
+  for (const task of tasks.values()) {
+    task.stop();
+    task.destroy();
   }
-  if (queue) {
-    await queue.close();
-    queue = null;
-  }
-  await closeRedis();
+  tasks.clear();
+  active.clear();
+  started = false;
   console.log("[scheduler] stopped");
 }
