@@ -510,8 +510,8 @@ spacesRouter.openapi(createSpaceRoute, async (c) => {
   const now = new Date().toISOString();
   const sql = createSql();
   const description = typeof body.description === "string" ? body.description : null;
-  const readLevel = typeof body.read_level === "number" ? body.read_level : 0;
-  const writeLevel = typeof body.write_level === "number" ? body.write_level : 0;
+  const readLevel = typeof body.read_level === "number" ? body.read_level : 1;
+  const writeLevel = typeof body.write_level === "number" ? body.write_level : 1;
   const properties = body.properties && typeof body.properties === "object" ? body.properties : {};
 
   const results = await sql.transaction([
