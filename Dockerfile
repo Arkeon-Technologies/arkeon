@@ -79,9 +79,14 @@ COPY --from=explorer-build /app/packages/explorer/dist packages/explorer/dist
 COPY --from=cli-build /cli-standalone /usr/local/lib/arkeon-cli
 RUN ln -s /usr/local/lib/arkeon-cli/dist/index.js /usr/local/bin/arkeon
 
-# npm ci already symlinks @arkeon-technologies/sdk via the workspace.
-# Add bare "arkeon-sdk" alias so worker sandboxes can import it from any directory.
-RUN ln -s /app/packages/sdk-ts /app/node_modules/arkeon-sdk
+# Expose the SDK at the filesystem root so Node's ESM resolver finds it
+# from worker sandboxes. Workers run from /tmp/arke-worker-* and module
+# resolution walks up from there — it visits /node_modules but never
+# /app/node_modules. The npm-ci-created /app/node_modules/@arkeon-technologies/sdk
+# workspace link stays in place for the API server's own imports.
+RUN mkdir -p /node_modules/@arkeon-technologies \
+    && ln -s /app/packages/sdk-ts /node_modules/@arkeon-technologies/sdk \
+    && ln -s /app/packages/sdk-ts /node_modules/arkeon-sdk
 
 # Install common document-processing packages for worker sandboxes
 RUN pip install --break-system-packages --no-cache-dir \
