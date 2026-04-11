@@ -34,7 +34,7 @@ import {
 import { setActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
 import { addEntityToSpaceQuery } from "../lib/entities";
-import { requireSpaceRole, type SpaceRecord } from "../lib/spaces";
+import { fetchSpaceForActor, requireSpaceRole, type SpaceRecord } from "../lib/spaces";
 
 type SpacePermissionRecord = {
   space_id: string;
@@ -536,25 +536,34 @@ spacesRouter.openapi(createSpaceRoute, async (c) => {
 
 spacesRouter.openapi(listSpacesRoute, async (c) => {
   const sql = createSql();
-  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
-  const isAdmin = c.get("actor")?.isAdmin ?? false;
+  const actorCtx = c.get("actor") ?? null;
+  const isAdmin = actorCtx?.isAdmin ?? false;
+  const actorReadLevel = actorCtx?.maxReadLevel ?? -1;
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
   const q = c.req.query("q");
 
-  const rows = await sql.query(
-    `
-      SELECT *
-      FROM spaces
-      WHERE status != 'deleted'
-        AND ($1::boolean OR read_level <= $2)
-        AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%')
-        AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
-      ORDER BY created_at DESC
-      LIMIT $5
-    `,
-    [isAdmin, actorReadLevel, q ?? null, cursor?.t ?? null, limit + 1],
-  );
+  // Wrap in a transaction with RLS session context so the read honors the
+  // actor's clearance — a bare `SELECT ... FROM spaces` runs without any
+  // `app.actor_*` session variables and `spaces_select` falls back to the
+  // `read_level = 0` branch only. See `lib/spaces.ts#fetchSpaceForActor`.
+  const txResults = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
+    sql.query(
+      `
+        SELECT *
+        FROM spaces
+        WHERE status != 'deleted'
+          AND ($1::boolean OR read_level <= $2)
+          AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%')
+          AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
+        ORDER BY created_at DESC
+        LIMIT $5
+      `,
+      [isAdmin, actorReadLevel, q ?? null, cursor?.t ?? null, limit + 1],
+    ),
+  ]);
+  const rows = txResults[txResults.length - 1];
 
   const spaces = (rows as SpaceRecord[]).slice(0, limit);
   const next = (rows as SpaceRecord[]).length > limit ? spaces[spaces.length - 1] : null;
@@ -566,22 +575,15 @@ spacesRouter.openapi(listSpacesRoute, async (c) => {
 });
 
 spacesRouter.openapi(getSpaceRoute, async (c) => {
-  const sql = createSql();
   const spaceId = c.req.param("id");
-  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
-  const isAdmin = c.get("actor")?.isAdmin ?? false;
+  const actor = c.get("actor") ?? null;
 
-  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  const space = await fetchSpaceForActor(actor, spaceId);
   if (!space) {
     throw new ApiError(404, "not_found", "Space not found");
   }
 
-  const s = space as SpaceRecord;
-  if (s.read_level > actorReadLevel && !isAdmin) {
-    throw new ApiError(403, "forbidden", "Insufficient read level");
-  }
-
-  return c.json({ space: s }, 200);
+  return c.json({ space }, 200);
 });
 
 spacesRouter.openapi(updateSpaceRoute, async (c) => {
@@ -628,17 +630,22 @@ spacesRouter.openapi(updateSpaceRoute, async (c) => {
   const idParamIdx = paramIdx++;
   params.push(spaceId);
 
-  const rows = await sql.query(
-    `
-      UPDATE spaces
-      SET ${sets.join(", ")}
-      WHERE id = $${idParamIdx}
-      RETURNING *
-    `,
-    params,
-  );
-
-  const updated = (rows as SpaceRecord[])[0];
+  // RLS on spaces_update reads session context — the UPDATE must run
+  // inside a transaction with setActorContext or it will silently match
+  // zero rows (even for admins / owners).
+  const updateResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `
+        UPDATE spaces
+        SET ${sets.join(", ")}
+        WHERE id = $${idParamIdx}
+        RETURNING *
+      `,
+      params,
+    ),
+  ]);
+  const updated = (updateResults[updateResults.length - 1] as SpaceRecord[])[0];
   if (!updated) {
     throw new ApiError(404, "not_found", "Space not found");
   }
@@ -658,17 +665,20 @@ spacesRouter.openapi(deleteSpaceRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Only owner or admin can delete");
   }
 
-  const rows = await sql.query(
-    `
-      UPDATE spaces
-      SET status = 'deleted', updated_at = $1::timestamptz
-      WHERE id = $2
-      RETURNING *
-    `,
-    [now, spaceId],
-  );
-
-  const deleted = (rows as SpaceRecord[])[0];
+  // spaces_delete RLS needs session context; bare UPDATE would fail silently.
+  const deleteResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `
+        UPDATE spaces
+        SET status = 'deleted', updated_at = $1::timestamptz
+        WHERE id = $2
+        RETURNING *
+      `,
+      [now, spaceId],
+    ),
+  ]);
+  const deleted = (deleteResults[deleteResults.length - 1] as SpaceRecord[])[0];
   if (!deleted) {
     throw new ApiError(404, "not_found", "Space not found");
   }
@@ -679,19 +689,14 @@ spacesRouter.openapi(deleteSpaceRoute, async (c) => {
 spacesRouter.openapi(listSpaceEntitiesRoute, async (c) => {
   const sql = createSql();
   const spaceId = c.req.param("id");
-  const actor = c.get("actor");
-  const actorCtx = actor ?? null;
+  const actorCtx = c.get("actor") ?? null;
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const cursor = parseCursorParam(c);
 
   // Verify space exists and is readable
-  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  const space = await fetchSpaceForActor(actorCtx, spaceId);
   if (!space) {
     throw new ApiError(404, "not_found", "Space not found");
-  }
-  const s = space as SpaceRecord;
-  if (s.read_level > (actor?.maxReadLevel ?? -1) && !(actor?.isAdmin ?? false)) {
-    throw new ApiError(403, "forbidden", "Insufficient read level");
   }
 
   const results = await sql.transaction([
@@ -754,15 +759,21 @@ spacesRouter.openapi(removeSpaceEntityRoute, async (c) => {
   const entityId = c.req.param("entityId");
   const sql = createSql();
 
-  // Check if the actor is the one who added it, or has editor+ role
-  const [entry] = await sql`
-    SELECT added_by FROM space_entities
-    WHERE space_id = ${spaceId} AND entity_id = ${entityId}
-    LIMIT 1
-  `;
+  // Check if the actor is the one who added it, or has editor+ role.
+  // space_entities RLS requires actor context — bare SELECT would never
+  // return rows for level-1+ spaces.
+  const entryResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      SELECT added_by FROM space_entities
+      WHERE space_id = ${spaceId} AND entity_id = ${entityId}
+      LIMIT 1
+    `,
+  ]);
+  const entry = (entryResults[entryResults.length - 1] as Array<{ added_by: string }>)[0];
 
   if (!entry) {
-    const [space] = await sql`SELECT id FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+    const space = await fetchSpaceForActor(actor, spaceId);
     if (!space) {
       throw new ApiError(404, "not_found", "Space not found");
     }
@@ -860,11 +871,17 @@ spacesRouter.openapi(revokeSpacePermissionRoute, async (c) => {
     throw new ApiError(403, "forbidden", "Only owner or admin can revoke permissions");
   }
 
-  const rows = await sql`
-    DELETE FROM space_permissions
-    WHERE space_id = ${spaceId} AND grantee_id = ${granteeId}
-    RETURNING space_id
-  `;
+  // space_permissions DELETE RLS depends on session context via the
+  // parent-space visibility subquery.
+  const deleteResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql`
+      DELETE FROM space_permissions
+      WHERE space_id = ${spaceId} AND grantee_id = ${granteeId}
+      RETURNING space_id
+    `,
+  ]);
+  const rows = deleteResults[deleteResults.length - 1];
 
   if ((rows as Array<{ space_id: string }>).length === 0) {
     throw new ApiError(404, "not_found", "Permission not found");
@@ -876,24 +893,25 @@ spacesRouter.openapi(revokeSpacePermissionRoute, async (c) => {
 spacesRouter.openapi(listSpacePermissionsRoute, async (c) => {
   const sql = createSql();
   const spaceId = c.req.param("id");
-  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
-  const isAdmin = c.get("actor")?.isAdmin ?? false;
+  const actorCtx = c.get("actor") ?? null;
 
-  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  const space = await fetchSpaceForActor(actorCtx, spaceId);
   if (!space) {
     throw new ApiError(404, "not_found", "Space not found");
   }
-  const s = space as SpaceRecord;
-  if (s.read_level > actorReadLevel && !isAdmin) {
-    throw new ApiError(403, "forbidden", "Insufficient read level");
-  }
 
-  const permissions = await sql`
-    SELECT space_id, grantee_id, role, granted_at
-    FROM space_permissions
-    WHERE space_id = ${spaceId}
-    ORDER BY granted_at ASC
-  `;
+  // space_permissions RLS also gates on the parent space's visibility, so
+  // this read needs actor context too (see space_perms_select in 015-rls).
+  const results = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
+    sql`
+      SELECT space_id, grantee_id, role, granted_at
+      FROM space_permissions
+      WHERE space_id = ${spaceId}
+      ORDER BY granted_at ASC
+    `,
+  ]);
+  const permissions = results[results.length - 1];
 
   return c.json({ permissions: permissions as SpacePermissionRecord[] }, 200);
 });
@@ -988,24 +1006,23 @@ spacesRouter.openapi(revokeSpaceEntityAccessRoute, async (c) => {
 spacesRouter.openapi(listSpaceEntityAccessRoute, async (c) => {
   const sql = createSql();
   const spaceId = c.req.param("id");
-  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
-  const isAdmin = c.get("actor")?.isAdmin ?? false;
+  const actorCtx = c.get("actor") ?? null;
 
-  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  const space = await fetchSpaceForActor(actorCtx, spaceId);
   if (!space) {
     throw new ApiError(404, "not_found", "Space not found");
   }
-  const s = space as SpaceRecord;
-  if (s.read_level > actorReadLevel && !isAdmin) {
-    throw new ApiError(403, "forbidden", "Insufficient read level");
-  }
 
-  const grants = await sql`
-    SELECT space_id, grantee_type, grantee_id, role, granted_by, granted_at
-    FROM space_entity_access
-    WHERE space_id = ${spaceId}
-    ORDER BY granted_at ASC
-  `;
+  const results = await sql.transaction([
+    ...setActorContext(sql, actorCtx),
+    sql`
+      SELECT space_id, grantee_type, grantee_id, role, granted_by, granted_at
+      FROM space_entity_access
+      WHERE space_id = ${spaceId}
+      ORDER BY granted_at ASC
+    `,
+  ]);
+  const grants = results[results.length - 1];
 
   return c.json({ grants: grants as SpaceEntityAccessRecord[] }, 200);
 });
@@ -1013,24 +1030,17 @@ spacesRouter.openapi(listSpaceEntityAccessRoute, async (c) => {
 spacesRouter.openapi(spacesFeedRoute, async (c) => {
   const sql = createSql();
   const spaceId = c.req.param("id");
-  const actorReadLevel = c.get("actor")?.maxReadLevel ?? -1;
-  const isAdmin = c.get("actor")?.isAdmin ?? false;
+  const actorCtx = c.get("actor") ?? null;
   const limit = parseLimit(c, { defaultValue: 50, maxValue: 200 });
   const action = c.req.query("action");
   const since = parseOptionalTimestamp(c.req.query("since"), "since");
   const cursor = parseCursorParam(c);
 
   // Verify space exists and is readable
-  const [space] = await sql`SELECT * FROM spaces WHERE id = ${spaceId} LIMIT 1`;
+  const space = await fetchSpaceForActor(actorCtx, spaceId);
   if (!space) {
     throw new ApiError(404, "not_found", "Space not found");
   }
-  const s = space as SpaceRecord;
-  if (s.read_level > actorReadLevel && !isAdmin) {
-    throw new ApiError(403, "forbidden", "Insufficient read level");
-  }
-
-  const actorCtx = c.get("actor") ?? null;
   const results = await sql.transaction([
     ...setActorContext(sql, actorCtx),
     sql.query(
