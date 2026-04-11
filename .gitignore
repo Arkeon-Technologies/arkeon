@@ -33,6 +33,10 @@ data/
 
 # Claude Code worktrees
 .claude/worktrees/
+.worktrees/
+
+# Local planning / scratch
+tasks/
 
 # Misc
 *.log

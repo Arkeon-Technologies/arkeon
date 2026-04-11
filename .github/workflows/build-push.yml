@@ -91,7 +91,7 @@ jobs:
       - name: Tag and push to ECR
         if: github.event_name != 'pull_request'
         env:
-          ECR_REPO: 071493678184.dkr.ecr.us-east-1.amazonaws.com/arke
+          ECR_REPO: ${{ secrets.ECR_REPO }}
         run: |
           docker tag arke:ci $ECR_REPO:latest
           docker tag arke:ci $ECR_REPO:sha-${GITHUB_SHA::8}
