@@ -22,7 +22,13 @@ Both decrypted only at invocation time, injected into sandbox, cleaned up after.
 
 ## Sandboxing
 
-Uses bubblewrap (bwrap) with PID/UTS/IPC namespace isolation, read-only root, writable workspace, and cgroup limits. ~8ms boot overhead. On macOS, falls back to direct execution for development (use Docker for full sandbox fidelity — see below).
+On Linux, uses bubblewrap (bwrap) with PID/UTS/IPC namespace isolation, read-only root, writable workspace, and cgroup limits. ~8ms boot overhead. On macOS, falls back to direct execution in the workspace dir — less isolated, but enough for development.
+
+Install the worker toolchain before creating workers:
+- **Linux**: `sudo apt-get install bubblewrap curl jq python3`
+- **macOS**: `brew install curl jq python3`
+
+`arkeon start` warns at boot if these are missing but does not refuse to run.
 
 ## Tools
 
@@ -36,18 +42,15 @@ Uses bubblewrap (bwrap) with PID/UTS/IPC namespace isolation, read-only root, wr
 
 ## Pre-installed Software
 
-See [RUNTIME_ENVIRONMENT.md](./RUNTIME_ENVIRONMENT.md) for the complete list of pre-installed packages, the self-install capability, and Docker vs. local development differences.
+See [RUNTIME_ENVIRONMENT.md](./RUNTIME_ENVIRONMENT.md) for the complete list of packages workers expect to find at system paths.
 
 ## Scheduling
 
-Workers with a `schedule` (cron expression) and `scheduled_prompt` get repeatable BullMQ jobs backed by Redis.
+Workers with a `schedule` (cron expression) and `scheduled_prompt` get recurring in-process tasks via `node-cron`. Everything runs inside the API process — no external broker.
 
-- **Concurrency**: Max 3 concurrent runs; overlapping runs skipped
-- **Retry**: 2 attempts with 30s exponential backoff
-- **Retention**: Completed jobs kept for 20 runs, failed for 10
-- **Graceful fallback**: If `REDIS_URL` is unset, scheduling is disabled but the API runs normally
-
-Docker compose includes Redis under `profiles: ["workers"]`.
+- **Concurrency**: Overlapping runs are skipped (the prior invocation must finish first)
+- **Persistence**: Schedules live in `actors.properties` and are re-synced at API startup
+- **Graceful shutdown**: Tasks are stopped cleanly on SIGTERM/SIGINT as part of the API drain
 
 ## Invocation History
 

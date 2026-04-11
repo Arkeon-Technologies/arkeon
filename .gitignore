@@ -33,7 +33,11 @@ data/
 
 # Claude Code worktrees
 .claude/worktrees/
+.claude-worktrees/
 .worktrees/
+
+# Worktree-scoped arkeon state
+.arkeon-state/
 
 # Local planning / scratch
 tasks/
