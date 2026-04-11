@@ -82,7 +82,7 @@ export function createApp() {
         openapi: "/openapi.json",
       },
       tools: {
-        cli: "npm install -g @arkeon-technologies/cli",
+        cli: "npm install -g arkeon",
         sdk: "npm install @arkeon-technologies/sdk",
       },
       explorer: "/explore",

@@ -158,7 +158,7 @@ The API runs inside Docker with the production sandbox (bwrap, pre-installed CLI
 
 5. Confirm to the user:
    - Full Docker stack on port `$API_PORT`
-   - Sandbox includes: bwrap, arkeon CLI, TypeScript SDK, Python SDK, document processing packages
+   - Sandbox includes: bwrap, arkeon CLI, TypeScript SDK, document processing packages
    - Workers can use `pip install` for additional packages
    - Admin key: `ak_test_admin_key_e2e`
 
@@ -266,7 +266,6 @@ Workers running in the Docker environment get:
 - **Sandbox isolation:** bwrap with PID/UTS/IPC namespaces, read-only root, writable workspace
 - **Arkeon CLI:** Current build with all flags (`--space-id`, `--permissions`, etc.)
 - **TypeScript SDK:** `import * as arkeon from '@arkeon-technologies/sdk'` (ESM, works from any directory)
-- **Python SDK:** `import arkeon_sdk as arkeon`
 - **Document packages:** pypdf, python-docx, openpyxl, python-pptx, ebooklib, Pillow, pandas, etc.
 - **Self-install:** `pip install <package>` works inside the sandbox (PIP_TARGET pre-configured)
 - **Image viewing:** `view_image` tool for multimodal models

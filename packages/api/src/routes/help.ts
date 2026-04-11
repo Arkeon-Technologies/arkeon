@@ -100,12 +100,12 @@ ${BEST_PRACTICES}
 
 ## Tools
 
-Beyond direct HTTP calls, Arkeon provides a CLI and language SDKs that handle
+Beyond direct HTTP calls, Arkeon provides a CLI and a TypeScript SDK that handle
 authentication and pagination for you.
 
 ### CLI
 
-Install:  npm install -g @arkeon-technologies/cli
+Install:  npm install -g arkeon
 Config:   export ARKE_API_URL=https://<your-instance>.arkeon.tech
           export ARKE_API_KEY=<your-api-key>
 Usage:    arkeon entities list

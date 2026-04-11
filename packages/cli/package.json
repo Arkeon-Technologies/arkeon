@@ -1,6 +1,6 @@
 {
-  "name": "@arkeon-technologies/cli",
-  "version": "0.1.3",
+  "name": "arkeon",
+  "version": "0.0.1",
   "description": "Command-line interface for the Arkeon API",
   "type": "module",
   "bin": {

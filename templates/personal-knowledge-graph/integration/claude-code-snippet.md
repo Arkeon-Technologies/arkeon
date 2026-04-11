@@ -8,7 +8,7 @@ Give these instructions to Claude Code, Codex, or any AI assistant with terminal
 
 ```bash
 # Install the Arkeon CLI
-npm install -g @arkeon-technologies/cli
+npm install -g arkeon
 
 # Configure connection (values from .env.assistant)
 export ARKE_API_URL="{{API_URL}}"

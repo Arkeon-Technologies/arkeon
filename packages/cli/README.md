@@ -1,11 +1,11 @@
-# @arkeon-technologies/cli
+# arkeon
 
 First-party CLI for the Arkeon API. Auto-generated commands from OpenAPI spec plus handwritten UX for auth and file operations.
 
 ## Install
 
 ```bash
-npm install -g @arkeon-technologies/cli
+npm install -g arkeon
 ```
 
 ## Available Commands

@@ -46,8 +46,6 @@ services:
         - action: rebuild
           path: ./packages/sdk-ts
         - action: rebuild
-          path: ./packages/sdk-python
-        - action: rebuild
           path: package-lock.json
 
   postgres:
