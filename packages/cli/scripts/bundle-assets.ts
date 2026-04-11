@@ -2,10 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Reads docker-compose.yml and .env.example from the repo root and the
- * Genesis seed envelope from packages/cli/assets/seeds/, and emits a
- * single TypeScript module at packages/cli/src/generated/assets.ts
- * exporting them as string / object constants.
+ * Reads the CLI-local docker-compose.yml (the image-based one that ships to
+ * end users) plus .env.example from the repo root and the Genesis seed
+ * envelope from packages/cli/assets/seeds/, and emits a single TypeScript
+ * module at packages/cli/src/generated/assets.ts exporting them as string /
+ * object constants.
+ *
+ * The CLI-local compose file (packages/cli/assets/docker-compose.yml) uses
+ * `image: ghcr.io/...` + `command:` overrides so users who run
+ * `arkeon init` from an empty directory don't need to clone the repo. The
+ * repo-root compose file uses `build: { context: ., target: ... }` for
+ * contributors running `docker compose up` from a git checkout — the two
+ * stay intentionally distinct.
  *
  * The generated module is committed (same pattern as src/generated/index.ts)
  * so the package builds without an out-of-band copy step and the bundled
@@ -24,7 +32,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliRoot = join(__dirname, "..");
 const repoRoot = join(cliRoot, "..", "..");
 
-const dockerComposePath = join(repoRoot, "docker-compose.yml");
+const dockerComposePath = join(cliRoot, "assets", "docker-compose.yml");
 const envExamplePath = join(repoRoot, ".env.example");
 const genesisOpsPath = join(cliRoot, "assets", "seeds", "genesis-creation.ops.json");
 

@@ -55,6 +55,17 @@ RUN cd packages/explorer && npm run build
 
 # Main app stage with production deps + pre-built CLI
 FROM base AS app
+
+# OCI image labels. GHCR uses org.opencontainers.image.source to link the
+# published package to the source repository (which in turn lets the repo's
+# visibility setting apply to the package). The other labels populate the
+# package metadata on the registry page.
+LABEL org.opencontainers.image.source="https://github.com/Arkeon-Technologies/arkeon"
+LABEL org.opencontainers.image.description="Arkeon API server — knowledge-graph platform with sandboxed agent runtimes"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="arkeon"
+LABEL org.opencontainers.image.vendor="Arkeon Technologies, Inc."
+
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/api/package.json packages/api/
