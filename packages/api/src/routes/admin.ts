@@ -17,7 +17,7 @@ import {
   errorResponses,
   jsonContent,
 } from "../lib/schemas";
-import { setActorContext } from "../lib/actor-context";
+import { setActorContext, withSystemActorContext } from "../lib/actor-context";
 import { createSql } from "../lib/sql";
 
 // --- Route definitions ---
@@ -294,30 +294,40 @@ adminRouter.openapi(reindexRoute, async (c) => {
 
   await ensureMeiliIndex();
 
-  const sql = createSql();
   const BATCH_SIZE = 1000;
 
-  // Pre-fetch all space memberships
-  const spaceRows = await sql`SELECT entity_id, space_id FROM space_entities`;
-  const spaceIdMap = new Map<string, string[]>();
-  for (const row of spaceRows as Array<{ entity_id: string; space_id: string }>) {
-    const existing = spaceIdMap.get(row.entity_id);
-    if (existing) {
-      existing.push(row.space_id);
-    } else {
-      spaceIdMap.set(row.entity_id, [row.space_id]);
+  // Pre-fetch all space memberships under a system-level RLS context.
+  // A bare read here would only return rows for level-0 spaces, producing
+  // a search index with missing `space_ids` for every non-public space.
+  // We do NOT hold this transaction across the Meilisearch calls below —
+  // snapshot the memberships, commit, then stream entity batches.
+  const spaceIdMap = await withSystemActorContext(async (tx) => {
+    const spaceRows = await tx`SELECT entity_id, space_id FROM space_entities`;
+    const map = new Map<string, string[]>();
+    for (const row of spaceRows as Array<{ entity_id: string; space_id: string }>) {
+      const existing = map.get(row.entity_id);
+      if (existing) {
+        existing.push(row.space_id);
+      } else {
+        map.set(row.entity_id, [row.space_id]);
+      }
     }
-  }
+    return map;
+  });
 
   let cursor: string | null = null;
   let total = 0;
 
+  // Each batch runs in its own short-lived transaction so we don't pin
+  // a connection across the Meilisearch HTTP write.
   while (true) {
-    const rows = cursor
-      ? await sql`SELECT * FROM entities WHERE id > ${cursor} ORDER BY id LIMIT ${BATCH_SIZE}`
-      : await sql`SELECT * FROM entities ORDER BY id LIMIT ${BATCH_SIZE}`;
+    const entities = await withSystemActorContext(async (tx) => {
+      const rows = cursor
+        ? await tx`SELECT * FROM entities WHERE id > ${cursor} ORDER BY id LIMIT ${BATCH_SIZE}`
+        : await tx`SELECT * FROM entities ORDER BY id LIMIT ${BATCH_SIZE}`;
+      return rows as Record<string, unknown>[];
+    });
 
-    const entities = rows as Record<string, unknown>[];
     if (entities.length === 0) break;
 
     await bulkIndexEntities(entities, spaceIdMap);

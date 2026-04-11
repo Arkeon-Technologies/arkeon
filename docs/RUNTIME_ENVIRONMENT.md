@@ -31,13 +31,12 @@ The Docker image is the canonical runtime. It provides Linux namespaces via bubb
 | `pip` | `/usr/bin/pip3` | Python package installation |
 | `bwrap` | `/usr/bin/bwrap` | Bubblewrap sandbox isolation |
 
-### Arkeon SDKs
+### Arkeon SDK
 
 | SDK | Import | Location |
 |-----|--------|----------|
 | TypeScript | `import * as arkeon from '@arkeon-technologies/sdk'` | `/node_modules/@arkeon-technologies/sdk/` |
 | TypeScript (alias) | `import * as arkeon from 'arkeon-sdk'` | Symlink to above |
-| Python | `import arkeon_sdk as arkeon` | `/usr/local/lib/python3.x/dist-packages/arkeon_sdk/` |
 
 The TypeScript SDK is installed at `/node_modules/` (filesystem root) so Node's ESM resolver finds it from any working directory — including the ephemeral workspace directories created for each invocation.
 
@@ -141,7 +140,6 @@ The compose file supports `develop.watch` for a smooth dev loop:
 | bwrap isolation | Yes | No (direct execution fallback) |
 | CLI binary | Current (built during Docker build) | Whatever's in `$PATH` (may be stale) |
 | TypeScript SDK | Installed at `/node_modules/` | Not installed globally |
-| Python SDK | pip-installed | Not installed |
 | Python packages | All pre-installed | None |
 | `pip install` in sandbox | Works (writable workspace) | Works but no bwrap |
 
@@ -164,12 +162,10 @@ Edit the `Dockerfile` `pip install` line in the `app` stage:
 
 ```dockerfile
 RUN pip install --break-system-packages --no-cache-dir \
-    /tmp/sdk-python \
     reportlab pypdf python-docx openpyxl python-pptx \
     ebooklib beautifulsoup4 lxml \
     Pillow pandas markdown chardet \
-    NEW_PACKAGE_HERE \
-    && rm -rf /tmp/sdk-python
+    NEW_PACKAGE_HERE
 ```
 
 Then update the "Pre-installed Python packages" list in the worker prompt (`packages/api/src/lib/worker-prompt.ts`) so workers know it's available.

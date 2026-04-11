@@ -286,13 +286,13 @@ export async function executeOps(
   // ---- Background Meilisearch indexing ------------------------------------
 
   for (const entity of plan.entities) {
-    backgroundTask(indexEntityById(sql, entity.id));
+    backgroundTask(indexEntityById(entity.id));
   }
   for (const edge of plan.edges) {
-    backgroundTask(indexEntityById(sql, edge.id));
+    backgroundTask(indexEntityById(edge.id));
   }
   for (const provEdge of extractedFromEdges) {
-    backgroundTask(indexEntityById(sql, provEdge.id));
+    backgroundTask(indexEntityById(provEdge.id));
   }
 
   return {
