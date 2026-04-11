@@ -7,6 +7,7 @@ import { registerAuthCommands } from "./commands/auth/index.js";
 import { registerConfigCommands } from "./commands/config/index.js";
 import { registerEntityContentCommands } from "./commands/entities/index.js";
 import { registerGuideCommand } from "./commands/guide/index.js";
+import { registerQuickstartCommands } from "./commands/quickstart/index.js";
 import { registerApiCommands } from "./generated/index.js";
 
 const program = new Command();
@@ -28,6 +29,7 @@ program.hook("preAction", (command) => {
   }
 });
 
+registerQuickstartCommands(program);
 registerAuthCommands(program);
 registerConfigCommands(program);
 registerEntityContentCommands(program);

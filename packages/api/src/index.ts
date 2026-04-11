@@ -39,8 +39,8 @@ serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8000) }, (info) => {
 await startScheduler();
 
 // Knowledge extraction service — opt-in via ENABLE_KNOWLEDGE_PIPELINE=true.
-// See docs/ADVANCED.md for setup, required secrets (OPENAI_API_KEY), and
-// cost/behavior notes.
+// LLM provider is configured at runtime via PUT /knowledge/config (or
+// `arkeon init`); there is no env-var fallback. See docs/ADVANCED.md.
 const knowledgeEnabled = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
 if (knowledgeEnabled) {
   await bootstrapKnowledgeService();

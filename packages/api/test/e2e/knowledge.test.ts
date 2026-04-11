@@ -124,6 +124,8 @@ describe("Knowledge Config", () => {
         llm: {
           test_role: {
             provider: "openai",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-test-key-for-delete",
             model: "gpt-test",
           },
         },
@@ -141,6 +143,65 @@ describe("Knowledge Config", () => {
     const { body: checkBody } = await getJson("/knowledge/config", adminApiKey);
     const testConfig = (checkBody as any).llm.find((c: any) => c.id === "test_role");
     expect(testConfig).toBeUndefined();
+  });
+
+  test("PUT /knowledge/config rejects CREATE without api_key (400)", async () => {
+    // Creating a new id with provider + base_url + model but no api_key
+    // used to succeed silently — the row would appear in GET but
+    // resolveLlmConfig would refuse to return anything. Now it's a 400.
+    const { response, body } = await jsonRequest("/knowledge/config", {
+      method: "PUT",
+      apiKey: adminApiKey,
+      json: {
+        llm: {
+          no_key_role: {
+            provider: "openai",
+            base_url: "https://api.openai.com/v1",
+            model: "gpt-4.1-nano",
+          },
+        },
+      },
+    });
+    expect(response.status).toBe(400);
+    expect((body as any).error?.code).toBe("missing_api_key");
+  });
+
+  test("PUT /knowledge/config allows model-only UPDATE when key is already stored", async () => {
+    // First write an initial config with a key.
+    await jsonRequest("/knowledge/config", {
+      method: "PUT",
+      apiKey: adminApiKey,
+      json: {
+        llm: {
+          update_role: {
+            provider: "openai",
+            base_url: "https://api.openai.com/v1",
+            api_key: "sk-initial-key",
+            model: "gpt-4.1-nano",
+          },
+        },
+      },
+    });
+
+    // Then update model only — no api_key — should succeed.
+    const { response, body } = await jsonRequest("/knowledge/config", {
+      method: "PUT",
+      apiKey: adminApiKey,
+      json: {
+        llm: {
+          update_role: {
+            provider: "openai",
+            base_url: "https://api.openai.com/v1",
+            model: "gpt-4o-mini",
+          },
+        },
+      },
+    });
+    expect(response.status).toBe(200);
+    const data = body as { llm: any[] };
+    const updated = data.llm.find((c: any) => c.id === "update_role");
+    expect(updated?.model).toBe("gpt-4o-mini");
+    expect(updated?.has_key).toBe(true);
   });
 
   test("GET /knowledge/config requires authentication", async () => {

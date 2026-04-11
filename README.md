@@ -16,9 +16,43 @@ This repository contains the core Arkeon platform: the API server, schema migrat
 
 ## Getting Started
 
-> **TBD — full quickstart coming soon.** A complete rewrite of this section is in flight; it will be updated alongside the public launch announcement.
->
-> In the meantime, see [`.env.example`](./.env.example) for the required environment variables and [`docs/`](./docs) for architecture notes.
+Arkeon ships as a single npm package that bundles a working
+`docker-compose.yml`, an `.env.example` template, and a Genesis seed
+graph. From a fresh machine you can be running a local stack with a
+real, queryable knowledge graph in three commands.
+
+**Prerequisites:** Node.js 18.17+ and Docker.
+
+```bash
+# 1. Install the CLI globally
+npm install -g arkeon
+
+# 2. From an empty directory, generate .env and docker-compose.yml,
+#    and (optionally) configure an LLM provider for the extraction
+#    pipeline. Press enter at the first LLM prompt to skip.
+mkdir my-arkeon && cd my-arkeon
+arkeon init
+
+# 3. Bring up the stack (postgres + meilisearch + redis + api + migrate),
+#    wait for it to be healthy, and store the bootstrap admin key locally.
+arkeon up
+
+# 4. Load the bundled Genesis demo graph (76 entities, ~220 relationships).
+arkeon seed
+```
+
+After `arkeon up`, the dashboard explorer is at
+`http://localhost:8000/explore` and the API at `http://localhost:8000`.
+The CLI is already pointed at the local instance and authenticated as
+the bootstrap admin, so commands like `arkeon entities list`,
+`arkeon search`, or `arkeon status` work immediately.
+
+To stop the stack: `arkeon down` (preserves data) or `arkeon down --volumes`
+(wipes the postgres / meili / redis volumes).
+
+For deployment, configuration, and architecture details, see the
+[`docs/`](./docs) directory and the full env reference in
+[`.env.example`](./.env.example).
 
 ## Documentation
 

@@ -7056,6 +7056,7 @@
                           "type": "string"
                         },
                         "base_url": {
+                          "format": "uri",
                           "type": "string"
                         },
                         "max_tokens": {
@@ -7070,6 +7071,7 @@
                       },
                       "required": [
                         "provider",
+                        "base_url",
                         "model"
                       ],
                       "type": "object"
