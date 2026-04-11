@@ -7,6 +7,8 @@ on:
     paths:
       - 'packages/api/**'
       - 'packages/cli/src/**'
+      - 'packages/cli/scripts/**'
+      - 'packages/cli/spec/**'
       - 'packages/sdk-ts/src/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
@@ -20,6 +22,8 @@ on:
     paths:
       - 'packages/api/**'
       - 'packages/cli/src/**'
+      - 'packages/cli/scripts/**'
+      - 'packages/cli/spec/**'
       - 'packages/sdk-ts/src/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
@@ -96,15 +100,17 @@ jobs:
           docker push $ECR_REPO:latest
           docker push $ECR_REPO:sha-${GITHUB_SHA::8}
 
-  regenerate-cli-spec:
-    # Regenerates the CLI's OpenAPI snapshot against the current API and
-    # commits it back to main so the checked-in CLI codegen never drifts.
-    # Releases are separate — see .github/workflows/publish.yml.
-    if: github.event_name != 'pull_request'
-    needs: test-and-push
+  check-cli-spec-drift:
+    # Fails if `packages/cli/spec/openapi.snapshot.json` or
+    # `packages/cli/src/generated/index.ts` are out of date relative to the
+    # live API surface. PR authors fix drift locally with
+    # `npm run build -w packages/cli` and commit the result, so API-surface
+    # changes show up in the PR diff where reviewers can see them.
+    #
+    # No `needs: test-and-push` — this is a pure static check on the spec
+    # and runs independently so drift is visible even when the runtime
+    # suite is red.
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -115,26 +121,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # CLI's `fetch-spec` step imports the API to render the OpenAPI snapshot,
+      # and the API's knowledge service imports `@arkeon-technologies/sdk` from
+      # its built dist. Build the SDK first so the import resolves.
       - name: Build SDK (required by CLI fetch-spec via API import)
         run: npm run build -w packages/sdk-ts
 
-      - name: Build CLI (fetch spec + generate + bundle)
+      - name: Regenerate CLI spec + generated commands
         run: npm run build -w packages/cli
 
-      - name: Check if API surface changed
-        id: check
+      - name: Fail if checked-in CLI spec is stale
         run: |
-          if git diff --quiet packages/cli/spec/openapi.snapshot.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          if ! git diff --quiet packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts; then
+            echo "::error::packages/cli/spec/openapi.snapshot.json or packages/cli/src/generated/index.ts is out of date relative to the current API surface."
+            echo ""
+            echo "Fix:"
+            echo "  npm run build -w packages/cli"
+            echo "  git add packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts"
+            echo "  git commit"
+            echo ""
+            echo "Drift detected:"
+            git --no-pager diff --stat packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts
+            git --no-pager diff packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts
+            exit 1
           fi
-
-      - name: Commit regenerated CLI spec
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts
-          git commit -m "chore: regenerate CLI spec from current API [skip ci]"
-          git push
+          echo "CLI spec is in sync with API."

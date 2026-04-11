@@ -43,7 +43,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [],
     queryParams: [],
-    bodyFields: [{ name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["agent","worker"] }, { name: "max_read_level", description: "Max read level (0-4)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
+    bodyFields: [{ name: "kind", description: "Actor kind: user or agent", required: true, type: "string", enumValues: ["agent","worker"] }, { name: "max_read_level", description: "Max read level (0-4, default 1=INTERNAL)", required: false, type: "integer" }, { name: "max_write_level", description: "Max write level (0-4, default 1=INTERNAL)", required: false, type: "integer" }, { name: "properties", description: "", required: false, type: "object" }],
   },
   {
     operationId: "createActorKey",
