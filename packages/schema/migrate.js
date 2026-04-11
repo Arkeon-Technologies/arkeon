@@ -12,6 +12,34 @@ const DEFAULT_URL = "postgresql://arke:arke@localhost:5432/arke";
 // Use MIGRATION_DATABASE_URL or DATABASE_URL or CLI arg
 const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL ?? process.argv[2] ?? DEFAULT_URL;
 
+// Template variables substituted into .sql files before execution. Tokens
+// of the form :'name' are replaced with a SQL-quoted literal of the
+// matching value. The default for arke_app_password keeps the host-mode
+// local-dev and CI flows (which intentionally use the weak `arke`
+// password) working without extra config; docker compose enforces a real
+// value via ${ARKE_APP_PASSWORD:?...}.
+const TEMPLATE_VARS = {
+  arke_app_password: process.env.ARKE_APP_PASSWORD ?? "arke",
+};
+
+function quoteSqlLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function applyTemplate(content, file) {
+  // Replace :'name' tokens. The set of recognized names is fixed by
+  // TEMPLATE_VARS — anything else is a typo and should fail loudly
+  // rather than send broken SQL to Postgres.
+  return content.replace(/:'([a-zA-Z_][a-zA-Z0-9_]*)'/g, (_match, name) => {
+    if (!Object.prototype.hasOwnProperty.call(TEMPLATE_VARS, name)) {
+      throw new Error(
+        `${file}: unknown template variable :'${name}'. Known: ${Object.keys(TEMPLATE_VARS).join(", ")}`,
+      );
+    }
+    return quoteSqlLiteral(TEMPLATE_VARS[name]);
+  });
+}
+
 console.log(`Deploying schema to: ${url.replace(/:[^@]*@/, ":***@")}`);
 console.log("");
 
@@ -85,7 +113,8 @@ function splitStatements(content) {
 }
 
 for (const file of files) {
-  const content = await readFile(join(__dirname, file), "utf-8");
+  const rawContent = await readFile(join(__dirname, file), "utf-8");
+  const content = applyTemplate(rawContent, file);
   const statements = splitStatements(content);
   process.stdout.write(`  ${file} ... `);
 

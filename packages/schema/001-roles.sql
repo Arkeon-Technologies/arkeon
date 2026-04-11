@@ -10,10 +10,16 @@
 --
 -- =============================================================================
 
--- Create the application role (idempotent)
+-- Create the application role (idempotent). The password is supplied by
+-- migrate.js via the :'arke_app_password' template token, sourced from
+-- the ARKE_APP_PASSWORD env var (default 'arke' for host-mode dev/CI).
+-- The ALTER branch makes the migration rotation-safe: changing
+-- ARKE_APP_PASSWORD and re-running migrate updates the role's password.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'arke_app') THEN
-    CREATE ROLE arke_app LOGIN PASSWORD 'arke';
+    CREATE ROLE arke_app LOGIN PASSWORD :'arke_app_password';
+  ELSE
+    ALTER ROLE arke_app WITH LOGIN PASSWORD :'arke_app_password';
   END IF;
 END $$;
 

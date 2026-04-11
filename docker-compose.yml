@@ -11,7 +11,12 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: "${DATABASE_URL:-postgresql://arke_app:arke@postgres:5432/arke}"
+      # ARKE_APP_PASSWORD is required so the api and migrate services
+      # agree on the runtime role's password. The default DATABASE_URL
+      # below reads it directly; override DATABASE_URL in .env only for
+      # host mode against an external Postgres — see .env.example.
+      ARKE_APP_PASSWORD: "${ARKE_APP_PASSWORD:?ARKE_APP_PASSWORD is required — see .env.example}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://arke_app:${ARKE_APP_PASSWORD}@postgres:5432/arke}"
       ADMIN_BOOTSTRAP_KEY: "${ADMIN_BOOTSTRAP_KEY:?ADMIN_BOOTSTRAP_KEY is required — see .env.example}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required — see .env.example}"
       MEILI_URL: "${MEILI_URL:-http://meilisearch:7700}"
@@ -101,6 +106,9 @@ services:
       # characters, set MIGRATION_DATABASE_URL explicitly with the
       # password percent-encoded.
       DATABASE_URL: "${MIGRATION_DATABASE_URL:-postgresql://arke:${POSTGRES_PASSWORD}@postgres:5432/arke}"
+      # Applied by migrate.js to the arke_app role on every run, so
+      # rotation is just "edit .env, re-run migrate".
+      ARKE_APP_PASSWORD: "${ARKE_APP_PASSWORD:?ARKE_APP_PASSWORD is required — see .env.example}"
     depends_on:
       postgres:
         condition: service_healthy
