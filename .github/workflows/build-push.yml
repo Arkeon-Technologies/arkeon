@@ -48,17 +48,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck API
-        run: npm run typecheck -w packages/api
-
-      - name: Typecheck CLI
-        run: npm run typecheck -w packages/cli
-
+      # Build SDK + explorer BEFORE typecheck. packages/api imports
+      # @arkeon-technologies/sdk from its built dist (via knowledge/lib/
+      # arke-client.ts), so the CLI-level typecheck of the API package
+      # requires packages/sdk-ts/dist to exist. Same deal for the CLI's
+      # explorer bundle-step in subsequent builds.
       - name: Build SDK
         run: npm run build -w packages/sdk-ts
 
       - name: Build explorer SPA
         run: npm run build -w @arkeon-technologies/explorer
+
+      - name: Typecheck API
+        run: npm run typecheck -w packages/api
+
+      - name: Typecheck CLI
+        run: npm run typecheck -w packages/cli
 
       - name: CLI unit tests
         run: npm test -w packages/cli
