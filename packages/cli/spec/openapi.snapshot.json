@@ -1095,7 +1095,7 @@
         "x-arke-related": [
           "GET /entities/{id}/activity",
           "GET /actors/{actorId}/activity",
-          "GET /commons/{id}/feed"
+          "GET /spaces/{id}/feed"
         ],
         "x-arke-rules": [
           "Results filtered by your classification clearance"
@@ -1237,13 +1237,13 @@
                     "type": "string"
                   },
                   "max_read_level": {
-                    "description": "Max read level (0-4)",
+                    "description": "Max read level (0-4, default 1=INTERNAL)",
                     "maximum": 4,
                     "minimum": 0,
                     "type": "integer"
                   },
                   "max_write_level": {
-                    "description": "Max write level (0-4)",
+                    "description": "Max write level (0-4, default 1=INTERNAL)",
                     "maximum": 4,
                     "minimum": 0,
                     "type": "integer"
@@ -3826,7 +3826,7 @@
         "x-arke-auth": "optional",
         "x-arke-related": [
           "GET /activity",
-          "GET /commons/{id}/feed"
+          "GET /spaces/{id}/feed"
         ],
         "x-arke-rules": [
           "Requires read_level clearance >= entity's read_level"
