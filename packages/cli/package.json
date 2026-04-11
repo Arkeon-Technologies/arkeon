@@ -19,7 +19,9 @@
     "fetch-spec": "tsx scripts/fetch-openapi.ts",
     "generate": "tsx scripts/generate-commands.ts",
     "bundle-assets": "tsx scripts/bundle-assets.ts",
-    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && tsup",
+    "bundle-explorer": "npm run build -w @arkeon-technologies/explorer && tsx scripts/copy-explorer.ts",
+    "bundle-migrations": "tsx scripts/copy-migrations.ts",
+    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && npm run bundle-explorer && npm run bundle-migrations && tsup",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -29,7 +31,8 @@
   },
   "dependencies": {
     "commander": "^14.0.1",
-    "conf": "^13.0.1"
+    "conf": "^13.0.1",
+    "embedded-postgres": "18.3.0-beta.16"
   },
   "devDependencies": {
     "@arkeon-technologies/shared": "*",
