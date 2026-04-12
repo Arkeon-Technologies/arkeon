@@ -29,7 +29,8 @@
   "devDependencies": {
     "@types/node": "^24.6.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "undici": "^7.0.0"
   },
   "peerDependencies": {
     "undici": ">=6.0.0"
