@@ -28,24 +28,32 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Typecheck
-step "Typecheck: API"
-npm run typecheck -w packages/api || fail "API typecheck"
-pass "API typecheck"
-
-# Build SDK (required by API imports + CLI codegen)
+# Build SDK (required by arkeon imports — src/server/knowledge/lib/arke-client.ts
+# imports the built SDK dist).
 step "Build: SDK"
 npm run build -w packages/sdk-ts || fail "SDK build"
 pass "SDK build"
 
-# Build explorer SPA (served by the API at /explore)
+# Typecheck the single arkeon package
+step "Typecheck: arkeon"
+npm run typecheck -w packages/arkeon || fail "arkeon typecheck"
+pass "arkeon typecheck"
+
+# Unit tests
+step "Unit tests: arkeon"
+npm test -w packages/arkeon || fail "arkeon unit tests"
+pass "arkeon unit tests"
+
+# Start Arkeon stack via the CLI in the background. The explorer SPA
+# is built automatically by arkeon's build pipeline (bundle-explorer),
+# but here we run via tsx against src/, so the CLI falls back to
+# packages/explorer/dist — build it first.
 step "Build: Explorer"
 npm run build -w @arkeon-technologies/explorer || fail "Explorer build"
 pass "Explorer build"
 
-# Start Arkeon stack via the CLI in the background
 step "Starting Arkeon stack"
-ARKEON_HOME="$SCRATCH_DIR" nohup npx tsx packages/cli/src/index.ts start \
+ARKEON_HOME="$SCRATCH_DIR" nohup npx tsx packages/arkeon/src/index.ts start \
   --port 8000 --pg-port 15433 --meili-port 17700 \
   > "$LOGFILE" 2>&1 &
 echo $! > "$PIDFILE"
@@ -69,7 +77,7 @@ ADMIN_KEY=$(grep "Admin API key" "$LOGFILE" | tail -1 | awk '{print $NF}')
 step "Running e2e tests"
 E2E_BASE_URL=http://localhost:8000 \
 ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
-npm run test:e2e -w packages/api || fail "E2E tests"
+npm run test:e2e -w packages/arkeon || fail "E2E tests"
 pass "E2E tests"
 
 echo -e "\n${GREEN}${BOLD}All checks passed.${NC} Safe to push."

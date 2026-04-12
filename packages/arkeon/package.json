@@ -1,0 +1,66 @@
+{
+  "name": "arkeon",
+  "version": "0.3.2",
+  "description": "Self-contained knowledge-graph platform: Hono API server, embedded Postgres + Meilisearch, CLI, and sandboxed agent runtime. One package, one process, no Docker.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arkeon-Technologies/arkeon.git",
+    "directory": "packages/arkeon"
+  },
+  "type": "module",
+  "bin": {
+    "arkeon": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "fetch-spec": "tsx scripts/fetch-openapi.ts",
+    "generate": "tsx scripts/generate-commands.ts",
+    "bundle-assets": "tsx scripts/bundle-assets.ts",
+    "bundle-explorer": "npm run build -w @arkeon-technologies/explorer && tsx scripts/copy-explorer.ts",
+    "bundle-schema": "tsx scripts/copy-schema.ts",
+    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && tsup && npm run bundle-explorer && npm run bundle-schema",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@arkeon-technologies/sdk": "^0.1.10",
+    "@aws-sdk/client-s3": "^3.1018.0",
+    "@hono/node-server": "^1.19.11",
+    "@hono/zod-openapi": "^1.2.3",
+    "commander": "^14.0.1",
+    "conf": "^13.0.1",
+    "dotenv": "^17.3.1",
+    "embedded-postgres": "18.3.0-beta.16",
+    "hono": "^4.12.9",
+    "mammoth": "^1.12.0",
+    "meilisearch": "^0.56.0",
+    "node-cron": "^4.2.1",
+    "openai": "^4.80.0",
+    "pdfjs-dist": "^4.10.38",
+    "postgres": "^3.4.8",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Arkeon Technologies, Inc.",
+  "license": "Apache-2.0"
+}
