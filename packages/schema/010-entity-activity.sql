@@ -44,16 +44,9 @@ CREATE TRIGGER activity_notify AFTER INSERT ON entity_activity
 FOR EACH ROW EXECUTE FUNCTION notify_activity();
 
 -- Grants
-GRANT SELECT, INSERT ON entity_activity TO arke_app;
+GRANT SELECT, INSERT, DELETE ON entity_activity TO arke_app;
 GRANT USAGE, SELECT ON SEQUENCE entity_activity_id_seq TO arke_app;
 
--- Retention: prune after 15 days (keep entity_created and ownership_transferred)
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-
-SELECT cron.schedule(
-  'prune-activity',
-  '0 3 * * *',
-  $$DELETE FROM entity_activity
-    WHERE ts < NOW() - INTERVAL '15 days'
-      AND action NOT IN ('entity_created', 'ownership_transferred')$$
-);
+-- Retention runs in-process (see packages/api/src/lib/retention.ts),
+-- not via pg_cron. DELETE is granted to arke_app above; an admin-context
+-- RLS policy in 015-rls-policies.sql gates it to the system retention job.

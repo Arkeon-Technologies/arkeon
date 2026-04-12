@@ -64,7 +64,12 @@ knowledgeRouter.openapi(getConfigRoute, async (c) => {
 
 const llmConfigValueSchema = z.object({
   provider: z.string(),
-  base_url: z.string().optional(),
+  // Required: every provider must declare its OpenAI-compatible base URL.
+  // No defaults — see packages/api/src/knowledge/lib/config.ts.
+  base_url: z.string().url(),
+  // Optional only on update: lets callers tweak model/base_url without
+  // re-supplying the key. resolveLlmConfig refuses to return a config
+  // unless a key has been stored at some point.
   api_key: z.string().optional(),
   model: z.string(),
   max_tokens: z.number().optional(),
@@ -107,6 +112,27 @@ knowledgeRouter.openapi(putConfigRoute, async (c) => {
   const body = c.req.valid("json");
 
   if (body.llm) {
+    // If any of the incoming configs would CREATE a new row (no existing
+    // config with this id), require api_key in the body — otherwise the
+    // PUT returns 200 and listLlmConfigs shows the row, but
+    // resolveLlmConfig refuses to return anything (it filters on
+    // api_key_encrypted IS NOT NULL) and knowledge jobs fail with a
+    // confusing "No LLM provider configured" error. api_key stays
+    // optional for UPDATEs so callers can tweak model/base_url without
+    // re-supplying the key.
+    const existing = await listLlmConfigs();
+    const existingWithKey = new Set(existing.filter((c) => c.has_key).map((c) => c.id));
+
+    for (const [id, config] of Object.entries(body.llm) as [string, z.infer<typeof llmConfigValueSchema>][]) {
+      if (!config.api_key && !existingWithKey.has(id)) {
+        throw new ApiError(
+          400,
+          "missing_api_key",
+          `Cannot create LLM config "${id}" without api_key — all four of provider, base_url, api_key, and model are required on first write. api_key may be omitted only when updating an existing config with a stored key.`,
+        );
+      }
+    }
+
     for (const [id, config] of Object.entries(body.llm) as [string, z.infer<typeof llmConfigValueSchema>][]) {
       await saveLlmConfig(id, {
         provider: config.provider,

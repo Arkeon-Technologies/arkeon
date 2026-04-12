@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run sandbox tests inside Docker to test bwrap in a production-like environment.
-# This builds the same image used in production, then runs the sandbox test suite.
+# Run the worker sandbox test suite directly on the host.
+#
+# On Linux, this exercises bubblewrap namespace isolation — you must
+# have `bwrap` installed (`sudo apt-get install bubblewrap` on Debian/
+# Ubuntu). On macOS, the sandbox test suite runs against the direct-
+# execution fallback path (see packages/runtime/src/sandbox.ts).
+#
+# No Docker required. This script used to build a production image and
+# run inside a container; that's no longer how Arkeon ships.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
-IMAGE="arke-sandbox-test"
+cd "$ROOT"
 
-echo "=== Building Docker image (same as production) ==="
-docker build -t "$IMAGE" --target api "$ROOT"
+OS="$(uname -s)"
 
-echo ""
-echo "=== Running sandbox tests inside container ==="
-# --security-opt seccomp=unconfined: allows bwrap to create namespaces
-# Without this, bwrap fails the same way it does on deployed instances
-docker run --rm \
-  --security-opt seccomp=unconfined \
-  "$IMAGE" \
-  npx tsx packages/runtime/test/sandbox.test.ts
+echo "=== Running sandbox tests on $OS ==="
+if [ "$OS" = "Linux" ]; then
+  if ! command -v bwrap > /dev/null 2>&1; then
+    echo "ERROR: bwrap not found. Install with: sudo apt-get install bubblewrap"
+    exit 1
+  fi
+  echo "bwrap: $(bwrap --version)"
+elif [ "$OS" = "Darwin" ]; then
+  echo "macOS detected — sandbox will use direct-execution fallback (no namespace isolation)"
+else
+  echo "Unsupported host OS: $OS"
+  exit 1
+fi
 
-echo ""
-echo "=== Also testing WITHOUT seccomp (should fallback to direct) ==="
-docker run --rm \
-  "$IMAGE" \
-  npx tsx packages/runtime/test/sandbox.test.ts
+npx tsx packages/runtime/test/sandbox.test.ts

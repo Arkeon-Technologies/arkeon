@@ -507,7 +507,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
         throw new ApiError(400, "missing_required_field", "scheduled_prompt is required when setting a schedule");
       }
       if (!isSchedulerAvailable()) {
-        throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — Redis is not configured on this instance");
+        throw new ApiError(503, "scheduler_unavailable", "Scheduling is not available — the scheduler has not started yet");
       }
       props.schedule = body.schedule;
       props.scheduled_prompt = body.scheduled_prompt;
@@ -544,7 +544,7 @@ workersRouter.openapi(updateWorkerRoute, async (c) => {
     throw new ApiError(500, "internal_error", "Failed to update worker");
   }
 
-  // Sync schedule with BullMQ
+  // Sync schedule with the in-process cron scheduler
   const updatedSchedule = (updated.properties as Record<string, unknown>).schedule as string | undefined;
   const updatedPrompt = (updated.properties as Record<string, unknown>).scheduled_prompt as string | undefined;
   await syncWorkerSchedule(workerId, updatedSchedule ?? null, updatedPrompt ?? null);

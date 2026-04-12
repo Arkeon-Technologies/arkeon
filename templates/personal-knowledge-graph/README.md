@@ -15,12 +15,12 @@ A template that turns an Arkeon instance into a personal knowledge graph. You ad
 
 ## Prerequisites
 
-- A running Arkeon instance with Redis (all deployed instances include Redis by default)
+- A running Arkeon instance (`arkeon start` or any deployed instance)
 - An API key for your instance
 - An LLM API key (any OpenAI-compatible provider)
 - `curl`, `jq`, `python3` (with PyYAML: `pip3 install pyyaml`)
 
-Both workers run automatically on cron schedules via the built-in BullMQ scheduler. This requires Redis, which is included in the standard docker-compose stack. No external cron or manual invocation needed.
+Both workers run automatically on cron schedules via the built-in in-process scheduler. No external cron or manual invocation needed.
 
 ## Setup
 

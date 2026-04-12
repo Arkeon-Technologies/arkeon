@@ -16,17 +16,18 @@ using an LLM.
 It is **off by default** because it:
 
 - makes continuous outbound LLM calls (cost scales with content volume),
-- requires an `OPENAI_API_KEY` (or compatible provider),
+- requires an LLM provider to be configured at runtime,
 - runs a poller that wakes every 10 seconds even when idle,
 - writes new entities and relationships back into the graph.
 
 ### Enabling it
 
-Set in `.env`:
+Two steps, both required.
+
+**1. Enable the pipeline.** Set in `.env`:
 
 ```bash
 ENABLE_KNOWLEDGE_PIPELINE=true
-OPENAI_API_KEY=sk-...
 ```
 
 Restart the API. You should see:
@@ -34,6 +35,36 @@ Restart the API. You should see:
 ```
 [knowledge] pipeline enabled
 ```
+
+**2. Configure an LLM provider.** There is no env-var fallback and no
+provider-specific default. Every field — `provider` label, `base_url`,
+`api_key`, `model` — must be supplied explicitly. Any OpenAI-compatible
+endpoint works (OpenAI, Anthropic via their compat shim, OpenRouter,
+local llama.cpp, vLLM, etc.).
+
+The easy path is `arkeon init`, which prompts for these values and pushes
+them on `arkeon up`. The direct path is `PUT /knowledge/config`:
+
+```bash
+curl -X PUT "$ARKE_API/knowledge/config" \
+  -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "llm": {
+      "default": {
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-...",
+        "model": "gpt-4.1-nano"
+      }
+    }
+  }'
+```
+
+The `provider` field is a free-form label — it has no behavioral meaning
+and is shown in `GET /knowledge/config` to help you remember what's
+plumbed in. Until a config is stored, extraction jobs throw
+`No LLM provider configured...`.
 
 ### How it works
 
@@ -57,10 +88,13 @@ Restart the API. You should see:
 | Variable | Default | Meaning |
 |---|---|---|
 | `ENABLE_KNOWLEDGE_PIPELINE` | `false` | Master switch |
-| `OPENAI_API_KEY` | — | Required when enabled |
 | `KNOWLEDGE_POLLER_INTERVAL_MS` | `10000` | Poller tick interval |
 | `MAX_KNOWLEDGE_CONCURRENCY` | `10` | Parallel jobs |
 | `CHUNK_EXTRACT_CONCURRENCY` | `4` | Parallel LLM calls inside a single text chunking job |
+
+LLM provider settings (`provider`, `base_url`, `api_key`, `model`,
+`max_tokens`) live in the `knowledge_config` table, not in env vars.
+Manage them via `PUT /knowledge/config`.
 
 ### Disabling it
 
@@ -74,10 +108,11 @@ jobs that sit unprocessed.
 
 ### Cost warning
 
-The pipeline was originally built against `gpt-4o` / `gpt-4o-mini`. A
-single PDF page with vision can run $0.001–$0.01 depending on image size
-and prompt length. Enable it against a real OpenAI key only after setting
-a reasonable spend cap on your provider account.
+The pipeline was originally tuned against vision-capable mid-tier models
+in the `gpt-4o` / `gpt-4o-mini` class. A single PDF page with vision can
+run roughly $0.001–$0.01 depending on image size and prompt length.
+Whatever provider you point at, set a reasonable spend cap on the
+provider account before enabling the pipeline at scale.
 
 ---
 

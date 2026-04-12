@@ -8,39 +8,48 @@ Workers are general-purpose agents. Users throw documents, images, data files, a
 
 Three principles:
 
-1. **Pre-install the common stuff.** PDFs, Word docs, spreadsheets, images — these are predictable. Install the packages so the worker doesn't waste iterations on `pip install`.
+1. **Pre-install the common stuff.** PDFs, Word docs, spreadsheets, images — these are predictable. Have the packages on the host so the worker doesn't waste iterations on `pip install`.
 
 2. **Let workers self-install the rest.** Edge cases are unpredictable. The sandbox is configured so `pip install <package>` works without special flags. Packages install to the workspace and are available immediately.
 
 3. **Give the LLM eyes.** If the model supports vision, the `view_image` tool sends image content directly to it. The worker can generate charts, extract frames, photograph documents, and actually see what it's working with.
 
-## Docker (Production)
+## Host toolchain
 
-The Docker image is the canonical runtime. It provides Linux namespaces via bubblewrap for real isolation, and has all tools pre-installed at system paths.
+Arkeon runs workers by shelling out on the host operating system. There is no Docker container to carry tools — the host has to have them. `arkeon start` checks for the required tools at boot and prints a warning listing anything missing; the API still starts, but worker shell commands will fail at run time if the binaries aren't in `PATH`.
 
-### System Tools
+### Required
 
-| Tool | Path | Purpose |
-|------|------|---------|
-| `python` / `python3` | `/usr/bin/python3` | Script execution, package management |
-| `node` | `/usr/local/bin/node` | JavaScript/TypeScript execution |
-| `arkeon` | `/usr/local/bin/arkeon` | Arkeon CLI (built from current OpenAPI spec) |
-| `bash` | `/bin/bash` | Shell execution |
-| `curl` | `/usr/bin/curl` | HTTP requests |
-| `jq` | `/usr/bin/jq` | JSON processing |
-| `pip` | `/usr/bin/pip3` | Python package installation |
-| `bwrap` | `/usr/bin/bwrap` | Bubblewrap sandbox isolation |
+| Tool | Purpose |
+|------|---------|
+| `bash` | Shell execution |
+| `curl` | HTTP requests |
+| `jq` | JSON processing |
+| `python3` | Script execution, package management |
 
-### Arkeon SDK
+### Linux only
 
-| SDK | Import | Location |
-|-----|--------|----------|
-| TypeScript | `import * as arkeon from '@arkeon-technologies/sdk'` | `/node_modules/@arkeon-technologies/sdk/` |
-| TypeScript (alias) | `import * as arkeon from 'arkeon-sdk'` | Symlink to above |
+| Tool | Purpose |
+|------|---------|
+| `bwrap` | Bubblewrap namespace isolation for worker sandboxes |
 
-The TypeScript SDK is installed at `/node_modules/` (filesystem root) so Node's ESM resolver finds it from any working directory — including the ephemeral workspace directories created for each invocation.
+On macOS there is no namespace isolation — the sandbox falls back to direct execution inside a workspace directory (see `packages/runtime/src/sandbox.ts`). That's fine for development but not a real security boundary, so only run untrusted worker code on Linux hosts where `bwrap` is installed.
 
-### Pre-installed Python Packages
+### Install
+
+- **macOS**: `brew install curl jq python3`
+- **Debian / Ubuntu**: `sudo apt-get install bubblewrap curl jq python3 python3-pip`
+
+### Recommended Python packages
+
+Install these on the host so workers don't have to pip-install them on every invocation:
+
+```bash
+pip3 install --break-system-packages \
+  reportlab pypdf python-docx openpyxl python-pptx \
+  ebooklib beautifulsoup4 lxml \
+  Pillow pandas markdown chardet
+```
 
 **Documents:**
 | Package | Handles |
@@ -112,37 +121,6 @@ Workers can generate images using Pillow (pre-installed) or matplotlib (self-ins
 - **Image processing:** Use Pillow to resize, crop, convert formats, or add annotations
 - **PDF to images:** Use `pypdf` to extract pages, Pillow to render
 
-## Local Development
-
-### Use Docker
-
-For worker testing, always use Docker. The local macOS fallback lacks bwrap isolation, has a potentially stale CLI binary, and doesn't have the SDKs installed at the right paths.
-
-```bash
-# Full stack: api + postgres + meilisearch + redis + migrate
-docker compose up -d --build
-
-# With hot-reload (syncs source changes, rebuilds on CLI/SDK changes)
-docker compose up --watch
-```
-
-### Docker Compose Watch
-
-The compose file supports `develop.watch` for a smooth dev loop:
-
-- **`sync`**: API, runtime, and shared source changes are synced into the container — tsx watch picks them up and restarts automatically
-- **`rebuild`**: CLI, SDK, or dependency changes trigger a full image rebuild (~2-18s with layer caching)
-
-### What's Different Locally (without Docker)
-
-| Feature | Docker | Local (macOS) |
-|---------|--------|---------------|
-| bwrap isolation | Yes | No (direct execution fallback) |
-| CLI binary | Current (built during Docker build) | Whatever's in `$PATH` (may be stale) |
-| TypeScript SDK | Installed at `/node_modules/` | Not installed globally |
-| Python packages | All pre-installed | None |
-| `pip install` in sandbox | Works (writable workspace) | Works but no bwrap |
-
 ## Environment Variables Injected into Sandbox
 
 | Variable | Purpose |
@@ -155,19 +133,3 @@ The compose file supports `develop.watch` for a smooth dev loop:
 | `HOME` | Set to workspace directory |
 | `ARKE_INVOCATION_ID` | Current invocation ID (for nesting) |
 | `ARKE_INVOCATION_DEPTH` | Nesting depth |
-
-## Adding New Pre-installed Packages
-
-Edit the `Dockerfile` `pip install` line in the `app` stage:
-
-```dockerfile
-RUN pip install --break-system-packages --no-cache-dir \
-    reportlab pypdf python-docx openpyxl python-pptx \
-    ebooklib beautifulsoup4 lxml \
-    Pillow pandas markdown chardet \
-    NEW_PACKAGE_HERE
-```
-
-Then update the "Pre-installed Python packages" list in the worker prompt (`packages/api/src/lib/worker-prompt.ts`) so workers know it's available.
-
-Keep the image reasonable — install packages that workers would commonly need. Niche packages should be self-installed at runtime.

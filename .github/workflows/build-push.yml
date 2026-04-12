@@ -1,4 +1,4 @@
-name: Test, Build, and Push to ECR
+name: Test and Check CLI Drift
 
 on:
   workflow_dispatch:
@@ -6,12 +6,12 @@ on:
     branches: [main]
     paths:
       - 'packages/api/**'
-      - 'packages/cli/src/**'
-      - 'packages/sdk-ts/src/**'
+      - 'packages/cli/**'
+      - 'packages/sdk-ts/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
-      - 'Dockerfile'
-      - 'docker-compose.ci.yml'
+      - 'packages/shared/**'
+      - 'packages/explorer/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/build-push.yml'
@@ -19,17 +19,21 @@ on:
     branches: [main]
     paths:
       - 'packages/api/**'
-      - 'packages/cli/src/**'
-      - 'packages/sdk-ts/src/**'
+      - 'packages/cli/**'
+      - 'packages/sdk-ts/**'
       - 'packages/schema/**'
       - 'packages/runtime/**'
-      - 'Dockerfile'
-      - 'docker-compose.ci.yml'
+      - 'packages/shared/**'
+      - 'packages/explorer/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/build-push.yml'
 
 jobs:
+  # Job name pinned to `test-and-push` because branch protection on `main`
+  # requires a status check with exactly that name (historical — it used
+  # to also push to ECR, which this job no longer does). Rename carefully;
+  # any change here needs a matching branch-protection update.
   test-and-push:
     runs-on: ubuntu-latest
     steps:
@@ -39,72 +43,113 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install test dependencies
-        run: npm ci --workspace=packages/api
+      # Worker sandbox tests need bubblewrap on the host. It's not in the
+      # default GitHub runner image, but apt has it. curl/jq/python3 are
+      # already present.
+      - name: Install worker toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
 
-      - name: Build Docker image
-        run: docker build -t arke:ci .
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Start test stack
-        run: docker compose -f docker-compose.ci.yml up -d
+      # Build SDK + explorer BEFORE typecheck. packages/api imports
+      # @arkeon-technologies/sdk from its built dist (via knowledge/lib/
+      # arke-client.ts), so the CLI-level typecheck of the API package
+      # requires packages/sdk-ts/dist to exist. Same deal for the CLI's
+      # explorer bundle-step in subsequent builds.
+      - name: Build SDK
+        run: npm run build -w packages/sdk-ts
+
+      - name: Build explorer SPA
+        run: npm run build -w @arkeon-technologies/explorer
+
+      - name: Typecheck API
+        run: npm run typecheck -w packages/api
+
+      - name: Typecheck CLI
+        run: npm run typecheck -w packages/cli
+
+      - name: CLI unit tests
+        run: npm test -w packages/cli
+
+      # Start the full Arkeon stack via the CLI: embedded Postgres, Meilisearch
+      # (downloaded on first run, cached between runs via GHA cache), schema
+      # migrations, API. No Docker required.
+      - name: Cache Arkeon local dir
+        id: cache-arkeon
+        uses: actions/cache@v4
+        with:
+          path: ~/.arkeon/bin
+          key: arkeon-bin-${{ runner.os }}-${{ runner.arch }}-meili-1.41.0
+
+      - name: Start Arkeon stack
+        # --knowledge enables the extraction pipeline so the Knowledge
+        # Poller e2e test (test/e2e/knowledge.test.ts) can observe an
+        # ingest job row being created on upload. Child LLM calls will
+        # fail silently because no provider is configured, but the
+        # test only checks that the poller-triggered ingest row
+        # appears, not that extraction succeeds.
+        run: |
+          nohup npx tsx packages/cli/src/index.ts start \
+            --port 8000 \
+            --pg-port 15433 \
+            --meili-port 17700 \
+            --knowledge \
+            > /tmp/arkeon.log 2>&1 &
+          echo $! > /tmp/arkeon.pid
 
       - name: Wait for API health
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
               echo "API is healthy"
               exit 0
             fi
             sleep 2
           done
-          echo "API failed to start within 60s"
-          docker compose -f docker-compose.ci.yml logs
+          echo "API failed to start within 120s"
+          echo "--- log ---"
+          cat /tmp/arkeon.log
           exit 1
 
-      - name: Run e2e tests
+      - name: Extract admin key
+        id: adminkey
+        run: |
+          key=$(grep "Admin API key" /tmp/arkeon.log | tail -1 | awk '{print $NF}')
+          echo "ADMIN_BOOTSTRAP_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Run API e2e tests
         env:
           E2E_BASE_URL: http://localhost:8000
-          ADMIN_BOOTSTRAP_KEY: ak_test_ci_key
         run: npm run test:e2e -w packages/api
 
-      - name: Teardown test stack
+      - name: Stop Arkeon stack
         if: always()
-        run: docker compose -f docker-compose.ci.yml down -v
-
-      # Push steps below run only on push-to-main, not on pull_request runs.
-      # PR runs validate the build + e2e suite without exposing AWS secrets
-      # to forked-PR contexts or polluting ECR with pre-merge images.
-      - name: Configure AWS credentials
-        if: github.event_name != 'pull_request'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Login to ECR
-        if: github.event_name != 'pull_request'
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Tag and push to ECR
-        if: github.event_name != 'pull_request'
-        env:
-          ECR_REPO: ${{ secrets.ECR_REPO }}
         run: |
-          docker tag arke:ci $ECR_REPO:latest
-          docker tag arke:ci $ECR_REPO:sha-${GITHUB_SHA::8}
-          docker push $ECR_REPO:latest
-          docker push $ECR_REPO:sha-${GITHUB_SHA::8}
+          if [ -f /tmp/arkeon.pid ]; then
+            kill -TERM "$(cat /tmp/arkeon.pid)" 2>/dev/null || true
+            wait "$(cat /tmp/arkeon.pid)" 2>/dev/null || true
+          fi
 
-  regenerate-cli-spec:
-    # Regenerates the CLI's OpenAPI snapshot against the current API and
-    # commits it back to main so the checked-in CLI codegen never drifts.
-    # Releases are separate — see .github/workflows/publish.yml.
-    if: github.event_name != 'pull_request'
-    needs: test-and-push
+      - name: Tail Arkeon log on failure
+        if: failure()
+        run: tail -200 /tmp/arkeon.log || true
+
+  check-cli-spec-drift:
+    # Fails if any of the three checked-in generated files are out of
+    # date relative to their sources:
+    #   - packages/cli/spec/openapi.snapshot.json    <- live API surface
+    #   - packages/cli/src/generated/index.ts        <- openapi.snapshot.json
+    #   - packages/cli/src/generated/assets.ts       <- Genesis seed envelope
+    #
+    # PR authors fix drift locally with `npm run build -w packages/cli`
+    # (which runs fetch-spec + generate + bundle-assets ahead of tsup)
+    # and commit the result, so both API-surface changes and bundled-
+    # asset changes show up in the PR diff where reviewers can see them.
+    #
+    # No `needs: test` — this is a pure static check and runs
+    # independently so drift is visible even when the runtime suite is red.
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -115,26 +160,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # CLI's `fetch-spec` step imports the API to render the OpenAPI snapshot,
+      # and the API's knowledge service imports `@arkeon-technologies/sdk` from
+      # its built dist. Build the SDK first so the import resolves.
       - name: Build SDK (required by CLI fetch-spec via API import)
         run: npm run build -w packages/sdk-ts
 
-      - name: Build CLI (fetch spec + generate + bundle)
+      # The CLI build runs bundle-explorer, which expects the explorer
+      # SPA to already be built. Do that ahead of the CLI build so the
+      # copy-explorer step finds packages/explorer/dist.
+      - name: Build explorer SPA (required by CLI bundle-explorer)
+        run: npm run build -w @arkeon-technologies/explorer
+
+      - name: Regenerate CLI spec + generated commands + bundled assets
         run: npm run build -w packages/cli
 
-      - name: Check if API surface changed
-        id: check
+      - name: Fail if checked-in generated files are stale
         run: |
-          if git diff --quiet packages/cli/spec/openapi.snapshot.json; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          GENERATED=(
+            packages/cli/spec/openapi.snapshot.json
+            packages/cli/src/generated/index.ts
+            packages/cli/src/generated/assets.ts
+          )
+          if ! git diff --quiet "${GENERATED[@]}"; then
+            echo "::error::One or more checked-in generated CLI files are out of date."
+            echo ""
+            echo "Fix:"
+            echo "  npm run build -w packages/cli"
+            echo "  git add ${GENERATED[*]}"
+            echo "  git commit"
+            echo ""
+            echo "Drift detected:"
+            git --no-pager diff --stat "${GENERATED[@]}"
+            git --no-pager diff "${GENERATED[@]}"
+            exit 1
           fi
-
-      - name: Commit regenerated CLI spec
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packages/cli/spec/openapi.snapshot.json packages/cli/src/generated/index.ts
-          git commit -m "chore: regenerate CLI spec from current API [skip ci]"
-          git push
+          echo "CLI generated files are in sync with their sources."

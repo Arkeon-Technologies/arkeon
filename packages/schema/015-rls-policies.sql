@@ -41,6 +41,7 @@ DROP POLICY IF EXISTS versions_select ON entity_versions;
 DROP POLICY IF EXISTS versions_insert ON entity_versions;
 DROP POLICY IF EXISTS activity_select ON entity_activity;
 DROP POLICY IF EXISTS activity_insert ON entity_activity;
+DROP POLICY IF EXISTS activity_delete ON entity_activity;
 DROP POLICY IF EXISTS actors_select ON actors;
 DROP POLICY IF EXISTS actors_insert ON actors;
 DROP POLICY IF EXISTS actors_update ON actors;
@@ -367,6 +368,13 @@ WITH CHECK (
     )
   )
 );
+
+-- DELETE: admin-context only. The in-process retention job
+-- (packages/api/src/lib/retention.ts) runs with admin context and is
+-- the only caller — no route exposes DELETE to user-authenticated actors.
+CREATE POLICY activity_delete ON entity_activity
+FOR DELETE TO arke_app
+USING (current_actor_is_admin());
 
 
 -- =============================================================================
@@ -728,10 +736,11 @@ CREATE POLICY notifications_insert ON notifications
 FOR INSERT TO arke_app
 WITH CHECK (actor_id = current_actor_id());
 
--- DELETE: only your own
+-- DELETE: only your own, OR admin (for the in-process retention job —
+-- see packages/api/src/lib/retention.ts)
 CREATE POLICY notifications_delete ON notifications
 FOR DELETE TO arke_app
-USING (recipient_id = current_actor_id());
+USING (recipient_id = current_actor_id() OR current_actor_is_admin());
 
 
 -- =============================================================================

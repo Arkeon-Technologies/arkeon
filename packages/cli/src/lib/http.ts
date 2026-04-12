@@ -30,6 +30,39 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Translate node:undici's cryptic "fetch failed" into a human-friendly
+ * message that tells the user which URL failed and why. Preserves the
+ * original cause chain on the rethrown Error via `cause`.
+ *
+ * Exported for unit testing; not part of the CLI's public surface.
+ * @internal
+ */
+export function translateFetchError(error: unknown, apiUrl: string): Error {
+  const cause = (error as { cause?: { code?: string; syscall?: string } }).cause;
+  const message = (error as Error).message ?? String(error);
+
+  if (cause?.code === "ECONNREFUSED") {
+    return new Error(
+      `Could not reach ${apiUrl}: connection refused. Is the stack running? Try \`arkeon up\` or \`arkeon status\` to check.`,
+      { cause: error },
+    );
+  }
+  if (cause?.code === "ENOTFOUND") {
+    return new Error(
+      `Could not reach ${apiUrl}: host not found. Check the URL with \`arkeon config get-url\`.`,
+      { cause: error },
+    );
+  }
+  if (cause?.code === "ETIMEDOUT") {
+    return new Error(
+      `Could not reach ${apiUrl}: connection timed out.`,
+      { cause: error },
+    );
+  }
+  return new Error(`Could not reach ${apiUrl}: ${message}`, { cause: error });
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const apiUrl = config.get("apiUrl").replace(/\/$/, "");
   const headers = new Headers(options.headers);
@@ -56,10 +89,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
   }
 
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw translateFetchError(error, apiUrl);
+  }
 
   if (!response.ok) {
     const requestId = response.headers.get("x-request-id") ?? undefined;
@@ -101,10 +139,15 @@ export async function apiResponse(path: string, options: RequestOptions = {}): P
     }
   }
 
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw translateFetchError(error, apiUrl);
+  }
 
   if (!response.ok) {
     const requestId = response.headers.get("x-request-id") ?? undefined;

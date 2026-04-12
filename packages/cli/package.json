@@ -1,10 +1,15 @@
 {
   "name": "arkeon",
-  "version": "0.0.1",
+  "version": "0.3.1",
   "description": "Command-line interface for the Arkeon API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arkeon-Technologies/arkeon.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
-    "arkeon": "./dist/index.js"
+    "arkeon": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [
@@ -13,22 +18,29 @@
   "scripts": {
     "fetch-spec": "tsx scripts/fetch-openapi.ts",
     "generate": "tsx scripts/generate-commands.ts",
-    "build": "npm run fetch-spec && npm run generate && tsup",
+    "bundle-assets": "tsx scripts/bundle-assets.ts",
+    "bundle-explorer": "npm run build -w @arkeon-technologies/explorer && tsx scripts/copy-explorer.ts",
+    "bundle-migrations": "tsx scripts/copy-migrations.ts",
+    "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && tsup && npm run bundle-explorer && npm run bundle-migrations",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "commander": "^14.0.1",
-    "conf": "^13.0.1"
+    "conf": "^13.0.1",
+    "embedded-postgres": "18.3.0-beta.16"
   },
   "devDependencies": {
     "@arkeon-technologies/shared": "*",
     "@types/node": "^24.6.0",
     "tsup": "^8.5.0",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=18.17.0"
