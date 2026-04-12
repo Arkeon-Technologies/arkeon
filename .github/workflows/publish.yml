@@ -44,20 +44,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # CLI's `fetch-spec` step imports the API to render the OpenAPI snapshot,
-      # and the API's knowledge service imports `@arkeon-technologies/sdk` from
-      # its built dist. Build the SDK first so the import resolves.
-      - name: Build SDK (required by CLI fetch-spec via API import)
+      # arkeon's `fetch-spec` step imports src/server/app.ts to render
+      # the OpenAPI snapshot, and the server's knowledge service imports
+      # `@arkeon-technologies/sdk` from its built dist. Build the SDK
+      # first so the import resolves.
+      - name: Build SDK (required by arkeon fetch-spec via server import)
         run: npm run build -w packages/sdk-ts
 
-      - name: Build CLI
-        run: npm run build -w packages/cli
+      - name: Build arkeon
+        run: npm run build -w packages/arkeon
 
       - name: Set package version from tag
-        run: npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version -w packages/cli
+        run: npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version -w packages/arkeon
 
       - name: Publish to npm
-        run: npm publish -w packages/cli --access public --provenance
+        run: npm publish -w packages/arkeon --access public --provenance
 
   publish-sdk-ts:
     if: startsWith(github.ref, 'refs/tags/sdk-v')

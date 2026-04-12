@@ -6,7 +6,7 @@ set -euo pipefail
 # On Linux, this exercises bubblewrap namespace isolation — you must
 # have `bwrap` installed (`sudo apt-get install bubblewrap` on Debian/
 # Ubuntu). On macOS, the sandbox test suite runs against the direct-
-# execution fallback path (see packages/runtime/src/sandbox.ts).
+# execution fallback path (see packages/arkeon/src/runtime/sandbox.ts).
 #
 # No Docker required. This script used to build a production image and
 # run inside a container; that's no longer how Arkeon ships.
@@ -31,4 +31,4 @@ else
   exit 1
 fi
 
-npx tsx packages/runtime/test/sandbox.test.ts
+npx tsx packages/arkeon/test/manual/sandbox.ts

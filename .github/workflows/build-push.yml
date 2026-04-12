@@ -5,12 +5,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/api/**'
-      - 'packages/cli/**'
+      - 'packages/arkeon/**'
       - 'packages/sdk-ts/**'
-      - 'packages/schema/**'
-      - 'packages/runtime/**'
-      - 'packages/shared/**'
       - 'packages/explorer/**'
       - 'package.json'
       - 'package-lock.json'
@@ -18,12 +14,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'packages/api/**'
-      - 'packages/cli/**'
+      - 'packages/arkeon/**'
       - 'packages/sdk-ts/**'
-      - 'packages/schema/**'
-      - 'packages/runtime/**'
-      - 'packages/shared/**'
       - 'packages/explorer/**'
       - 'package.json'
       - 'package-lock.json'
@@ -52,25 +44,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Build SDK + explorer BEFORE typecheck. packages/api imports
-      # @arkeon-technologies/sdk from its built dist (via knowledge/lib/
-      # arke-client.ts), so the CLI-level typecheck of the API package
-      # requires packages/sdk-ts/dist to exist. Same deal for the CLI's
-      # explorer bundle-step in subsequent builds.
+      # Build SDK BEFORE typecheck. packages/arkeon imports
+      # @arkeon-technologies/sdk from its built dist (via
+      # src/server/knowledge/lib/arke-client.ts), so typechecking the
+      # arkeon package requires packages/sdk-ts/dist to exist.
       - name: Build SDK
         run: npm run build -w packages/sdk-ts
 
-      - name: Build explorer SPA
-        run: npm run build -w @arkeon-technologies/explorer
+      - name: Typecheck arkeon
+        run: npm run typecheck -w packages/arkeon
 
-      - name: Typecheck API
-        run: npm run typecheck -w packages/api
-
-      - name: Typecheck CLI
-        run: npm run typecheck -w packages/cli
-
-      - name: CLI unit tests
-        run: npm test -w packages/cli
+      - name: arkeon unit tests
+        run: npm test -w packages/arkeon
 
       # Start the full Arkeon stack via the CLI: embedded Postgres, Meilisearch
       # (downloaded on first run, cached between runs via GHA cache), schema
@@ -90,7 +75,7 @@ jobs:
         # test only checks that the poller-triggered ingest row
         # appears, not that extraction succeeds.
         run: |
-          nohup npx tsx packages/cli/src/index.ts start \
+          nohup npx tsx packages/arkeon/src/index.ts start \
             --port 8000 \
             --pg-port 15433 \
             --meili-port 17700 \
@@ -121,7 +106,7 @@ jobs:
       - name: Run API e2e tests
         env:
           E2E_BASE_URL: http://localhost:8000
-        run: npm run test:e2e -w packages/api
+        run: npm run test:e2e -w packages/arkeon
 
       - name: Stop Arkeon stack
         if: always()
@@ -138,11 +123,11 @@ jobs:
   check-cli-spec-drift:
     # Fails if any of the three checked-in generated files are out of
     # date relative to their sources:
-    #   - packages/cli/spec/openapi.snapshot.json    <- live API surface
-    #   - packages/cli/src/generated/index.ts        <- openapi.snapshot.json
-    #   - packages/cli/src/generated/assets.ts       <- Genesis seed envelope
+    #   - packages/arkeon/spec/openapi.snapshot.json    <- live API surface
+    #   - packages/arkeon/src/generated/index.ts        <- openapi.snapshot.json
+    #   - packages/arkeon/src/generated/assets.ts       <- Genesis seed envelope
     #
-    # PR authors fix drift locally with `npm run build -w packages/cli`
+    # PR authors fix drift locally with `npm run build -w packages/arkeon`
     # (which runs fetch-spec + generate + bundle-assets ahead of tsup)
     # and commit the result, so both API-surface changes and bundled-
     # asset changes show up in the PR diff where reviewers can see them.
@@ -160,33 +145,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # CLI's `fetch-spec` step imports the API to render the OpenAPI snapshot,
-      # and the API's knowledge service imports `@arkeon-technologies/sdk` from
-      # its built dist. Build the SDK first so the import resolves.
-      - name: Build SDK (required by CLI fetch-spec via API import)
+      # `fetch-spec` imports src/server/app.ts to render the OpenAPI
+      # snapshot, and the server's knowledge service imports
+      # `@arkeon-technologies/sdk` from its built dist. Build the SDK
+      # first so the import resolves.
+      - name: Build SDK (required by arkeon fetch-spec via server import)
         run: npm run build -w packages/sdk-ts
 
-      # The CLI build runs bundle-explorer, which expects the explorer
-      # SPA to already be built. Do that ahead of the CLI build so the
-      # copy-explorer step finds packages/explorer/dist.
-      - name: Build explorer SPA (required by CLI bundle-explorer)
-        run: npm run build -w @arkeon-technologies/explorer
-
-      - name: Regenerate CLI spec + generated commands + bundled assets
-        run: npm run build -w packages/cli
+      - name: Regenerate arkeon spec + generated commands + bundled assets
+        run: npm run build -w packages/arkeon
 
       - name: Fail if checked-in generated files are stale
         run: |
           GENERATED=(
-            packages/cli/spec/openapi.snapshot.json
-            packages/cli/src/generated/index.ts
-            packages/cli/src/generated/assets.ts
+            packages/arkeon/spec/openapi.snapshot.json
+            packages/arkeon/src/generated/index.ts
+            packages/arkeon/src/generated/assets.ts
           )
           if ! git diff --quiet "${GENERATED[@]}"; then
-            echo "::error::One or more checked-in generated CLI files are out of date."
+            echo "::error::One or more checked-in generated arkeon files are out of date."
             echo ""
             echo "Fix:"
-            echo "  npm run build -w packages/cli"
+            echo "  npm run build -w packages/arkeon"
             echo "  git add ${GENERATED[*]}"
             echo "  git commit"
             echo ""
@@ -195,4 +175,4 @@ jobs:
             git --no-pager diff "${GENERATED[@]}"
             exit 1
           fi
-          echo "CLI generated files are in sync with their sources."
+          echo "arkeon generated files are in sync with their sources."
