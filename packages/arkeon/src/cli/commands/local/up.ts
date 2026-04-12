@@ -27,6 +27,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
+import { registerInstance } from "../../lib/instances.js";
 import {
   DEFAULT_API_PORT,
   DEFAULT_MEILI_PORT,
@@ -168,8 +169,17 @@ async function runUp(opts: UpOptions): Promise<void> {
     );
   }
 
-  // Apply any pending LLM config staged by `arkeon init --llm-*`.
+  // Register this instance so other commands can discover it.
   const apiUrl = `http://localhost:${apiPort}`;
+  registerInstance({
+    api_url: apiUrl,
+    api_port: apiPort,
+    arkeon_home: arkeonDir(),
+    pid: child.pid!,
+    started_at: new Date().toISOString(),
+  });
+
+  // Apply any pending LLM config staged by `arkeon init --llm-*`.
   let pushedLlm: PendingLlmConfig | null = null;
   try {
     pushedLlm = await pushPendingLlmConfig(secrets.adminBootstrapKey, apiUrl);

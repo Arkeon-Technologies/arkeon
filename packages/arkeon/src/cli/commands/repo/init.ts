@@ -13,6 +13,7 @@ import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { credentials } from "../../lib/credentials.js";
+import { resolveAdminKeyForUrl } from "../../lib/instances.js";
 import { output } from "../../lib/output.js";
 import { readSecrets } from "../../lib/local-runtime.js";
 import { saveRepoState, stateFilePath } from "../../lib/repo-state.js";
@@ -31,17 +32,21 @@ type SpaceResponse = {
   space: { id: string; name: string };
 };
 
-function resolveAdminKey(): string {
+function resolveAdminKey(apiUrl: string): string {
   // 1. Env var
   const envKey = process.env.ARKE_ADMIN_KEY?.trim();
   if (envKey) return envKey;
 
-  // 2. Local stack secrets.json
+  // 2. Instance registry — find the stack serving this URL and read its secrets
+  const registryKey = resolveAdminKeyForUrl(apiUrl);
+  if (registryKey) return registryKey;
+
+  // 3. Default ARKEON_HOME secrets.json (fallback for single-stack setups)
   const secrets = readSecrets();
   if (secrets?.adminBootstrapKey) return secrets.adminBootstrapKey;
 
   throw new Error(
-    "No admin key found. Set ARKE_ADMIN_KEY or start the local stack first (`arkeon up`).",
+    "No admin key found for " + apiUrl + ". Set ARKE_ADMIN_KEY or start the local stack first (`arkeon up`).",
   );
 }
 
@@ -103,7 +108,7 @@ export function registerInitCommand(program: Command): void {
         }
 
         const apiUrl = resolveApiUrl(opts.apiUrl);
-        const adminKey = resolveAdminKey();
+        const adminKey = resolveAdminKey(apiUrl);
         const name = spaceName ?? basename(cwd);
 
         // Verify stack is reachable

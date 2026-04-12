@@ -10,6 +10,7 @@
 
 import type { Command } from "commander";
 
+import { listInstances, unregisterInstance } from "../../lib/instances.js";
 import {
   isProcessAlive,
   readPidfile,
@@ -51,6 +52,10 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) {
       removePidfile();
+      // Clean up instance registry entry for this PID
+      for (const inst of listInstances()) {
+        if (inst.pid === pid) unregisterInstance(inst.api_port);
+      }
       output.result({ operation, state: "stopped", pid });
       return;
     }
