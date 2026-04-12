@@ -4,7 +4,7 @@ Three levels: schema tests in Postgres, end-to-end API tests with Vitest, and op
 
 ## E2E Test Layout
 
-`packages/api/test/e2e/` — functional suite split by domain:
+`packages/arkeon/test/e2e/` — functional suite split by domain:
 
 | File | Coverage |
 |------|----------|
@@ -19,7 +19,7 @@ Three levels: schema tests in Postgres, end-to-end API tests with Vitest, and op
 
 ## Stress Scripts
 
-`packages/api/test/stress/` — manual operational checks, not part of Vitest:
+`packages/arkeon/test/stress/` — manual operational checks, not part of Vitest:
 
 - `auth.mjs` — auth flows under concurrency with retry/backoff
 - `mutations.mjs` — repeated authenticated entity creation
@@ -30,5 +30,5 @@ Three levels: schema tests in Postgres, end-to-end API tests with Vitest, and op
 Direct schema/RLS validation against Postgres:
 
 ```bash
-psql "$DATABASE_URL" -f packages/schema/tests/run_tests.sql
+psql "$DATABASE_URL" -f packages/arkeon/src/schema/tests/run_tests.sql
 ```
