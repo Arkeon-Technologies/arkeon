@@ -21,7 +21,7 @@
  */
 
 import type { Command } from "commander";
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +44,7 @@ import {
   waitForMeilisearchReady,
   writePidfile,
 } from "../../lib/local-runtime.js";
+import { runMigrations } from "../../../schema/index.js";
 
 interface StartOptions {
   port?: string;
@@ -297,84 +298,24 @@ async function runStart(options: StartOptions): Promise<void> {
 }
 
 /**
- * Run the schema migrations against a given database URL.
- *
- * We shell out to the migrate.js script rather than importing its body
- * because migrate.js uses top-level await to run immediately on load —
- * importing it would run migrations against the wrong URL if this module
- * imports it before we've constructed the URL. A child process with a
- * scoped env is the cleanest boundary.
- */
-async function runMigrations(opts: {
-  databaseUrl: string;
-  arkeAppPassword: string;
-}): Promise<void> {
-  // packages/schema/migrate.js is located by findMigrateScript() below.
-  // In the published-npm case the schema files ship inside the CLI's
-  // own dist/schema/ directory (copied in by scripts/copy-migrations.ts
-  // during the build) so there's no need for @arkeon-technologies/schema
-  // to be a published sibling package.
-  const migratePath = findMigrateScript();
-  if (!migratePath) {
-    throw new Error(
-      "Could not locate packages/schema/migrate.js. This is a bug in the arkeon CLI packaging.",
-    );
-  }
-
-  return await new Promise<void>((resolve, reject) => {
-    const child = spawn(process.execPath, [migratePath], {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        MIGRATION_DATABASE_URL: opts.databaseUrl,
-        ARKE_APP_PASSWORD: opts.arkeAppPassword,
-      },
-    });
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`migrate.js exited with code ${code}`));
-    });
-    child.on("error", reject);
-  });
-}
-
-function findMigrateScript(): string | null {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // Monorepo dev (packages/cli/src/commands/local → packages/schema/migrate.js)
-    join(here, "..", "..", "..", "..", "schema", "migrate.js"),
-    // Bundled CLI / published npm — schema copied into dist/schema by
-    // copy-migrations.ts during the CLI build. `here` is
-    // packages/cli/dist (when everything collapses into dist/index.js),
-    // so dist/schema/migrate.js is a sibling.
-    join(here, "schema", "migrate.js"),
-    join(here, "..", "schema", "migrate.js"),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-/**
  * Locate the built explorer SPA assets. Layout depends on how the CLI
  * was invoked:
  *   - Monorepo dev (tsx): `import.meta.url` points at
- *     packages/cli/src/commands/local/start.ts. The explorer dist lives
- *     at packages/explorer/dist — 4 levels up then into explorer/dist.
+ *     packages/arkeon/src/cli/commands/local/start.ts. The explorer
+ *     dist lives at packages/explorer/dist — up 5 levels then into
+ *     explorer/dist.
  *   - Bundled CLI (tsup): everything collapses into
- *     packages/cli/dist/index.js. copy-explorer.ts drops the assets in
- *     packages/cli/dist/explorer, a sibling of the bundle.
- *   - Published npm: same as bundled — the CLI's dist ships with an
+ *     packages/arkeon/dist/index.js. copy-explorer.ts drops the assets
+ *     in packages/arkeon/dist/explorer, a sibling of the bundle.
+ *   - Published npm: same as bundled — the arkeon dist ships with an
  *     `explorer` subdirectory included via `files`.
  */
 function findExplorerDist(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    // Monorepo dev
-    join(here, "..", "..", "..", "..", "explorer", "dist"),
-    // Bundled CLI / published npm
+    // Monorepo dev: packages/arkeon/src/cli/commands/local → up 5 to packages/ → explorer/dist
+    join(here, "..", "..", "..", "..", "..", "explorer", "dist"),
+    // Bundled CLI / published npm — `here` is packages/arkeon/dist
     join(here, "explorer"),
   ];
   for (const candidate of candidates) {

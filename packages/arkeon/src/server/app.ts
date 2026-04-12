@@ -52,10 +52,10 @@ export function createApp() {
   // Serve explorer SPA static assets. The CLI passes an explicit path via
   // ARKEON_EXPLORER_DIST so the bundled/published layout works; in a plain
   // monorepo dev run we fall back to packages/explorer/dist relative to
-  // this file.
+  // this file (packages/arkeon/src/server/app.ts → up 3 → packages/explorer/dist).
   const explorerDist =
     process.env.ARKEON_EXPLORER_DIST ??
-    resolve(dirname(fileURLToPath(import.meta.url)), "../../explorer/dist");
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../../explorer/dist");
   if (!existsSync(explorerDist)) {
     console.warn(`[explorer] dist not found at ${explorerDist} — /explore will 404. Run: npm run build -w packages/explorer`);
   }
