@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync, existsSync } from "node:f
 import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
 
-import { buildLlmConfigFromFlags, parseEnv } from "../src/lib/local.js";
+import { buildLlmConfigFromFlags, parseEnv } from "../../src/cli/lib/local.js";
 import {
   clearPendingLlm,
   loadOrCreateSecrets,
@@ -15,7 +15,7 @@ import {
   readSecrets,
   secretsFile,
   writePendingLlm,
-} from "../src/lib/local-runtime.js";
+} from "../../src/cli/lib/local-runtime.js";
 
 // ---------------------------------------------------------------------------
 // parseEnv — minimal dotenv-style parser (still exported for external-mode

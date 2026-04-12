@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { translateFetchError } from "../src/lib/http.js";
+import { translateFetchError } from "../../src/cli/lib/http.js";
 
 /**
  * Build a fake fetch-failure error shaped like what node:undici actually

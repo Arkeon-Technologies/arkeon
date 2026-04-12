@@ -1,12 +1,11 @@
 {
-  "name": "arkeon",
+  "name": "arkeon-workspace",
   "private": true,
   "license": "Apache-2.0",
   "author": "Arkeon Technologies, Inc.",
   "workspaces": [
-    "packages/*"
-  ],
-  "scripts": {
-    "migrate": "npm run migrate -w packages/schema"
-  }
+    "packages/arkeon",
+    "packages/sdk-ts",
+    "packages/explorer"
+  ]
 }

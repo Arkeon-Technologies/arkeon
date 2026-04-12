@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, test, expect } from "vitest";
-import { parseFilter, buildFilterSql } from "../../src/lib/filtering";
+import { parseFilter, buildFilterSql } from "../../src/server/lib/filtering";
 
 describe("parseFilter", () => {
   test("parses simple equality", () => {

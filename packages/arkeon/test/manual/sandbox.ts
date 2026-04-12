@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { platform } from "node:os";
 
-import { Sandbox } from "../src/sandbox.js";
+import { Sandbox } from "../../src/runtime/sandbox.js";
 
 let passed = 0;
 let failed = 0;

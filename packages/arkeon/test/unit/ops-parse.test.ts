@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, test } from "vitest";
-import { parseOps } from "../../src/lib/ops-parse";
-import type { OpsEnvelope } from "../../src/lib/ops-schema";
+import { parseOps } from "../../src/server/lib/ops-parse";
+import type { OpsEnvelope } from "../../src/server/lib/ops-schema";
 
 function envelope(ops: unknown[], extra: Partial<OpsEnvelope> = {}): OpsEnvelope {
   return { format: "arke.ops/v1", ops: ops as OpsEnvelope["ops"], ...extra };
