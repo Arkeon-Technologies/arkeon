@@ -8,6 +8,7 @@ import { registerConfigCommands } from "./cli/commands/config/index.js";
 import { registerEntityContentCommands } from "./cli/commands/entities/index.js";
 import { registerGuideCommand } from "./cli/commands/guide/index.js";
 import { registerLocalCommands } from "./cli/commands/local/index.js";
+import { registerInstallCommands } from "./cli/commands/install/index.js";
 import { registerRepoCommands } from "./cli/commands/repo/index.js";
 import { registerApiCommands } from "./generated/index.js";
 
@@ -42,6 +43,7 @@ program.hook("preAction", (command) => {
 });
 
 registerRepoCommands(program);
+registerInstallCommands(program);
 registerLocalCommands(program);
 registerAuthCommands(program);
 registerConfigCommands(program);
