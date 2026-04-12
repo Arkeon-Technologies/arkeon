@@ -137,10 +137,12 @@ export async function executeOps(
 
   // ---- Optional: extracted_from edges to source document ------------------
   //
-  // If source.entity_id was provided, every entity created in this batch
-  // gets an 'extracted_from' edge back to the source document. Edges do
-  // NOT get these back-edges (that way lies madness — provenance edges
-  // for provenance edges).
+  // If source.entity_id was provided, every entity AND relationship created
+  // in this batch gets an 'extracted_from' edge back to the source document.
+  // This covers both entity ops (persons, concepts, etc.) and relate ops
+  // (relationships the LLM extracted from the source). The only things that
+  // do NOT get provenance edges are the extracted_from edges themselves —
+  // that would be provenance edges for provenance edges.
   //
   // We track the query index of each provenance entity INSERT so we can
   // verify post-tx that it actually landed. In practice these should never
@@ -157,7 +159,8 @@ export async function executeOps(
   }
   const extractedFromEdges: PlannedProvenanceEdge[] = [];
   const sourceId = envelope.source?.entity_id ?? null;
-  if (sourceId && plan.entities.length > 0) {
+  if (sourceId) {
+    // Entities created by entity ops
     for (const entity of plan.entities) {
       const edgeId = generateUlid();
       extractedFromEdges.push({ id: edgeId, sourceEntityId: entity.id });
@@ -167,6 +170,23 @@ export async function executeOps(
       );
       queries.push(
         buildExtractedFromEdgeRelationshipInsert(sql, edgeId, entity.id, sourceId),
+      );
+      queries.push(
+        buildEntityVersionInsert(sql, { id: edgeId, properties: envelope.source?.extracted_by ?? {} }, actor.id, now),
+      );
+    }
+    // Relationship entities created by relate ops — these are also
+    // "extracted from" the source document. Without this, arkeon rm
+    // can't cascade-delete relationships that were extracted from a file.
+    for (const edge of plan.edges) {
+      const edgeId = generateUlid();
+      extractedFromEdges.push({ id: edgeId, sourceEntityId: edge.id });
+      extractedFromQueryIdx.push(queries.length);
+      queries.push(
+        buildExtractedFromEdgeEntityInsert(sql, edgeId, edge.id, sourceId, actor.id, now, envelope.source?.extracted_by),
+      );
+      queries.push(
+        buildExtractedFromEdgeRelationshipInsert(sql, edgeId, edge.id, sourceId),
       );
       queries.push(
         buildEntityVersionInsert(sql, { id: edgeId, properties: envelope.source?.extracted_by ?? {} }, actor.id, now),
