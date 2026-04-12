@@ -4,7 +4,7 @@
 /**
  * Builds the full system prompt for worker invocations.
  *
- * Concept text comes from @arkeon-technologies/shared (single source of truth).
+ * Concept text comes from ../../shared (single source of truth).
  * The CLI reference is generated once at server startup from the OpenAPI spec
  * and injected so workers have complete tool knowledge from the first call.
  */
@@ -15,7 +15,7 @@ import {
   CLASSIFICATION_LEVELS,
   BEST_PRACTICES,
   FILTERING_HINT,
-} from "@arkeon-technologies/shared";
+} from "../../shared/index.js";
 
 import type { InvocationContext } from "./worker-invoke.js";
 

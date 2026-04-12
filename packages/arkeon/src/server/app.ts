@@ -8,7 +8,7 @@ import { dirname, resolve } from "path";
 import { existsSync } from "fs";
 
 import type { AppBindings } from "./types";
-import type { OpenAPISpec } from "@arkeon-technologies/shared";
+import type { OpenAPISpec } from "../shared";
 import { renderFullApiReferenceFromSpec, renderPreamble } from "./lib/openapi-help";
 import { validationHook } from "./lib/openapi";
 import { requestContextMiddleware } from "./middleware/request-context";

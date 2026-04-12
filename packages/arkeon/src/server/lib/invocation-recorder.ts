@@ -10,7 +10,7 @@
  */
 
 import type { InvokeResult, LogLevel } from "./worker-invoke.js";
-import type { LogEntry } from "../../../runtime/src/agent.js";
+import type { LogEntry } from "../../runtime/agent.js";
 import { createSql } from "./sql.js";
 
 function filterLogs(log: LogEntry[], level: LogLevel): LogEntry[] {

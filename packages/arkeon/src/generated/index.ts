@@ -3,7 +3,7 @@
 
 import { Command } from "commander";
 
-import { registerGeneratedGroup, type GeneratedOperation } from "../lib/generated.js";
+import { registerGeneratedGroup, type GeneratedOperation } from "../cli/lib/generated.js";
 
 const OPERATIONS: GeneratedOperation[] = [
   {

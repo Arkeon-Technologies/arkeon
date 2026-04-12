@@ -46,7 +46,7 @@ async function fetchFromRemote(): Promise<OpenAPISpec> {
 
 async function fetchFromLocalSource(): Promise<OpenAPISpec> {
   const appModuleUrl = pathToFileURL(
-    join(__dirname, "..", "..", "api", "src", "app.ts"),
+    join(__dirname, "..", "src", "server", "app.ts"),
   ).href;
   const { createApp } = await import(appModuleUrl);
   const app = createApp();

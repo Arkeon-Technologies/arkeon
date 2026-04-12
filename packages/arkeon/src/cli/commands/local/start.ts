@@ -194,9 +194,9 @@ async function runStart(options: StartOptions): Promise<void> {
   // schema, etc. on every CLI command (including `arkeon stop`), which
   // is pointless. Doing it here keeps `arkeon --help` and the unrelated
   // commands cheap.
-  const { startApi } = await import("@arkeon-technologies/api");
+  const { startApi } = await import("../../../server/server.js");
   const storageDir = filesDataDir();
-  // Thread storage location via env so packages/api/src/lib/storage.ts
+  // Thread storage location via env so src/server/lib/storage.ts
   // writes uploaded files into the ~/.arkeon state dir rather than the
   // process cwd.
   process.env.STORAGE_BACKEND = process.env.STORAGE_BACKEND ?? "local";

@@ -13,7 +13,7 @@
 
 import type { Command } from "commander";
 
-import { GENESIS_OPS } from "../../generated/assets.js";
+import { GENESIS_OPS } from "../../../generated/assets.js";
 import { config } from "../../lib/config.js";
 import {
   DEFAULT_API_PORT,

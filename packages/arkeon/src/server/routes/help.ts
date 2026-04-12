@@ -8,7 +8,7 @@ import {
   CORE_CONCEPTS,
   AUTHENTICATION,
   BEST_PRACTICES,
-} from "@arkeon-technologies/shared";
+} from "../../shared";
 import {
   renderIndexFromSpec,
   renderPreamble,

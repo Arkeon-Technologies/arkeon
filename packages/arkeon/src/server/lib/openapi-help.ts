@@ -7,7 +7,7 @@ import {
   type GeneratedOperation,
   parseOperations,
   toFlagName,
-} from "@arkeon-technologies/shared";
+} from "../../shared";
 
 import type { Actor } from "../types";
 

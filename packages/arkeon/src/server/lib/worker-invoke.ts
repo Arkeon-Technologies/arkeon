@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { Agent, type LogEntry, type UsageStats } from "../../../runtime/src/agent.js";
+import { Agent, type LogEntry, type UsageStats } from "../../runtime/agent.js";
 import { decrypt } from "./crypto.js";
 import { createSql } from "./sql.js";
 import { buildWorkerSystemPrompt } from "./worker-prompt.js";

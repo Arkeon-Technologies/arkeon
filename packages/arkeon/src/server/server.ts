@@ -23,7 +23,7 @@ import type { AddressInfo } from "node:net";
 import { createApp, openApiConfig } from "./app.js";
 import { ensureBootstrap } from "./lib/bootstrap.js";
 import { ensureMeiliIndex, isMeilisearchConfigured } from "./lib/meilisearch.js";
-import { type OpenAPISpec } from "@arkeon-technologies/shared";
+import { type OpenAPISpec } from "../shared/index.js";
 import { renderFullReferenceFromSpec } from "./lib/openapi-help.js";
 import { startScheduler, stopScheduler } from "./lib/scheduler.js";
 import { startRetention, stopRetention } from "./lib/retention.js";

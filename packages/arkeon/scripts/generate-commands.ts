@@ -10,7 +10,7 @@ import {
   type GeneratedField,
   type GeneratedOperation,
   parseOperations,
-} from "@arkeon-technologies/shared";
+} from "../src/shared/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const specPath = join(__dirname, "..", "spec", "openapi.snapshot.json");
@@ -30,7 +30,7 @@ function generateIndex(spec: OpenAPISpec): string {
 
 import { Command } from "commander";
 
-import { registerGeneratedGroup, type GeneratedOperation } from "../lib/generated.js";
+import { registerGeneratedGroup, type GeneratedOperation } from "../cli/lib/generated.js";
 
 const OPERATIONS: GeneratedOperation[] = [
 ${operations

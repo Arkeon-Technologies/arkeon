@@ -9,7 +9,7 @@ import {
   AUTHENTICATION,
   BEST_PRACTICES,
   FILTERING_HINT,
-} from "@arkeon-technologies/shared";
+} from "../../../shared/index.js";
 
 const CLI_GUIDE = `# Arkeon CLI — Getting Started
 

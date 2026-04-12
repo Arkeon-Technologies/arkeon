@@ -3,11 +3,11 @@
 
 import { Command } from "commander";
 
-import { registerAuthCommands } from "./commands/auth/index.js";
-import { registerConfigCommands } from "./commands/config/index.js";
-import { registerEntityContentCommands } from "./commands/entities/index.js";
-import { registerGuideCommand } from "./commands/guide/index.js";
-import { registerLocalCommands } from "./commands/local/index.js";
+import { registerAuthCommands } from "./cli/commands/auth/index.js";
+import { registerConfigCommands } from "./cli/commands/config/index.js";
+import { registerEntityContentCommands } from "./cli/commands/entities/index.js";
+import { registerGuideCommand } from "./cli/commands/guide/index.js";
+import { registerLocalCommands } from "./cli/commands/local/index.js";
 import { registerApiCommands } from "./generated/index.js";
 
 const program = new Command();
