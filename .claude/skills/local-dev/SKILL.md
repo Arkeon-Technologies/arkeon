@@ -10,130 +10,143 @@ allowed-tools: Bash(npm *, npx *, curl *, pkill *, sleep *, kill *, lsof *, ls *
 
 Manage the local dev stack via the `arkeon` CLI. Everything runs as a single Node process — embedded Postgres, spawned Meilisearch, and the API server — no Docker.
 
-## Worktree isolation
-
-If you're in a worktree (path contains `.claude-worktrees/` or `.claude/worktrees/`), pick non-default ports and a scoped `ARKEON_HOME` so parallel worktrees don't collide:
-
-1. Check for `.devports` in the worktree root. If it exists, read its values.
-2. If not, pick a random slot 1-99 and verify the ports are free:
-   ```bash
-   SLOT=$((RANDOM % 99 + 1))
-   PG_PORT=$((15433 + SLOT))
-   API_PORT=$((8000 + SLOT))
-   MEILI_PORT=$((17700 + SLOT))
-   while lsof -iTCP:$PG_PORT -sTCP:LISTEN >/dev/null 2>&1 || \
-         lsof -iTCP:$API_PORT -sTCP:LISTEN >/dev/null 2>&1 || \
-         lsof -iTCP:$MEILI_PORT -sTCP:LISTEN >/dev/null 2>&1; do
-     SLOT=$((RANDOM % 99 + 1))
-     PG_PORT=$((15433 + SLOT))
-     API_PORT=$((8000 + SLOT))
-     MEILI_PORT=$((17700 + SLOT))
-   done
-   ```
-3. Persist to `.devports`:
-   ```bash
-   cat > .devports <<EOF
-   PG_PORT=$PG_PORT
-   API_PORT=$API_PORT
-   MEILI_PORT=$MEILI_PORT
-   ARKEON_HOME=$PWD/.arkeon-state
-   EOF
-   ```
-
-`ARKEON_HOME=$PWD/.arkeon-state` keeps each worktree's Postgres data and downloaded Meilisearch binary scoped to that worktree, so wiping one doesn't affect another. `.arkeon-state/` is gitignored.
-
-Main tree (not a worktree) uses defaults: `PG_PORT=5433`, `API_PORT=8000`, `MEILI_PORT=7700`, `ARKEON_HOME=~/.arkeon`.
-
-## Commands
-
-`$ARGUMENTS` determines the action:
+## Stack Management
 
 ### `start` (default)
 
-1. Load ports + ARKEON_HOME from `.devports` (or use defaults).
-2. Check if already running: `curl -sf http://localhost:$API_PORT/health`.
-3. If not running, start the stack:
-   ```bash
-   ARKEON_HOME="$ARKEON_HOME" nohup npx tsx packages/arkeon/src/index.ts start \
-     --port $API_PORT --pg-port $PG_PORT --meili-port $MEILI_PORT \
-     > /tmp/arkeon-$API_PORT.log 2>&1 &
-   echo $! > /tmp/arkeon-$API_PORT.pid
-   ```
-4. Poll for health (up to 120s — first run downloads the ~100MB Meilisearch binary):
-   ```bash
-   for i in $(seq 1 60); do
-     if curl -sf http://localhost:$API_PORT/health > /dev/null 2>&1; then break; fi
-     sleep 2
-   done
-   ```
-5. Pull the generated admin key from the log:
-   ```bash
-   grep "Admin API key" /tmp/arkeon-$API_PORT.log | tail -1 | awk '{print $NF}'
-   ```
-6. Confirm the stack is up and print: API port, admin key, ARKEON_HOME.
+Use `arkeon up` to start the stack as a background daemon:
+
+```bash
+npx tsx packages/arkeon/src/index.ts up
+```
+
+This:
+- Starts embedded Postgres + Meilisearch + API server
+- Registers the instance at `~/.arkeon/instances/<port>.json`
+- Registers the "admin" profile in the instance actor registry
+- Stores the admin key in the CLI credential store
+- Polls `/health` until ready (up to 120s — first run downloads ~100MB Meilisearch binary)
+
+For **named instances** (parallel stacks):
+```bash
+npx tsx packages/arkeon/src/index.ts up --name my-feature
+```
+Each named instance gets its own `ARKEON_HOME` at `~/.arkeon/<name>/`, its own port, and its own data.
+
+Check it's running:
+```bash
+npx tsx packages/arkeon/src/index.ts status
+```
+
+### `stop`
+
+```bash
+npx tsx packages/arkeon/src/index.ts down [name]
+```
+
+Gracefully drains the API, stops Meilisearch, stops Postgres. No orphan processes.
+
+### `reset`
+
+```bash
+npx tsx packages/arkeon/src/index.ts reset --force
+```
+Wipes `~/.arkeon/data/` but preserves secrets and Meilisearch binary. Use `--hard` to wipe everything.
+
+### `status`
+
+```bash
+npx tsx packages/arkeon/src/index.ts status
+```
+Shows: process state, health, seed state, LLM config, state directory, running instances, and repo binding info (if in an initialized repo).
+
+## Worktree Isolation
+
+If you're in a worktree (path contains `.claude/worktrees/`), use a named instance to avoid collisions:
+
+```bash
+WORKTREE_NAME=$(basename "$PWD")
+npx tsx packages/arkeon/src/index.ts up --name "$WORKTREE_NAME"
+```
+
+Each named instance gets isolated state at `~/.arkeon/<name>/`. The instance registry at `~/.arkeon/instances/` tracks all running instances.
+
+Main tree (not a worktree) uses the default instance: `~/.arkeon/`, port 8000.
+
+## Repo Binding and Auth
+
+### Initialize a repo
+
+After the stack is running, bind a repo to it:
+
+```bash
+cd /path/to/my-repo
+npx tsx packages/arkeon/src/index.ts init my-project
+```
+
+This creates:
+- An ingestor actor on the graph
+- `.arkeon/state.json` with `api_url`, `space_id`, `current_actor`
+- Actor key in `~/.config/arkeon-cli/credentials.json`
+- Entry in the instance actor registry
+
+### Auth profiles
+
+All CLI commands auto-resolve identity from the repo's active profile. No `ARKE_API_KEY` needed.
+
+```bash
+# Show current identity
+npx tsx packages/arkeon/src/index.ts auth status
+
+# List profiles for this instance
+npx tsx packages/arkeon/src/index.ts auth profiles
+
+# Create a new actor profile
+npx tsx packages/arkeon/src/index.ts auth add reviewer --kind agent
+
+# Switch active profile
+npx tsx packages/arkeon/src/index.ts auth use reviewer
+
+# Remove a profile (--delete also deactivates the graph actor)
+npx tsx packages/arkeon/src/index.ts auth remove reviewer
+```
+
+The resolution chain: `ARKE_API_KEY` env (override) -> repo `state.actors` (per-repo) -> instance actor registry (per-instance) -> global credential store.
+
+## Testing
 
 ### `test`
 
-1. Ensure the stack is running (call `start` if not).
-2. Read the admin key from the log file.
+1. Ensure the stack is running (`arkeon up` if not).
+2. Get admin key from `~/.arkeon/secrets.json`.
 3. Run e2e tests:
    ```bash
-   E2E_BASE_URL=http://localhost:$API_PORT \
+   ADMIN_KEY=$(cat ~/.arkeon/secrets.json | python3 -c "import sys,json; print(json.load(sys.stdin)['adminBootstrapKey'])")
+   E2E_BASE_URL=http://localhost:8000 \
    ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
    npm run test:e2e -w packages/arkeon
    ```
-4. Report results.
+
+For named instances, adjust the port and secrets path:
+```bash
+ADMIN_KEY=$(cat ~/.arkeon/<name>/secrets.json | python3 -c "import sys,json; print(json.load(sys.stdin)['adminBootstrapKey'])")
+E2E_BASE_URL=http://localhost:<port> \
+ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
+npm run test:e2e -w packages/arkeon
+```
 
 ### `test:sandbox`
 
-Runs `packages/arkeon/test/sandbox.test.ts`. On Linux, exercises real bubblewrap namespace isolation (install with `sudo apt-get install bubblewrap` if missing). On macOS, exercises the direct-execution fallback path.
+Worker sandbox tests. Requires bubblewrap on Linux; macOS uses the fallback path.
 
 ```bash
 ./scripts/test-sandbox.sh
 ```
 
-### `reset`
-
-Wipes the Postgres data and Meilisearch index for this worktree's `ARKEON_HOME`.
-
-1. Stop the running process (same as `stop`).
-2. Wipe data:
-   ```bash
-   ARKEON_HOME="$ARKEON_HOME" npx tsx packages/arkeon/src/index.ts reset --force
-   ```
-   This removes `$ARKEON_HOME/data/` but preserves secrets and the downloaded Meilisearch binary. Use `--hard` to wipe everything.
-3. Start fresh with `start`.
-
-### `stop`
-
-```bash
-if [ -f /tmp/arkeon-$API_PORT.pid ]; then
-  kill -TERM "$(cat /tmp/arkeon-$API_PORT.pid)" 2>/dev/null || true
-  wait "$(cat /tmp/arkeon-$API_PORT.pid)" 2>/dev/null || true
-  rm -f /tmp/arkeon-$API_PORT.pid /tmp/arkeon-$API_PORT.log
-fi
-```
-
-The arkeon process's own signal handler drains the API → stops Meilisearch → stops Postgres cleanly. No orphan containers or volumes to worry about.
-
-### `status`
-
-```bash
-# Check every known worktree's arkeon instance
-for pidfile in /tmp/arkeon-*.pid; do
-  [ -f "$pidfile" ] || continue
-  pid=$(cat "$pidfile")
-  if kill -0 "$pid" 2>/dev/null; then
-    port=$(basename "$pidfile" .pid | sed 's/arkeon-//')
-    echo "arkeon running on port $port (pid $pid)"
-    curl -sf "http://localhost:$port/health" && echo ""
-  fi
-done
-```
-
 ## Notes
 
-- First run downloads the Meilisearch binary (~100MB) into `$ARKEON_HOME/bin/`. Cached after that.
-- Secrets (admin key, encryption key, PG password, Meili master key) are generated on first run and stored in `$ARKEON_HOME/secrets.json`. `reset` preserves them; `reset --hard` wipes them.
-- After schema SQL changes you should `reset` — there's no migration state tracker, so a fresh cluster is the reliable way to exercise the full migration chain.
-- Worker sandbox tests (`test:sandbox`) require bubblewrap on Linux. On macOS the fallback path runs — it's not a real security boundary but it's fine for dev.
+- First run downloads the Meilisearch binary (~100MB) into `~/.arkeon/bin/`. Cached after that.
+- Secrets are generated on first run and stored in `$ARKEON_HOME/secrets.json`. `reset` preserves them; `reset --hard` wipes them.
+- After schema SQL changes, `reset` and restart — migrations are idempotent but a fresh cluster is the reliable way to exercise the full chain.
+- Worker sandbox tests require bubblewrap on Linux. On macOS the fallback path runs.
+- The instance registry at `~/.arkeon/instances/` is cleaned up on `arkeon down`. Stale entries from crashed processes are pruned by `arkeon status`.
