@@ -231,6 +231,45 @@ export const RelationshipSummarySchema = z
   })
   .openapi("RelationshipSummary");
 
+// --- Graph Traverse ---
+
+export const TraverseNodeSchema = z
+  .object({
+    id: UlidSchema,
+    kind: z.enum(["entity", "relationship"]),
+    type: z.string(),
+    properties: z.object({ label: z.string().nullable(), description: z.string().nullable() }),
+    read_level: ClassificationLevel,
+    created_at: DateTimeSchema,
+    updated_at: DateTimeSchema,
+    source_depth: z.number().int().describe("Hops from the nearest source entity"),
+    target_depth: z.number().int().nullable().describe("Hops from the nearest target entity (null in neighborhood mode)"),
+    score: z.number().describe("Ranking score (connectivity + recency + proximity + query relevance)"),
+  })
+  .openapi("TraverseNode");
+
+export const TraverseEdgeSchema = z
+  .object({
+    id: UlidSchema,
+    source_id: UlidSchema,
+    target_id: UlidSchema,
+    predicate: z.string(),
+    properties: JsonObjectSchema,
+  })
+  .openapi("TraverseEdge");
+
+export const TraverseResponseSchema = z
+  .object({
+    source_ids: z.array(UlidSchema).describe("Resolved source entity IDs"),
+    target_ids: z.array(UlidSchema).nullable().describe("Resolved target entity IDs (null in neighborhood mode)"),
+    nodes: z.array(TraverseNodeSchema).describe("Ranked nodes discovered by traversal"),
+    edges: z.array(TraverseEdgeSchema).describe("Edges connecting source, target, and discovered nodes"),
+    truncated: z.boolean().describe("True if more results exist beyond the limit"),
+  })
+  .openapi("TraverseResponse");
+
+// --- Expanded entity (view=expanded) ---
+
 export const ExpandedEntitySchema = EntitySchema.extend({
   _relationships: z.array(RelationshipSummarySchema)
     .describe("Relationship summaries with counterpart labels. Capped by rel_limit — use GET /entities/{id}/relationships for the full set."),

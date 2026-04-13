@@ -28,6 +28,7 @@ import { createHelpRouter } from "./routes/help";
 import { inboxRouter } from "./routes/inbox";
 import { opsRouter } from "./routes/ops";
 import { entityRelationshipsRouter, relationshipDirectRouter } from "./routes/relationships";
+import { graphRouter } from "./routes/traverse";
 import { searchRouter } from "./routes/search";
 import { spacesRouter } from "./routes/spaces";
 import { workersRouter } from "./routes/workers";
@@ -129,6 +130,7 @@ export function createApp() {
   app.route("/entities", entitiesRouter);
   app.route("/entities", entityActivityRouter);
   app.route("/entities", entityRelationshipsRouter);
+  app.route("/graph", graphRouter);
   app.route("/groups", groupsRouter);
   app.route("/ops", opsRouter);
   app.route("/relationships", relationshipDirectRouter);
