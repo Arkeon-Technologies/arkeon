@@ -231,9 +231,9 @@ export const RelationshipSummarySchema = z
   })
   .openapi("RelationshipSummary");
 
-// --- Neighborhood ---
+// --- Graph Traverse ---
 
-export const NeighborhoodNodeSchema = z
+export const TraverseNodeSchema = z
   .object({
     id: UlidSchema,
     kind: z.enum(["entity", "relationship"]),
@@ -242,12 +242,13 @@ export const NeighborhoodNodeSchema = z
     read_level: ClassificationLevel,
     created_at: DateTimeSchema,
     updated_at: DateTimeSchema,
-    depth: z.number().int().describe("Hop distance from seed entity"),
+    source_depth: z.number().int().describe("Hops from the nearest source entity"),
+    target_depth: z.number().int().nullable().describe("Hops from the nearest target entity (null in neighborhood mode)"),
     score: z.number().describe("Ranking score (connectivity + recency + proximity + query relevance)"),
   })
-  .openapi("NeighborhoodNode");
+  .openapi("TraverseNode");
 
-export const NeighborhoodEdgeSchema = z
+export const TraverseEdgeSchema = z
   .object({
     id: UlidSchema,
     source_id: UlidSchema,
@@ -255,16 +256,17 @@ export const NeighborhoodEdgeSchema = z
     predicate: z.string(),
     properties: JsonObjectSchema,
   })
-  .openapi("NeighborhoodEdge");
+  .openapi("TraverseEdge");
 
-export const NeighborhoodResponseSchema = z
+export const TraverseResponseSchema = z
   .object({
-    seed_id: UlidSchema,
-    nodes: z.array(NeighborhoodNodeSchema).describe("Ranked nodes within the traversal depth"),
-    edges: z.array(NeighborhoodEdgeSchema).describe("Edges connecting the returned nodes and the seed"),
-    truncated: z.boolean().describe("True if more nodes exist beyond the limit"),
+    source_ids: z.array(UlidSchema).describe("Resolved source entity IDs"),
+    target_ids: z.array(UlidSchema).nullable().describe("Resolved target entity IDs (null in neighborhood mode)"),
+    nodes: z.array(TraverseNodeSchema).describe("Ranked nodes discovered by traversal"),
+    edges: z.array(TraverseEdgeSchema).describe("Edges connecting source, target, and discovered nodes"),
+    truncated: z.boolean().describe("True if more results exist beyond the limit"),
   })
-  .openapi("NeighborhoodResponse");
+  .openapi("TraverseResponse");
 
 // --- Expanded entity (view=expanded) ---
 
