@@ -202,6 +202,7 @@ async function runStart(options: StartOptions): Promise<void> {
   // process cwd.
   process.env.STORAGE_BACKEND = process.env.STORAGE_BACKEND ?? "local";
   process.env.STORAGE_DIR = process.env.STORAGE_DIR ?? storageDir;
+  process.env.ARKEON_LOCAL = "true";
 
   const explorerDist = findExplorerDist();
   if (!explorerDist) {
@@ -236,6 +237,7 @@ async function runStart(options: StartOptions): Promise<void> {
   console.log("");
   console.log("[arkeon] Ready.");
   console.log(`         API:       http://localhost:${apiPort}`);
+  console.log(`         Explorer:  http://localhost:${apiPort}/explore`);
   console.log(`         Health:    http://localhost:${apiPort}/health`);
   console.log(`         Ready:     http://localhost:${apiPort}/ready`);
   console.log(`         Admin key: ${adminBootstrapKey}`);

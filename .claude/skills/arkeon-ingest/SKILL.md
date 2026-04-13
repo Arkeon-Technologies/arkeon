@@ -270,3 +270,5 @@ After all documents are processed, summarize:
 > - Cross-document links: {L}
 >
 > Run `npx arkeon search query --q "{topic}" --space-id {space_id}` to explore the graph.
+>
+> Open the explorer to visualize what was built: `npx arkeon status` and open the `explorer_url` in your browser.

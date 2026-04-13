@@ -5,7 +5,8 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 
 import type { AppBindings } from "./types";
 import type { OpenAPISpec } from "../shared";
@@ -64,15 +65,36 @@ export function createApp() {
     root: explorerDist,
     rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
   }));
-  // SPA fallback: only serve index.html for extension-less paths (route navigations).
-  // Asset requests with extensions (.js, .css, .png, etc.) should 404 properly so
-  // missing chunks don't silently get the HTML shell.
+  // SPA fallback: serve index.html with the admin key injected so the
+  // explorer auto-authenticates. Only injected in local mode (set by the
+  // CLI via ARKEON_LOCAL=true) — deployed instances must not leak the
+  // admin key in page source. Asset requests (.js, .css, etc.) fall
+  // through to the static handler above and 404 properly.
+  let cachedExplorerHtml: string | null = null;
+  function getExplorerHtml(): string | null {
+    if (cachedExplorerHtml) return cachedExplorerHtml;
+    const indexPath = join(explorerDist, "index.html");
+    if (!existsSync(indexPath)) return null;
+    const raw = readFileSync(indexPath, "utf-8");
+    const isLocal = process.env.ARKEON_LOCAL === "true";
+    if (isLocal && process.env.ADMIN_BOOTSTRAP_KEY) {
+      cachedExplorerHtml = raw.replace(
+        "</head>",
+        `<script>window.__ARKEON_KEY__=${JSON.stringify(process.env.ADMIN_BOOTSTRAP_KEY)}</script></head>`,
+      );
+    } else {
+      cachedExplorerHtml = raw;
+    }
+    return cachedExplorerHtml;
+  }
   app.get("/explore/*", async (c, next) => {
     const path = c.req.path;
     if (/\.[a-zA-Z0-9]+$/.test(path)) {
       return next();
     }
-    return serveStatic({ root: explorerDist, path: "index.html" })(c, next);
+    const html = getExplorerHtml();
+    if (!html) return next();
+    return c.html(html);
   });
   app.get("/explore", (c) => c.redirect("/explore/"));
 
