@@ -13,6 +13,8 @@ export interface GraphNodeData extends Record<string, unknown> {
   hasSelection?: boolean
   isSpawning?: boolean
   unloadedCount?: number
+  colorMode?: 'type' | 'space'
+  spaceColor?: string
 }
 
 // Inject pulse keyframes once at module load — no per-mount useEffect needed.
@@ -25,12 +27,33 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_KEYFRAMES_
       0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
       50% { box-shadow: 0 0 20px 8px rgba(99, 102, 241, 0.2); }
     }
+    @keyframes graph-node-twinkle {
+      0%, 100% { opacity: 0.7; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+    @keyframes graph-node-spawn {
+      0% { opacity: 0; transform: scale(0.3); }
+      30% { opacity: 1; transform: scale(1.4); }
+      60% { transform: scale(0.95); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes graph-node-spawn-glow {
+      0% { box-shadow: 0 0 30px 15px rgba(255, 255, 255, 0.6); }
+      100% { box-shadow: none; }
+    }
   `
   document.head.appendChild(style)
 }
 
-function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?: boolean; isSpawning?: boolean }) {
-  const size = isSelected ? 28 : 20
+// Deterministic delay from entity ID so animation doesn't restart on re-render
+function idToDelay(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
+  return `${(Math.abs(hash) % 3000) / 1000}s`
+}
+
+function DotView({ color, isSelected, isSpawning, entityId }: { color: string; isSelected?: boolean; isSpawning?: boolean; entityId: string }) {
+  const size = isSelected ? 36 : 24
   return (
     <div
       style={{
@@ -38,8 +61,16 @@ function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?
         height: size,
         borderRadius: '50%',
         backgroundColor: color,
-        border: isSelected ? '2px solid white' : 'none',
-        boxShadow: isSpawning ? '0 0 12px 4px rgba(99, 102, 241, 0.4)' : undefined,
+        border: isSelected ? '3px solid white' : 'none',
+        boxShadow: isSelected
+          ? `0 0 24px 8px ${color}88, 0 0 48px 16px ${color}44`
+          : isSpawning
+          ? `0 0 24px 10px rgba(255, 255, 255, 0.5), 0 0 40px 20px ${color}66`
+          : `0 0 10px 4px ${color}66`,
+        animation: isSpawning
+          ? 'graph-node-spawn 0.6s ease-out forwards, graph-node-spawn-glow 2s ease-out forwards'
+          : isSelected ? 'none' : 'graph-node-twinkle 3s ease-in-out infinite',
+        animationDelay: isSelected ? undefined : isSpawning ? undefined : idToDelay(entityId),
         transition: 'width 0.15s, height 0.15s',
       }}
     />
@@ -68,13 +99,14 @@ function CardView({
       style={{
         width: 200,
         padding: '10px 12px',
-        borderColor: isSelected ? 'white' : 'rgba(63, 63, 70, 0.6)',
+        borderColor: isSelected ? color : 'rgba(63, 63, 70, 0.6)',
+        borderWidth: isSelected ? 2 : 1,
         boxShadow: isSelected
-          ? '0 0 16px rgba(255,255,255,0.15)'
+          ? `0 0 20px 4px ${color}44, 0 0 40px 8px ${color}22`
           : isSpawning
-          ? undefined
+          ? `0 0 16px 4px rgba(255, 255, 255, 0.3), 0 0 30px 8px ${color}44`
           : 'none',
-        animation: isSpawning ? 'graph-node-pulse 2s ease-in-out infinite' : undefined,
+        animation: isSpawning ? 'graph-node-spawn 0.6s ease-out forwards' : undefined,
       }}
     >
       {unloadedCount != null && unloadedCount > 0 && (
@@ -111,9 +143,9 @@ function CardView({
 
 function GraphNodeInner({ data }: NodeProps) {
   const nodeData = data as unknown as GraphNodeData
-  const { entity, isSelected, isSpawning, unloadedCount } = nodeData
+  const { entity, isSelected, isSpawning, unloadedCount, colorMode, spaceColor } = nodeData
   const zoom = useStore((s) => s.transform[2])
-  const color = getTypeColor(entity.entity.type)
+  const color = colorMode === 'space' && spaceColor ? spaceColor : getTypeColor(entity.entity.type)
 
   const handleStyle = { opacity: 0, pointerEvents: 'none' as const, width: 6, height: 6 }
 
@@ -123,7 +155,7 @@ function GraphNodeInner({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} style={handleStyle} />
 
       {zoom < 0.35 ? (
-        <DotView color={color} isSelected={isSelected} isSpawning={isSpawning} />
+        <DotView color={color} isSelected={isSelected} isSpawning={isSpawning} entityId={entity.entity.id} />
       ) : (
         <CardView
           entity={entity}

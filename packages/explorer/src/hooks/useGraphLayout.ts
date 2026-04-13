@@ -29,13 +29,41 @@ export interface LayoutResult {
   edges: Array<{ source: string; target: string; predicate: string; relationshipId: string }>;
 }
 
-// Layout constants - balanced for intra-cluster spreading without extreme inter-cluster separation
-const NODE_RADIUS = 140; // Collision radius for node spacing
-const LINK_DISTANCE = 300; // Distance between connected nodes
-const REPULSION_STRENGTH = -600; // Moderate repulsion for local spreading
-const REPULSION_DISTANCE_MAX = 500; // Limit repulsion range - prevents disconnected clusters from flying apart
-const CENTER_STRENGTH = 0.015; // Very weak centering to keep clusters within bounds
-const ITERATIONS = 150; // Iterations for settling
+// Layout presets
+interface LayoutPreset {
+  nodeRadius: number;
+  linkDistance: number;
+  linkStrength: number;
+  repulsionStrength: number;
+  repulsionDistanceMax: number;
+  centerStrength: number;
+  spawnDistance: number;
+}
+
+// Default: spacious layout for neighborhood exploration (Graph mode)
+const GRAPH_PRESET: LayoutPreset = {
+  nodeRadius: 140,
+  linkDistance: 300,
+  linkStrength: 0.4,
+  repulsionStrength: -600,
+  repulsionDistanceMax: 500,
+  centerStrength: 0.015,
+  spawnDistance: 150,
+};
+
+// Map: connected nodes cluster together, but enough space for cards not to overlap
+const MAP_PRESET: LayoutPreset = {
+  nodeRadius: 140,
+  linkDistance: 250,
+  linkStrength: 0.5,
+  repulsionStrength: -500,
+  repulsionDistanceMax: 400,
+  centerStrength: 0.02,
+  spawnDistance: 120,
+};
+
+const ITERATIONS_FULL = 150;
+const ITERATIONS_INCREMENTAL = 50;
 
 /**
  * Force-directed layout that naturally expands outward.
@@ -47,7 +75,8 @@ const ITERATIONS = 150; // Iterations for settling
 export function useGraphLayout(
   entities: Map<string, LoadedEntity>,
   pinnedPositions?: Map<string, { x: number; y: number }>,
-  initialPositions?: Map<string, { x: number; y: number }>
+  initialPositions?: Map<string, { x: number; y: number }>,
+  mode: 'graph' | 'map' = 'graph',
 ): LayoutResult {
   // Persist positions across renders so nodes don't jump
   // Initialize with saved positions on first mount (for page refresh)
@@ -56,72 +85,78 @@ export function useGraphLayout(
   );
 
   const result = useMemo(() => {
+    const p = mode === 'map' ? MAP_PRESET : GRAPH_PRESET;
     const prevPositions = positionsRef.current;
 
-    // Build nodes array
+    // Determine if this is an initial load or incremental add
+    const isInitialLoad = prevPositions.size === 0;
+
     const nodes: LayoutNode[] = [];
     const seenEntityIds = new Set<string>();
 
     for (const loadedEntity of entities.values()) {
       const entityId = loadedEntity.entity.id;
-
-      // Skip duplicates
       if (seenEntityIds.has(entityId)) continue;
       seenEntityIds.add(entityId);
 
-      // Check if pinned (user-dragged)
+      // User-dragged nodes always stay pinned
       const pinned = pinnedPositions?.get(entityId);
       if (pinned) {
         nodes.push({
-          id: entityId,
-          entity: loadedEntity,
-          x: pinned.x,
-          y: pinned.y,
-          fx: pinned.x,
-          fy: pinned.y,
+          id: entityId, entity: loadedEntity,
+          x: pinned.x, y: pinned.y, fx: pinned.x, fy: pinned.y,
         });
         continue;
       }
 
-      // Use previous position if available (fixed to prevent D3 from moving it)
       const prev = prevPositions.get(entityId);
-      if (prev) {
-        nodes.push({
-          id: entityId,
-          entity: loadedEntity,
-          x: prev.x,
-          y: prev.y,
-          fx: prev.x,
-          fy: prev.y,
-        });
-        continue;
-      }
 
-      // New node - spawn near a connected peer with random offset
-      const relationships = loadedEntity.relationships || [];
-      let spawned = false;
-
-      for (const rel of relationships) {
-        const peerId = rel.source_id === entityId ? rel.target_id : rel.source_id;
-        const peerPos = pinnedPositions?.get(peerId) || prevPositions.get(peerId);
-        if (peerPos) {
-          // Random angle, moderate distance - D3 repulsion will push it outward
-          const angle = Math.random() * Math.PI * 2;
-          const distance = 150 + Math.random() * 100;
-          nodes.push({
-            id: entityId,
-            entity: loadedEntity,
-            x: peerPos.x + Math.cos(angle) * distance,
-            y: peerPos.y + Math.sin(angle) * distance,
-          });
-          spawned = true;
-          break;
+      if (isInitialLoad) {
+        // Initial load: all nodes FREE — let the full simulation place them
+        if (prev) {
+          nodes.push({ id: entityId, entity: loadedEntity, x: prev.x, y: prev.y });
+        } else {
+          nodes.push({ id: entityId, entity: loadedEntity, x: 0, y: 0 });
         }
-      }
-
-      // No connected peer found - spawn at origin
-      if (!spawned) {
-        nodes.push({ id: entityId, entity: loadedEntity, x: 0, y: 0 });
+      } else {
+        // Incremental: existing nodes PINNED, new nodes FREE near peers
+        if (prev) {
+          nodes.push({
+            id: entityId, entity: loadedEntity,
+            x: prev.x, y: prev.y, fx: prev.x, fy: prev.y,
+          });
+        } else {
+          // New node — spawn near a connected peer
+          const relationships = loadedEntity.relationships || [];
+          let spawned = false;
+          for (const rel of relationships) {
+            const peerId = rel.source_id === entityId ? rel.target_id : rel.source_id;
+            const peerPos = pinnedPositions?.get(peerId) || prevPositions.get(peerId);
+            if (peerPos) {
+              const angle = Math.random() * Math.PI * 2;
+              const distance = p.spawnDistance + Math.random() * (p.spawnDistance * 0.67);
+              nodes.push({
+                id: entityId, entity: loadedEntity,
+                x: peerPos.x + Math.cos(angle) * distance,
+                y: peerPos.y + Math.sin(angle) * distance,
+              });
+              spawned = true;
+              break;
+            }
+          }
+          if (!spawned) {
+            // No peer — spawn near centroid of existing graph
+            let cx = 0, cy = 0, count = 0;
+            for (const pos of prevPositions.values()) { cx += pos.x; cy += pos.y; count++; }
+            if (count > 0) { cx /= count; cy /= count; }
+            const angle = Math.random() * Math.PI * 2;
+            nodes.push({
+              id: entityId, entity: loadedEntity,
+              x: cx + Math.cos(angle) * p.spawnDistance * 2,
+              y: cy + Math.sin(angle) * p.spawnDistance * 2,
+            });
+          }
+        }
       }
     }
 
@@ -156,32 +191,58 @@ export function useGraphLayout(
       });
     });
 
-    // Run force simulation with balanced forces:
-    // - Limited-range repulsion for intra-cluster spreading
-    // - Very weak centering to prevent infinite drift
+    // Build and run force simulation
     const simulation = forceSimulation(nodes)
       .force(
         'link',
         forceLink<LayoutNode, LayoutLink>(links)
           .id((d) => d.id)
-          .distance(LINK_DISTANCE)
-          .strength(0.4) // Moderate link strength to keep connected nodes together
+          .distance(p.linkDistance)
+          .strength(p.linkStrength)
       )
-      .force(
-        'charge',
-        forceManyBody()
-          .strength(REPULSION_STRENGTH)
-          .distanceMax(REPULSION_DISTANCE_MAX) // Key: limit repulsion range to prevent cluster drift
-      )
-      .force('collide', forceCollide<LayoutNode>(NODE_RADIUS).strength(1))
-      // Very weak centering - just enough to keep clusters from flying to infinity
-      .force('x', forceX(0).strength(CENTER_STRENGTH))
-      .force('y', forceY(0).strength(CENTER_STRENGTH))
+      .force('collide', forceCollide<LayoutNode>(p.nodeRadius).strength(1))
       .stop();
 
-    // Run iterations
-    for (let i = 0; i < ITERATIONS; i++) {
-      simulation.tick();
+    if (isInitialLoad) {
+      // Full layout from scratch: all nodes free, full repulsion + centering
+      simulation
+        .force('charge', forceManyBody().strength(p.repulsionStrength).distanceMax(p.repulsionDistanceMax))
+        .force('x', forceX(0).strength(p.centerStrength))
+        .force('y', forceY(0).strength(p.centerStrength));
+
+      for (let i = 0; i < ITERATIONS_FULL; i++) {
+        simulation.tick();
+      }
+    } else {
+      // Incremental: existing nodes held by soft springs (not fx/fy),
+      // new nodes pulled toward peers by link force.
+      // - No fx/fy so link force actually works on both ends
+      // - Low constant alpha so forces don't overshoot
+      // - Weakened repulsion so new nodes aren't pushed away from peers
+      // - Per-node hold forces instead of centering
+      for (const node of nodes) {
+        if (!pinnedPositions?.has(node.id)) {
+          node.fx = undefined;
+          node.fy = undefined;
+        }
+      }
+
+      simulation
+        .alpha(0.3)
+        .alphaDecay(0)  // constant force across all ticks
+        .force('charge', forceManyBody().strength(p.repulsionStrength * 0.2).distanceMax(p.repulsionDistanceMax))
+        .force('holdX', forceX<LayoutNode>()
+          .x(d => prevPositions.get(d.id)?.x ?? 0)
+          .strength(d => prevPositions.has(d.id) ? 0.8 : 0)
+        )
+        .force('holdY', forceY<LayoutNode>()
+          .y(d => prevPositions.get(d.id)?.y ?? 0)
+          .strength(d => prevPositions.has(d.id) ? 0.8 : 0)
+        );
+
+      for (let i = 0; i < ITERATIONS_INCREMENTAL; i++) {
+        simulation.tick();
+      }
     }
 
     // Build result
@@ -200,7 +261,7 @@ export function useGraphLayout(
     }));
 
     return { nodes: layoutNodes, edges: layoutEdges };
-  }, [entities, pinnedPositions]);
+  }, [entities, pinnedPositions, mode]);
 
   // Persist computed positions for next render — done as a side effect outside
   // useMemo so React 19 StrictMode's double-invocation doesn't cause position drift.

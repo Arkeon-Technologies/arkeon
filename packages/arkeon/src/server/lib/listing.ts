@@ -79,7 +79,8 @@ export function buildEntityListingQuery(options: BuildListingQueryOptions) {
 
   return {
     query: `
-      SELECT *
+      SELECT *,
+        (SELECT COALESCE(array_agg(se.space_id), '{}') FROM space_entities se WHERE se.entity_id = entities.id) AS space_ids
       FROM entities
       ${whereSql}
       ORDER BY ${sortExpr} ${direction} ${nulls}, id ${direction}

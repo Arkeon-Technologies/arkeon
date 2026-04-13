@@ -574,10 +574,16 @@ export function findCliEntry(): { cmd: string; args: string[] } {
     }
   }
 
-  // Monorepo dev case: lib/local-runtime.ts → ../index.ts
-  const devEntry = join(here, "..", "index.ts");
-  if (existsSync(devEntry)) {
-    return { cmd: "npx", args: ["tsx", devEntry] };
+  // Monorepo dev case: check both the old layout (cli/index.ts) and the
+  // flattened layout (src/index.ts — two levels up from lib/local-runtime.ts).
+  const devCandidates = [
+    join(here, "..", "index.ts"),            // cli/lib → cli/index.ts (old layout)
+    join(here, "..", "..", "index.ts"),       // cli/lib → src/index.ts (flattened)
+  ];
+  for (const candidate of devCandidates) {
+    if (existsSync(candidate)) {
+      return { cmd: "npx", args: ["tsx", candidate] };
+    }
   }
 
   // Last-resort fallback: ask the shell to find the installed binary.
