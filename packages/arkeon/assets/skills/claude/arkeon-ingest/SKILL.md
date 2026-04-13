@@ -159,9 +159,19 @@ Report your extraction plan to the user before proceeding:
 > - Estimated entities per document: {range}
 > - Documents to process: {N}
 
-### 8. Cluster documents into batches
+### 8. Get document list
 
-Group documents into related batches for parallel processing. Batches should cluster documents that share:
+Retrieve all document entities in the space:
+
+```bash
+npx arkeon spaces list-entities {space_id} --limit 200
+```
+
+Parse the output. Each document has: `id`, `properties.source_file`, `properties.content`.
+
+### 9. Cluster documents into batches
+
+Using the document list from step 8, group documents into related batches for parallel processing. Batches should cluster documents that share:
 
 - Common actors, people, or organizations
 - Related topics or themes
@@ -177,16 +187,6 @@ Report the clustering plan:
 > - Batch 2 ({theme}): {file3}, {file4}, ...
 > - ...
 
-### 9. Get document list
-
-Retrieve all document entities in the space:
-
-```bash
-npx arkeon spaces list-entities {space_id} --limit 200
-```
-
-Parse the output. Each document has: `id`, `properties.source_file`, `properties.content`.
-
 ### 10. Dispatch sub-agents
 
 For each batch, spawn a sub-agent using the Agent tool. **Run all batch agents in parallel** (send all Agent tool calls in a single message).
@@ -200,9 +200,11 @@ Each sub-agent receives a prompt containing:
 5. **Quality rules**: The extraction quality standards below
 6. **CLI commands**: How to search, create ops, update entities
 
-The sub-agent prompt must include the full extraction protocol (steps 10a-10e below). Do not abbreviate — the sub-agent has no memory of this skill's instructions.
+The sub-agent prompt must include the full extraction protocol (steps 10a-10f below) and all quality examples. The sub-agent has no memory of this skill's instructions — give it everything it needs to work independently.
 
-#### Sub-agent protocol (include verbatim in each sub-agent prompt):
+**Sub-agent failure handling:** If a sub-agent fails or returns an error, report which batch failed and which documents were not processed. Do not retry automatically — report to the user and let them decide whether to re-run the failed batch.
+
+#### Sub-agent extraction protocol:
 
 ##### 10a. Check if already ingested
 
@@ -314,9 +316,11 @@ After extracting from each document, check if any existing entities (found in st
 
 If the current document reveals new information about an existing entity that isn't in its current description:
 
-1. Get the entity's current `ver` value
+1. Fetch the entity fresh to get its current description and `ver`: `npx arkeon entities get {id}`
 2. Write a synthesized description that combines the existing description with the new information
 3. Update: `npx arkeon entities update {id} --properties '{"description":"enriched text"}' --ver {ver}`
+
+**Version conflict handling:** Multiple sub-agents may try to enrich the same entity concurrently. If the update fails with a version conflict (409), re-fetch the entity to get the latest `ver` and description, re-synthesize incorporating what the other sub-agent added, and retry the update. One retry is sufficient — if it fails again, skip and let consolidation (step 11b) handle it.
 
 This is critical — entity descriptions should grow richer as more documents are processed, not stay frozen at first-extraction.
 
