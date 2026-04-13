@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { listInstances } from "../../lib/instances.js";
 import { findCliEntry, isProcessAlive } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
+import { isNewer } from "../../lib/version-check.js";
 import { runStop } from "./stop.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,16 +54,6 @@ function fetchLatestVersion(): string | null {
   } catch {
     return null;
   }
-}
-
-function isNewer(remote: string, local: string): boolean {
-  const r = remote.split(".").map(Number);
-  const l = local.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((r[i] ?? 0) > (l[i] ?? 0)) return true;
-    if ((r[i] ?? 0) < (l[i] ?? 0)) return false;
-  }
-  return false;
 }
 
 interface UpdateOptions {
@@ -119,7 +110,7 @@ async function runUpdate(options: UpdateOptions): Promise<void> {
     execFileSync("npm", ["install", "-g", "arkeon@latest"], {
       encoding: "utf-8",
       timeout: 120_000,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "inherit"],
     });
   } catch (err) {
     output.error(

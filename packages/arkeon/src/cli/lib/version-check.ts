@@ -53,7 +53,7 @@ function writeCache(latest: string): void {
 /**
  * Compare two semver strings. Returns true if remote > local.
  */
-function isNewer(remote: string, local: string): boolean {
+export function isNewer(remote: string, local: string): boolean {
   const r = remote.split(".").map(Number);
   const l = local.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
