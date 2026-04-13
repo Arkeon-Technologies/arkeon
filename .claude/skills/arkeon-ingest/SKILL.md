@@ -77,6 +77,8 @@ npx arkeon auth use ingestor
 
 All subsequent commands automatically use the ingestor identity — no manual API key setup needed. The CLI resolves the active profile from `.arkeon/state.json` and the instance actor registry.
 
+**Important:** The ingestor owns the space (it created the space during init), so it has full write access. Other actors need an explicit role grant via `npx arkeon spaces grant --id {space_id} --actor-id {id} --role editor` before they can write to the space. Always use the ingestor profile for ingestion.
+
 ### 4. Reconcile files
 
 Run the diff to see what needs syncing:
