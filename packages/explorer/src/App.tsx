@@ -3,7 +3,6 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createArkeClient } from '@/lib/arke-client'
-import { NetworkGraph } from '@/components/NetworkGraph'
 import { ActivityFeed } from '@/components/ActivityFeed'
 import { MapView } from '@/components/MapView'
 
@@ -53,27 +52,14 @@ export function App() {
   const apiKey = apiKeyRef.current || undefined
 
   const searchParams = useQueryParams()
-  const entityParam = searchParams.get('entity') || undefined
-  const entitiesParam = searchParams.get('entities') || undefined
   const selectParam = searchParams.get('select') || undefined
-  const modeParam = searchParams.get('mode') || 'map'
+  const modeParam = searchParams.get('mode') || 'graph'
   const capParam = searchParams.get('cap')
   const nodeCap = capParam ? Math.max(1, parseInt(capParam, 10) || 500) : 500
 
-  type Mode = 'graph' | 'feed' | 'map'
-  const initialMode: Mode = modeParam === 'feed' ? 'feed' : modeParam === 'graph' ? 'graph' : 'map'
+  type Mode = 'graph' | 'feed'
+  const initialMode: Mode = modeParam === 'feed' ? 'feed' : 'graph'
   const [mode, setMode] = useState<Mode>(initialMode)
-
-  const initialSeedIds = useMemo(() => {
-    if (entitiesParam) return entitiesParam.split(',').filter(Boolean)
-    if (entityParam) return [entityParam]
-    if (selectParam) return [selectParam]
-    return undefined
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const [seedEntityId, setSeedEntityId] = useState(initialSeedIds?.[0] || selectParam || '')
-  const [seedEntityIds, setSeedEntityIds] = useState(initialSeedIds)
 
   const client = useMemo(
     () => createArkeClient(apiKey),
@@ -87,8 +73,6 @@ export function App() {
   }, [])
 
   const handleFeedEntityClick = useCallback((entityId: string) => {
-    setSeedEntityId(entityId)
-    setSeedEntityIds([entityId])
     setMode('graph')
     const url = new URL(window.location.href)
     url.searchParams.set('select', entityId)
@@ -103,11 +87,6 @@ export function App() {
     window.history.pushState({}, '', url.toString())
   }, [])
 
-  // If graph or feed mode is requested without enough context, fall back to map
-  if (mode === 'graph' && !seedEntityId && !apiKey) {
-    setMode('map')
-  }
-
   const navBar = (
     <div className="absolute top-0 left-0 right-0 z-50 flex items-center gap-1 px-3 py-2 bg-[#0a0a0a]/80 backdrop-blur-sm border-b border-zinc-800/50">
       <span className="text-xs font-semibold text-zinc-600 mr-3 select-none">Arkeon</span>
@@ -120,14 +99,6 @@ export function App() {
         Graph
       </button>
       <button
-        onClick={() => switchMode('map')}
-        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-          mode === 'map' ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
-        }`}
-      >
-        Map
-      </button>
-      <button
         onClick={() => switchMode('feed')}
         className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
           mode === 'feed' ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
@@ -137,20 +108,6 @@ export function App() {
       </button>
     </div>
   )
-
-  if (mode === 'map') {
-    return (
-      <div className="h-screen bg-[#0a0a0a] relative">
-        {navBar}
-        <MapView
-          client={client}
-          nodeCap={nodeCap}
-          initialSelectId={selectParam}
-          onEntitySelect={handleEntitySelect}
-        />
-      </div>
-    )
-  }
 
   if (mode === 'feed') {
     return (
@@ -163,27 +120,13 @@ export function App() {
     )
   }
 
-  if (!seedEntityId) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-[#0a0a0a]">
-        {navBar}
-        <div className="max-w-md p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-3">No entity specified</h2>
-          <p className="text-sm text-zinc-400">
-            Graph mode requires an entity or entities parameter to seed the visualization.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="h-screen bg-[#0a0a0a] relative">
       {navBar}
-      <NetworkGraph
+      <MapView
         client={client}
-        seedEntityId={seedEntityId}
-        seedEntityIds={seedEntityIds}
+        nodeCap={nodeCap}
+        initialSelectId={selectParam}
         onEntitySelect={handleEntitySelect}
       />
     </div>
