@@ -21,8 +21,9 @@
  */
 
 import type { Command } from "commander";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, openSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, openSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { config } from "../../lib/config.js";
@@ -54,13 +55,85 @@ interface UpOptions {
   timeout?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Worktree auto-isolation
+// ---------------------------------------------------------------------------
+
+const WORKTREE_PATTERNS = [".claude/worktrees/", ".claude-worktrees/"];
+
+function detectWorktree(): { name: string; root: string } | null {
+  const cwd = process.cwd();
+  for (const pattern of WORKTREE_PATTERNS) {
+    const idx = cwd.indexOf(pattern);
+    if (idx >= 0) {
+      const after = cwd.slice(idx + pattern.length);
+      const name = after.split("/")[0] ?? "default";
+      return { name, root: cwd.slice(0, idx + pattern.length + name.length) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic port slot from worktree name. Maps to a slot 1-99 so
+ * ports don't collide between worktrees. Uses a hash so the same
+ * worktree name always gets the same ports.
+ */
+function worktreePortSlot(name: string): number {
+  const hash = createHash("sha256").update(name).digest();
+  return (hash[0]! % 99) + 1;
+}
+
+interface ResolvedPorts {
+  apiPort: number;
+  pgPort: number;
+  meiliPort: number;
+  arkeonHome: string;
+  isWorktree: boolean;
+  worktreeName?: string;
+}
+
+function resolvePorts(opts: UpOptions): ResolvedPorts {
+  // If user explicitly set any port, respect that
+  const userSetPorts = opts.port || opts.pgPort || opts.meiliPort;
+  if (userSetPorts) {
+    return {
+      apiPort: Number(opts.port ?? DEFAULT_API_PORT),
+      pgPort: Number(opts.pgPort ?? DEFAULT_PG_PORT),
+      meiliPort: Number(opts.meiliPort ?? DEFAULT_MEILI_PORT),
+      arkeonHome: process.env.ARKEON_HOME ?? arkeonDir(),
+      isWorktree: false,
+    };
+  }
+
+  // Auto-detect worktree
+  const wt = detectWorktree();
+  if (wt) {
+    const slot = worktreePortSlot(wt.name);
+    const apiPort = DEFAULT_API_PORT + slot;
+    const pgPort = DEFAULT_PG_PORT + slot;
+    const meiliPort = DEFAULT_MEILI_PORT + 10000 + slot;
+    const home = process.env.ARKEON_HOME ?? join(wt.root, ".arkeon-state");
+    return { apiPort, pgPort, meiliPort, arkeonHome: home, isWorktree: true, worktreeName: wt.name };
+  }
+
+  // Default: standard ports
+  return {
+    apiPort: DEFAULT_API_PORT,
+    pgPort: DEFAULT_PG_PORT,
+    meiliPort: DEFAULT_MEILI_PORT,
+    arkeonHome: process.env.ARKEON_HOME ?? arkeonDir(),
+    isWorktree: false,
+  };
+}
+
 export function registerUpCommand(program: Command): void {
   program
     .command("up")
     .description("Start the Arkeon stack as a detached background daemon, wait for health, apply LLM config")
-    .option("--port <port>", "API port", String(DEFAULT_API_PORT))
-    .option("--pg-port <port>", "Embedded Postgres port", String(DEFAULT_PG_PORT))
-    .option("--meili-port <port>", "Meilisearch port", String(DEFAULT_MEILI_PORT))
+    .option("--port <port>", `API port (default: ${DEFAULT_API_PORT}, auto-offset in worktrees)`)
+    .option("--pg-port <port>", `Embedded Postgres port (default: ${DEFAULT_PG_PORT})`)
+    .option("--meili-port <port>", `Meilisearch port (default: ${DEFAULT_MEILI_PORT})`)
     .option(
       "--knowledge",
       "Enable the LLM knowledge extraction pipeline (requires a staged or existing LLM config)",
@@ -77,10 +150,28 @@ export function registerUpCommand(program: Command): void {
 }
 
 async function runUp(opts: UpOptions): Promise<void> {
-  const apiPort = Number(opts.port ?? DEFAULT_API_PORT);
-  const pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT);
-  const meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT);
+  const resolved = resolvePorts(opts);
+  const { apiPort, pgPort, meiliPort, arkeonHome } = resolved;
   const timeoutMs = (Number.parseInt(opts.timeout ?? "120", 10) || 120) * 1000;
+
+  // Set ARKEON_HOME so ensureArkeonDir/loadOrCreateSecrets use the right dir
+  process.env.ARKEON_HOME = arkeonHome;
+
+  if (resolved.isWorktree) {
+    output.progress(`[arkeon] Detected worktree "${resolved.worktreeName}". Ports: API=${apiPort}, PG=${pgPort}, Meili=${meiliPort}`);
+    output.progress(`[arkeon] State dir: ${arkeonHome}`);
+
+    // Write .devports for other tools (e.g., local-dev skill)
+    const worktreeRoot = detectWorktree()?.root;
+    if (worktreeRoot) {
+      const devportsContent = `PG_PORT=${pgPort}\nAPI_PORT=${apiPort}\nMEILI_PORT=${meiliPort}\nARKEON_HOME=${arkeonHome}\n`;
+      try {
+        writeFileSync(join(worktreeRoot, ".devports"), devportsContent);
+      } catch {
+        // non-fatal
+      }
+    }
+  }
 
   const existingPid = readPidfile();
   if (existingPid && isProcessAlive(existingPid)) {
