@@ -14,13 +14,14 @@ import { basename, join } from "node:path";
 
 import { apiPost } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
-import { resolveAdminKeyForUrl } from "../../lib/instances.js";
+import { findInstanceByName, listInstances, resolveAdminKeyForUrl } from "../../lib/instances.js";
+import { isProcessAlive, readSecrets } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
-import { readSecrets } from "../../lib/local-runtime.js";
 import { saveRepoState, stateFilePath } from "../../lib/repo-state.js";
 
 interface InitOptions {
   apiUrl?: string;
+  instance?: string;
   force?: boolean;
 }
 
@@ -51,9 +52,36 @@ function resolveAdminKey(apiUrl: string): string {
   );
 }
 
-function resolveApiUrl(flag?: string): string {
-  if (flag) return flag.replace(/\/$/, "");
+function resolveApiUrl(opts: { apiUrl?: string; instance?: string }): string {
+  if (opts.apiUrl) return opts.apiUrl.replace(/\/$/, "");
   if (process.env.ARKE_API_URL) return process.env.ARKE_API_URL.replace(/\/$/, "");
+
+  // --instance flag: look up by name
+  if (opts.instance) {
+    const inst = findInstanceByName(opts.instance);
+    if (!inst) {
+      const running = listInstances().filter((i) => isProcessAlive(i.pid));
+      const names = running.map((i) => i.name).join(", ");
+      throw new Error(
+        `No instance named "${opts.instance}". Running instances: ${names || "(none)"}`,
+      );
+    }
+    return inst.api_url;
+  }
+
+  // Auto-detect: if exactly one instance is running, use it
+  const running = listInstances().filter((i) => isProcessAlive(i.pid));
+  if (running.length === 1) {
+    return running[0]!.api_url;
+  }
+  if (running.length > 1) {
+    const list = running.map((i) => `  ${i.name} — ${i.api_url}`).join("\n");
+    throw new Error(
+      `Multiple Arkeon instances are running:\n${list}\n\n` +
+      `Specify which one with: arkeon init --instance <name>`,
+    );
+  }
+
   return "http://localhost:8000";
 }
 
@@ -75,6 +103,7 @@ export function registerInitCommand(program: Command): void {
     .description("Bind this repo to an Arkeon space — creates a space, an agent actor, and writes .arkeon/state.json")
     .argument("[space-name]", "Name for the space (defaults to directory name)")
     .option("--api-url <url>", "Override API base URL")
+    .option("--instance <name>", "Connect to a named instance (from `arkeon up --name`)")
     .option("--force", "Re-initialize even if .arkeon/state.json exists")
     .action(async (spaceName: string | undefined, opts: InitOptions) => {
       try {
@@ -90,7 +119,7 @@ export function registerInitCommand(program: Command): void {
           return;
         }
 
-        const apiUrl = resolveApiUrl(opts.apiUrl);
+        const apiUrl = resolveApiUrl(opts);
         const adminKey = resolveAdminKey(apiUrl);
         const name = spaceName ?? basename(cwd);
 
