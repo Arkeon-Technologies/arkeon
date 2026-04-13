@@ -23,12 +23,13 @@
 import type { Command } from "commander";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, openSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
-import { registerInstance } from "../../lib/instances.js";
+import { listInstances, registerInstance } from "../../lib/instances.js";
 import {
   DEFAULT_API_PORT,
   DEFAULT_MEILI_PORT,
@@ -48,6 +49,7 @@ import {
 import { output } from "../../lib/output.js";
 
 interface UpOptions {
+  name?: string;
   port?: string;
   pgPort?: string;
   meiliPort?: string;
@@ -55,83 +57,20 @@ interface UpOptions {
   timeout?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Worktree auto-isolation
-// ---------------------------------------------------------------------------
-
-const WORKTREE_PATTERNS = [".claude/worktrees/", ".claude-worktrees/"];
-
-function detectWorktree(): { name: string; root: string } | null {
-  const cwd = process.cwd();
-  for (const pattern of WORKTREE_PATTERNS) {
-    const idx = cwd.indexOf(pattern);
-    if (idx >= 0) {
-      const after = cwd.slice(idx + pattern.length);
-      const name = after.split("/")[0] ?? "default";
-      return { name, root: cwd.slice(0, idx + pattern.length + name.length) };
-    }
-  }
-  return null;
-}
-
 /**
- * Deterministic port slot from worktree name. Maps to a slot 1-99 so
- * ports don't collide between worktrees. Uses a hash so the same
- * worktree name always gets the same ports.
+ * Deterministic port slot from instance name. Maps to slot 1-99.
  */
-function worktreePortSlot(name: string): number {
+function nameToPortSlot(name: string): number {
   const hash = createHash("sha256").update(name).digest();
   return (hash[0]! % 99) + 1;
-}
-
-interface ResolvedPorts {
-  apiPort: number;
-  pgPort: number;
-  meiliPort: number;
-  arkeonHome: string;
-  isWorktree: boolean;
-  worktreeName?: string;
-}
-
-function resolvePorts(opts: UpOptions): ResolvedPorts {
-  // If user explicitly set any port, respect that
-  const userSetPorts = opts.port || opts.pgPort || opts.meiliPort;
-  if (userSetPorts) {
-    return {
-      apiPort: Number(opts.port ?? DEFAULT_API_PORT),
-      pgPort: Number(opts.pgPort ?? DEFAULT_PG_PORT),
-      meiliPort: Number(opts.meiliPort ?? DEFAULT_MEILI_PORT),
-      arkeonHome: process.env.ARKEON_HOME ?? arkeonDir(),
-      isWorktree: false,
-    };
-  }
-
-  // Auto-detect worktree
-  const wt = detectWorktree();
-  if (wt) {
-    const slot = worktreePortSlot(wt.name);
-    const apiPort = DEFAULT_API_PORT + slot;
-    const pgPort = DEFAULT_PG_PORT + slot;
-    const meiliPort = DEFAULT_MEILI_PORT + 10000 + slot;
-    const home = process.env.ARKEON_HOME ?? join(wt.root, ".arkeon-state");
-    return { apiPort, pgPort, meiliPort, arkeonHome: home, isWorktree: true, worktreeName: wt.name };
-  }
-
-  // Default: standard ports
-  return {
-    apiPort: DEFAULT_API_PORT,
-    pgPort: DEFAULT_PG_PORT,
-    meiliPort: DEFAULT_MEILI_PORT,
-    arkeonHome: process.env.ARKEON_HOME ?? arkeonDir(),
-    isWorktree: false,
-  };
 }
 
 export function registerUpCommand(program: Command): void {
   program
     .command("up")
     .description("Start the Arkeon stack as a detached background daemon, wait for health, apply LLM config")
-    .option("--port <port>", `API port (default: ${DEFAULT_API_PORT}, auto-offset in worktrees)`)
+    .option("--name <name>", "Named instance — auto-picks ports and isolates state in ~/.arkeon/<name>/")
+    .option("--port <port>", `API port (default: ${DEFAULT_API_PORT})`)
     .option("--pg-port <port>", `Embedded Postgres port (default: ${DEFAULT_PG_PORT})`)
     .option("--meili-port <port>", `Meilisearch port (default: ${DEFAULT_MEILI_PORT})`)
     .option(
@@ -150,26 +89,38 @@ export function registerUpCommand(program: Command): void {
 }
 
 async function runUp(opts: UpOptions): Promise<void> {
-  const resolved = resolvePorts(opts);
-  const { apiPort, pgPort, meiliPort, arkeonHome } = resolved;
+  const instanceName = opts.name ?? "default";
+  const isNamed = Boolean(opts.name);
   const timeoutMs = (Number.parseInt(opts.timeout ?? "120", 10) || 120) * 1000;
 
-  // Set ARKEON_HOME so ensureArkeonDir/loadOrCreateSecrets use the right dir
-  process.env.ARKEON_HOME = arkeonHome;
+  // Resolve ports and ARKEON_HOME
+  let apiPort: number;
+  let pgPort: number;
+  let meiliPort: number;
 
-  if (resolved.isWorktree) {
-    output.progress(`[arkeon] Detected worktree "${resolved.worktreeName}". Ports: API=${apiPort}, PG=${pgPort}, Meili=${meiliPort}`);
-    output.progress(`[arkeon] State dir: ${arkeonHome}`);
+  if (isNamed) {
+    const slot = nameToPortSlot(instanceName);
+    apiPort = Number(opts.port ?? DEFAULT_API_PORT + slot);
+    pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT + slot);
+    meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT + 10000 + slot);
+    // Named instances get isolated state under ~/.arkeon/<name>/
+    process.env.ARKEON_HOME = process.env.ARKEON_HOME ?? join(homedir(), ".arkeon", instanceName);
+    output.progress(`[arkeon] Starting named instance "${instanceName}" — API=${apiPort}, PG=${pgPort}, Meili=${meiliPort}`);
+    output.progress(`[arkeon] State dir: ${process.env.ARKEON_HOME}`);
+  } else {
+    apiPort = Number(opts.port ?? DEFAULT_API_PORT);
+    pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT);
+    meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT);
 
-    // Write .devports for other tools (e.g., local-dev skill)
-    const worktreeRoot = detectWorktree()?.root;
-    if (worktreeRoot) {
-      const devportsContent = `PG_PORT=${pgPort}\nAPI_PORT=${apiPort}\nMEILI_PORT=${meiliPort}\nARKEON_HOME=${arkeonHome}\n`;
-      try {
-        writeFileSync(join(worktreeRoot, ".devports"), devportsContent);
-      } catch {
-        // non-fatal
-      }
+    // Check if there's already a running instance on this port
+    const running = listInstances().filter((i) => isProcessAlive(i.pid));
+    if (running.length > 0 && !opts.port) {
+      const list = running.map((i) => `  ${i.name} — ${i.api_url} (pid ${i.pid})`).join("\n");
+      throw new Error(
+        `An Arkeon instance is already running:\n${list}\n\n` +
+        `To start an additional instance, use: arkeon up --name <name>\n` +
+        `To stop one: arkeon down <name>`,
+      );
     }
   }
 
@@ -263,6 +214,7 @@ async function runUp(opts: UpOptions): Promise<void> {
   // Register this instance so other commands can discover it.
   const apiUrl = `http://localhost:${apiPort}`;
   registerInstance({
+    name: instanceName,
     api_url: apiUrl,
     api_port: apiPort,
     arkeon_home: arkeonDir(),

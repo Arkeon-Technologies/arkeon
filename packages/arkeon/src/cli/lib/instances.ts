@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface StackInstance {
+  name: string;
   api_url: string;
   api_port: number;
   arkeon_home: string;
@@ -86,6 +87,16 @@ export function listInstances(): StackInstance[] {
     }
   }
   return instances;
+}
+
+/**
+ * Find an instance by name.
+ */
+export function findInstanceByName(name: string): StackInstance | null {
+  for (const instance of listInstances()) {
+    if (instance.name === name) return instance;
+  }
+  return null;
 }
 
 /**

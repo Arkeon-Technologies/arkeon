@@ -10,7 +10,7 @@
 
 import type { Command } from "commander";
 
-import { listInstances, unregisterInstance } from "../../lib/instances.js";
+import { findInstanceByName, listInstances, unregisterInstance } from "../../lib/instances.js";
 import {
   isProcessAlive,
   readPidfile,
@@ -20,6 +20,7 @@ import { output } from "../../lib/output.js";
 
 interface StopOptions {
   timeout: string;
+  name?: string;
 }
 
 /**
@@ -28,15 +29,37 @@ interface StopOptions {
  * reach for `down`; users familiar with systemd reach for `stop`.
  */
 export async function runStop(operation: "stop" | "down", options: StopOptions): Promise<void> {
-  const pid = readPidfile();
-  if (!pid) {
-    output.result({ operation, state: "not_running", reason: "no_pidfile" });
-    return;
-  }
-  if (!isProcessAlive(pid)) {
-    removePidfile();
-    output.result({ operation, state: "not_running", reason: "stale_pidfile", pid });
-    return;
+  let pid: number | null;
+  let instancePort: number | null = null;
+
+  if (options.name) {
+    // Stop a named instance via the registry
+    const instance = findInstanceByName(options.name);
+    if (!instance) {
+      output.error(new Error(`No instance named "${options.name}" found.`), { operation });
+      process.exitCode = 1;
+      return;
+    }
+    pid = instance.pid;
+    instancePort = instance.api_port;
+
+    if (!isProcessAlive(pid)) {
+      unregisterInstance(instancePort);
+      output.result({ operation, state: "not_running", name: options.name, reason: "stale_entry", pid });
+      return;
+    }
+  } else {
+    // Stop the default instance via pidfile
+    pid = readPidfile();
+    if (!pid) {
+      output.result({ operation, state: "not_running", reason: "no_pidfile" });
+      return;
+    }
+    if (!isProcessAlive(pid)) {
+      removePidfile();
+      output.result({ operation, state: "not_running", reason: "stale_pidfile", pid });
+      return;
+    }
   }
 
   output.progress(`[arkeon] Stopping pid ${pid}…`);
@@ -51,12 +74,17 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) {
-      removePidfile();
-      // Clean up instance registry entry for this PID
-      for (const inst of listInstances()) {
-        if (inst.pid === pid) unregisterInstance(inst.api_port);
+      if (options.name) {
+        // Named instance — clean up registry
+        if (instancePort) unregisterInstance(instancePort);
+      } else {
+        // Default instance — clean up pidfile + registry
+        removePidfile();
+        for (const inst of listInstances()) {
+          if (inst.pid === pid) unregisterInstance(inst.api_port);
+        }
       }
-      output.result({ operation, state: "stopped", pid });
+      output.result({ operation, state: "stopped", pid, ...(options.name ? { name: options.name } : {}) });
       return;
     }
     await new Promise((r) => setTimeout(r, 200));
@@ -74,9 +102,10 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
 export function registerStopCommand(program: Command): void {
   program
     .command("stop")
-    .description("Stop the running Arkeon stack (SIGTERM + drain)")
+    .description("Stop an Arkeon instance")
+    .argument("[name]", "Instance name to stop (default: stop the default instance)")
     .option("--timeout <ms>", "How long to wait for graceful shutdown before giving up", "30000")
-    .action(async (options: StopOptions) => {
-      await runStop("stop", options);
+    .action(async (name: string | undefined, options: { timeout: string }) => {
+      await runStop("stop", { ...options, name });
     });
 }
