@@ -66,22 +66,17 @@ export function createApp() {
   // injected in local mode (ARKEON_LOCAL=true set by the CLI) so deployed
   // instances don't leak the admin key. Asset requests (.js, .css, etc.)
   // fall through to serveStatic below.
-  let cachedExplorerHtml: string | null = null;
   function getExplorerHtml(): string | null {
-    if (cachedExplorerHtml) return cachedExplorerHtml;
     const indexPath = join(explorerDist, "index.html");
     if (!existsSync(indexPath)) return null;
     const raw = readFileSync(indexPath, "utf-8");
-    const isLocal = process.env.ARKEON_LOCAL === "true";
-    if (isLocal && process.env.ADMIN_BOOTSTRAP_KEY) {
-      cachedExplorerHtml = raw.replace(
+    if (process.env.ARKEON_LOCAL === "true" && process.env.ADMIN_BOOTSTRAP_KEY) {
+      return raw.replace(
         "</head>",
         `<script>window.__ARKEON_KEY__=${JSON.stringify(process.env.ADMIN_BOOTSTRAP_KEY)}</script></head>`,
       );
-    } else {
-      cachedExplorerHtml = raw;
     }
-    return cachedExplorerHtml;
+    return raw;
   }
   app.use("/explore/*", async (c, next) => {
     // Let asset requests (.js, .css, .png, etc.) fall through to serveStatic
