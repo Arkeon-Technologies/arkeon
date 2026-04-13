@@ -18,7 +18,8 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { type ArkeInstanceClient } from '@/lib/arke-client'
-import { type LoadedEntity, type ArkeRelationship } from '@/lib/arke-types'
+import { type LoadedEntity, type ArkeRelationship, createLoadedEntity } from '@/lib/arke-types'
+import { RequestPool } from '@/lib/request-pool'
 import { useGraphLayout } from '@/hooks/useGraphLayout'
 import { useMapData } from '@/hooks/useMapData'
 import { getTypeColor } from '@/lib/type-colors'
@@ -29,6 +30,7 @@ import { EntityPanel } from './EntityPanel'
 interface MapViewProps {
   client: ArkeInstanceClient
   nodeCap?: number
+  initialSelectId?: string
   onEntitySelect?: (entityId: string) => void
 }
 
@@ -63,16 +65,44 @@ function isCrossSpace(sourceEntity?: LoadedEntity, targetEntity?: LoadedEntity):
   return sourceSpace !== targetSpace
 }
 
-function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
+function MapViewInner({ client, nodeCap = 500, initialSelectId, onEntitySelect }: MapViewProps) {
   const { entities, isLoading, capReached, entityCount, fetchRelationships, resetView } = useMapData(client, nodeCap)
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectId ?? null)
   const [pinnedPositions, setPinnedPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
   const zoom = useStore((s) => s.transform[2])
 
+  // On-demand loaded entities not in the graph (e.g. relationship entities navigated to from panel)
+  const detailEntitiesRef = useRef<Map<string, LoadedEntity>>(new Map())
+  const [, setDetailRender] = useState(0)
+  const detailPoolRef = useRef<RequestPool | null>(null)
+  if (detailPoolRef.current === null) detailPoolRef.current = new RequestPool(4)
+
+  const loadDetailEntity = useCallback(async (id: string) => {
+    if (entities.has(id) || detailEntitiesRef.current.has(id)) return
+    try {
+      const [entity, rels] = await detailPoolRef.current!.execute(
+        () => Promise.all([client.getEntity(id), client.getRelationships(id)]),
+        `detail:${id}`
+      )
+      const loaded = createLoadedEntity(entity, rels.relationships, rels.outCursor, rels.inCursor)
+      if (entity.kind === 'relationship') {
+        try {
+          loaded.triplet = await client.getRelationship(id)
+        } catch {}
+      }
+      detailEntitiesRef.current.set(id, loaded)
+      setDetailRender(n => n + 1)
+    } catch (err) {
+      console.error(`Failed to load detail entity ${id}:`, err)
+    }
+  }, [client, entities])
+
   const layout = useGraphLayout(entities, pinnedPositions, undefined, 'map')
 
-  const selectedEntity = selectedId ? entities.get(selectedId) : null
+  const selectedEntity = selectedId
+    ? (entities.get(selectedId) || detailEntitiesRef.current.get(selectedId) || null)
+    : null
 
   const neighborIds = useMemo(() => {
     if (!selectedEntity) return new Set<string>()
@@ -83,7 +113,8 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
       if (entities.has(peerId)) ids.add(peerId)
     }
     return ids
-  }, [selectedEntity, entities])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, selectedEntity, entities])
 
   const rfNodes: Node[] = useMemo(() => {
     return layout.nodes.map((n) => {
@@ -117,8 +148,9 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
 
   const rfEdges: Edge[] = useMemo(() => {
     return layout.edges.map((e) => {
+      const isThisEdge = e.relationshipId === selectedId
       const isConnected = selectedId != null && (
-        e.source === selectedId || e.target === selectedId
+        e.source === selectedId || e.target === selectedId || isThisEdge
       )
 
       const sourceEntity = entities.get(e.source)
@@ -164,28 +196,41 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes)
   const [edges, setEdges] = useEdgesState(rfEdges)
 
-  const prevLayoutRef = useRef(layout)
+  // Sync nodes/edges whenever they change (selection, layout, etc.)
+  // Preserve user-dragged positions by merging with current RF state.
   useEffect(() => {
-    if (layout !== prevLayoutRef.current) {
-      prevLayoutRef.current = layout
-      setNodes(rfNodes)
-    }
-  }, [rfNodes, layout, setNodes])
+    setNodes((current) => {
+      const currentPositions = new Map(current.map((n) => [n.id, n.position]))
+      return rfNodes.map((n) => {
+        const draggedPos = currentPositions.get(n.id)
+        // Keep drag position if the layout position hasn't changed
+        if (draggedPos && pinnedPositions.has(n.id)) {
+          return { ...n, position: draggedPos }
+        }
+        return n
+      })
+    })
+  }, [rfNodes, setNodes, pinnedPositions])
 
   useEffect(() => {
     setEdges(rfEdges)
   }, [rfEdges, setEdges])
 
+  const selectEntity = useCallback((id: string) => {
+    setSelectedId(id)
+    onEntitySelect?.(id)
+    fetchRelationships(id)
+    loadDetailEntity(id)
+  }, [onEntitySelect, fetchRelationships, loadDetailEntity])
+
   const handleNodeClick: NodeMouseHandler = useCallback((_event, node) => {
-    setSelectedId(node.id)
-    onEntitySelect?.(node.id)
-    fetchRelationships(node.id)
-  }, [onEntitySelect, fetchRelationships])
+    selectEntity(node.id)
+  }, [selectEntity])
 
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
-    // Select the source node of the edge
-    setSelectedId(edge.source)
-  }, [])
+    // Edge ID is the relationship entity ID — load and select it
+    selectEntity(edge.id)
+  }, [selectEntity])
 
   const handleNodeDragStop: NodeMouseHandler = useCallback((_event, node) => {
     setPinnedPositions((prev) => {
@@ -266,15 +311,12 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
       )}
 
       {/* Entity panel */}
-      {selectedId && entities.get(selectedId) && (
+      {selectedId && (entities.get(selectedId) || detailEntitiesRef.current.get(selectedId)) && (
         <EntityPanel
-          entity={entities.get(selectedId)!}
+          entity={(entities.get(selectedId) || detailEntitiesRef.current.get(selectedId))!}
           loadedEntityIds={loadedEntityIds}
           client={client}
-          onNavigate={(id) => {
-            setSelectedId(id)
-            fetchRelationships(id)
-          }}
+          onNavigate={selectEntity}
           onLoadMore={() => {}}
           onClose={() => setSelectedId(null)}
         />

@@ -140,6 +140,7 @@ export function App() {
         <MapView
           client={client}
           nodeCap={nodeCap}
+          initialSelectId={selectParam}
           onEntitySelect={handleEntitySelect}
         />
       </div>

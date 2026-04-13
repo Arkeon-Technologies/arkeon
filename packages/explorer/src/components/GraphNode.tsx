@@ -36,7 +36,7 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_KEYFRAMES_
 }
 
 function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?: boolean; isSpawning?: boolean }) {
-  const size = isSelected ? 32 : 24
+  const size = isSelected ? 36 : 24
   return (
     <div
       style={{
@@ -45,13 +45,15 @@ function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?
         borderRadius: '50%',
         backgroundColor: color,
         border: isSelected ? '3px solid white' : 'none',
-        boxShadow: isSpawning
+        boxShadow: isSelected
+          ? `0 0 24px 8px ${color}88, 0 0 48px 16px ${color}44`
+          : isSpawning
           ? `0 0 20px 8px rgba(99, 102, 241, 0.6)`
           : `0 0 10px 4px ${color}66`,
         animation: isSpawning
           ? 'graph-node-pulse 1.5s ease-in-out infinite'
-          : 'graph-node-twinkle 3s ease-in-out infinite',
-        animationDelay: `${Math.random() * 3}s`,
+          : isSelected ? 'none' : 'graph-node-twinkle 3s ease-in-out infinite',
+        animationDelay: isSelected ? undefined : `${Math.random() * 3}s`,
         transition: 'width 0.15s, height 0.15s',
       }}
     />
@@ -80,9 +82,10 @@ function CardView({
       style={{
         width: 200,
         padding: '10px 12px',
-        borderColor: isSelected ? 'white' : 'rgba(63, 63, 70, 0.6)',
+        borderColor: isSelected ? color : 'rgba(63, 63, 70, 0.6)',
+        borderWidth: isSelected ? 2 : 1,
         boxShadow: isSelected
-          ? '0 0 16px rgba(255,255,255,0.15)'
+          ? `0 0 20px 4px ${color}44, 0 0 40px 8px ${color}22`
           : isSpawning
           ? undefined
           : 'none',
