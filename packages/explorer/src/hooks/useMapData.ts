@@ -183,18 +183,19 @@ export function useMapData(
           }
 
           // Handle new relationships — update existing loaded entities
+          // Activity detail has { target_id, predicate, relationship_id }
+          // The source is item.entity_id (the activity's entity)
           if (item.action === 'relationship_created') {
-            const detail = item.detail as { source_id?: string; target_id?: string } | null
-            if (detail?.source_id && detail?.target_id) {
-              // Re-fetch relationships for both ends if they're loaded
-              if (entitiesRef.current.has(detail.source_id)) {
-                fetchedRelsRef.current.delete(detail.source_id)
-                fetchRelationships(detail.source_id)
-              }
-              if (entitiesRef.current.has(detail.target_id)) {
-                fetchedRelsRef.current.delete(detail.target_id)
-                fetchRelationships(detail.target_id)
-              }
+            const detail = item.detail as { target_id?: string } | null
+            const sourceId = item.entity_id
+            const targetId = detail?.target_id
+            if (sourceId && entitiesRef.current.has(sourceId)) {
+              fetchedRelsRef.current.delete(sourceId)
+              fetchRelationships(sourceId)
+            }
+            if (targetId && entitiesRef.current.has(targetId)) {
+              fetchedRelsRef.current.delete(targetId)
+              fetchRelationships(targetId)
             }
           }
         }

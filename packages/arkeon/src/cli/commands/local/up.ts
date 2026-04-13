@@ -204,15 +204,23 @@ async function runUp(opts: UpOptions): Promise<void> {
   // deriving it from the entry path.
   const childCwd = deriveChildCwd(entry);
 
+  // In dev mode, explicitly pass the explorer dist path so the daemon
+  // serves the correct build (not one from a sibling worktree or parent repo).
+  const explorerDistEnv: Record<string, string> = {};
+  if (!process.env.ARKEON_EXPLORER_DIST) {
+    const candidateDist = join(childCwd, "packages", "explorer", "dist");
+    if (existsSync(candidateDist)) {
+      explorerDistEnv.ARKEON_EXPLORER_DIST = candidateDist;
+    }
+  }
+
   const child = spawn(entry.cmd, childArgs, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     cwd: childCwd,
     env: {
       ...process.env,
-      // Explicit: let the child create its own pidfile with its own pid
-      // (runStart() calls writePidfile(process.pid) after the API is
-      // listening). No need to pass anything special here.
+      ...explorerDistEnv,
     },
   });
 
@@ -361,6 +369,12 @@ async function pushPendingLlmConfig(
  * `arkeon up` from an unrelated directory (e.g. a scratch folder
  * passed via --data-dir that has no package.json for npx to resolve
  * tsx from).
+ *
+ * IMPORTANT: In a git worktree layout, worktrees are nested inside
+ * the main repo (e.g. .claude/worktrees/<name>/). A naive walk-up
+ * can escape the worktree and find node_modules in the parent repo
+ * or a sibling worktree, causing the daemon to load the wrong code.
+ * We stop the walk at the worktree boundary to prevent this.
  */
 function deriveChildCwd(entry: { cmd: string; args: string[] }): string {
   // The arg that points at our code is either "tsx" followed by a
@@ -374,9 +388,20 @@ function deriveChildCwd(entry: { cmd: string; args: string[] }): string {
   // layout, this resolves to the monorepo root (where npm hoists
   // everything), so `npx tsx` from that cwd finds the binary. In a
   // global npm install, it resolves to the install prefix.
+  //
+  // Stop walking if we hit a worktree boundary — don't escape into
+  // the parent repo or sibling worktrees.
+  const WORKTREE_MARKERS = [".claude/worktrees/", ".claude-worktrees/"];
   let dir = dirname(abs);
   while (dir !== dirname(dir)) {
     if (existsSync(join(dir, "node_modules"))) return dir;
+    // If this directory IS a worktree root, don't walk past it
+    const parent = dirname(dir);
+    if (WORKTREE_MARKERS.some((m) => parent.endsWith(m.slice(0, -1)) || dir.includes(m))) {
+      // We're inside a worktree — if we haven't found node_modules yet,
+      // use process.cwd() (the user ran the command from the worktree root)
+      if (existsSync(join(process.cwd(), "node_modules"))) return process.cwd();
+    }
     dir = dirname(dir);
   }
   // Fallback: first ancestor with package.json (handles edge cases
