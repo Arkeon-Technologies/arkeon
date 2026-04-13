@@ -167,50 +167,58 @@ export function useMapData(
         const latestTs = result.activity[0]?.ts
         if (latestTs) lastActivityTsRef.current = latestTs
 
-        // Process new entities
-        const newEntityIds: string[] = []
+        // Collect new entity IDs and relationship updates from the activity batch
+        const newEntityCandidates = new Set<string>()
+        const relUpdates: Array<{ sourceId: string; targetId: string }> = []
+
         for (const item of result.activity) {
           if (item.action === 'entity_created' || item.action === 'content_uploaded') {
             if (!entitiesRef.current.has(item.entity_id)) {
-              try {
-                // Fetch entity AND relationships together so the layout
-                // has topology info when placing the new node
-                const [entity, rels] = await poolRef.current!.execute(
-                  () => Promise.all([
-                    client.getEntity(item.entity_id),
-                    client.getRelationships(item.entity_id),
-                  ]),
-                  `entity+rels:${item.entity_id}`
-                )
-                if (!mountedRef.current) continue
-                if (entity.kind === 'relationship') continue
-                if (entitiesRef.current.size >= nodeCap) { setCapReached(true); continue }
-                const loaded = createLoadedEntity(entity, rels.relationships, rels.outCursor, rels.inCursor)
-                entitiesRef.current.set(entity.id, loaded)
-                fetchedRelsRef.current.add(entity.id)
-                setEntityCount(entitiesRef.current.size)
-                newEntityIds.push(entity.id)
-              } catch {
-                // Entity may have been deleted between activity and fetch
-              }
+              newEntityCandidates.add(item.entity_id)
             }
           }
-
-          // Handle new relationships — update existing loaded entities
-          // Activity detail has { target_id, predicate, relationship_id }
-          // The source is item.entity_id (the activity's entity)
           if (item.action === 'relationship_created') {
             const detail = item.detail as { target_id?: string } | null
-            const sourceId = item.entity_id
-            const targetId = detail?.target_id
-            if (sourceId && entitiesRef.current.has(sourceId)) {
-              fetchedRelsRef.current.delete(sourceId)
-              fetchRelationships(sourceId)
+            if (detail?.target_id) {
+              relUpdates.push({ sourceId: item.entity_id, targetId: detail.target_id })
             }
-            if (targetId && entitiesRef.current.has(targetId)) {
-              fetchedRelsRef.current.delete(targetId)
-              fetchRelationships(targetId)
-            }
+          }
+        }
+
+        // Fetch all new entities + their relationships in parallel
+        const newEntityIds: string[] = []
+        if (newEntityCandidates.size > 0) {
+          const fetches = Array.from(newEntityCandidates).map(async (id) => {
+            try {
+              return await poolRef.current!.execute(
+                () => Promise.all([client.getEntity(id), client.getRelationships(id)]),
+                `entity+rels:${id}`
+              )
+            } catch { return null }
+          })
+          const results = await Promise.all(fetches)
+          for (const pair of results) {
+            if (!pair || !mountedRef.current) continue
+            const [entity, rels] = pair
+            if (entity.kind === 'relationship') continue
+            if (entitiesRef.current.size >= nodeCap) { setCapReached(true); break }
+            const loaded = createLoadedEntity(entity, rels.relationships, rels.outCursor, rels.inCursor)
+            entitiesRef.current.set(entity.id, loaded)
+            fetchedRelsRef.current.add(entity.id)
+            setEntityCount(entitiesRef.current.size)
+            newEntityIds.push(entity.id)
+          }
+        }
+
+        // Handle new relationships — re-fetch rels for affected loaded entities
+        for (const { sourceId, targetId } of relUpdates) {
+          if (entitiesRef.current.has(sourceId)) {
+            fetchedRelsRef.current.delete(sourceId)
+            fetchRelationships(sourceId)
+          }
+          if (entitiesRef.current.has(targetId)) {
+            fetchedRelsRef.current.delete(targetId)
+            fetchRelationships(targetId)
           }
         }
 

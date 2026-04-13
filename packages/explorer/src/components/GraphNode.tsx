@@ -45,7 +45,14 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_KEYFRAMES_
   document.head.appendChild(style)
 }
 
-function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?: boolean; isSpawning?: boolean }) {
+// Deterministic delay from entity ID so animation doesn't restart on re-render
+function idToDelay(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
+  return `${(Math.abs(hash) % 3000) / 1000}s`
+}
+
+function DotView({ color, isSelected, isSpawning, entityId }: { color: string; isSelected?: boolean; isSpawning?: boolean; entityId: string }) {
   const size = isSelected ? 36 : 24
   return (
     <div
@@ -63,7 +70,7 @@ function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?
         animation: isSpawning
           ? 'graph-node-spawn 0.6s ease-out forwards, graph-node-spawn-glow 2s ease-out forwards'
           : isSelected ? 'none' : 'graph-node-twinkle 3s ease-in-out infinite',
-        animationDelay: isSelected ? undefined : isSpawning ? undefined : `${Math.random() * 3}s`,
+        animationDelay: isSelected ? undefined : isSpawning ? undefined : idToDelay(entityId),
         transition: 'width 0.15s, height 0.15s',
       }}
     />
@@ -148,7 +155,7 @@ function GraphNodeInner({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} style={handleStyle} />
 
       {zoom < 0.35 ? (
-        <DotView color={color} isSelected={isSelected} isSpawning={isSpawning} />
+        <DotView color={color} isSelected={isSelected} isSpawning={isSpawning} entityId={entity.entity.id} />
       ) : (
         <CardView
           entity={entity}
