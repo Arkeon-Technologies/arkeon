@@ -41,10 +41,10 @@ arkeon <resource> <action> [args]
 ## Development
 
 ```bash
-npm run dev -w packages/cli          # Watch mode
-npm run fetch-spec -w packages/cli   # Fetch latest OpenAPI spec
-npm run generate -w packages/cli     # Regenerate commands from spec
-npm run build -w packages/cli        # Build (auto-regenerates)
+npm run dev -w packages/arkeon          # Watch mode
+npm run fetch-spec -w packages/arkeon   # Fetch latest OpenAPI spec
+npm run generate -w packages/arkeon     # Regenerate commands from spec
+npm run build -w packages/arkeon        # Build (auto-regenerates)
 ```
 
 ## Configuration

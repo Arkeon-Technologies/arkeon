@@ -33,7 +33,7 @@ Arkeon runs workers by shelling out on the host operating system. There is no Do
 |------|---------|
 | `bwrap` | Bubblewrap namespace isolation for worker sandboxes |
 
-On macOS there is no namespace isolation — the sandbox falls back to direct execution inside a workspace directory (see `packages/runtime/src/sandbox.ts`). That's fine for development but not a real security boundary, so only run untrusted worker code on Linux hosts where `bwrap` is installed.
+On macOS there is no namespace isolation — the sandbox falls back to direct execution inside a workspace directory (see `packages/arkeon/src/runtime/sandbox.ts`). That's fine for development but not a real security boundary, so only run untrusted worker code on Linux hosts where `bwrap` is installed.
 
 ### Install
 

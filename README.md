@@ -6,13 +6,9 @@ This repository contains the core Arkeon platform: the API server, schema migrat
 
 ## Repository Layout
 
-- `packages/api` — REST API server (Hono + Postgres)
-- `packages/schema` — SQL migrations
-- `packages/cli` — Command-line client (auto-generated from the API's OpenAPI spec)
-- `packages/runtime` — Sandboxed worker / agent runtime
-- `packages/sdk-ts` — TypeScript SDK
+- `packages/arkeon` — CLI, API server, runtime, schema migrations, and shared types (published as `arkeon` on npm)
+- `packages/sdk-ts` — TypeScript SDK (published as `@arkeon-technologies/sdk`)
 - `packages/explorer` — Browser-based graph explorer
-- `packages/shared` — Shared types and utilities
 
 ## Getting Started
 
@@ -125,14 +121,13 @@ cd arkeon
 npm install
 npm run build -w packages/sdk-ts                # prebuilt SDK is required
 npm run build -w @arkeon-technologies/explorer  # explorer assets
-npx tsx packages/cli/src/index.ts start         # foreground-attached stack
+npx tsx packages/arkeon/src/index.ts start       # foreground-attached stack
 ```
 
 Typecheck and e2e tests:
 
 ```bash
-npm run typecheck -w packages/api
-npm run typecheck -w packages/cli
+npm run typecheck -w packages/arkeon
 ./scripts/test-local.sh    # brings up the stack via the CLI and runs e2e
 ```
 

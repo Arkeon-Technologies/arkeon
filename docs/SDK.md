@@ -62,6 +62,6 @@ Zero dependencies — native `fetch` (Node 18+). Exports: `get`, `post`, `put`, 
 - No entity/space/relationship models or types
 - No retry logic or rate limiting
 - No validation or schema enforcement
-- No CLI (already exists as `packages/cli`)
+- No CLI (already exists as `packages/arkeon`)
 
 It returns the raw API response as JSON. The API is self-documenting (`/llms.txt`, `/help/:method/:path`) — the SDK just removes the boilerplate of calling it.

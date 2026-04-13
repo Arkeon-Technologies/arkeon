@@ -26,7 +26,7 @@ Mutation (POST/PUT/DELETE)
 ## Retention
 
 - Permanent actions (`entity_created`, `ownership_transferred`) survive pruning indefinitely
-- Transient activity is pruned after 15 days by the in-process retention scheduler (hourly sweep, see `packages/api/src/lib/retention.ts`)
+- Transient activity is pruned after 15 days by the in-process retention scheduler (hourly sweep, see `packages/arkeon/src/server/lib/retention.ts`)
 - Notifications are pruned after 15 days on the same schedule
 - Entity versions are preserved indefinitely in `entity_versions`
 
