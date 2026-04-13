@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Arkeon Technologies, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Command } from "commander";
 
 import { registerAuthCommands } from "./cli/commands/auth/index.js";
@@ -12,12 +16,16 @@ import { registerInstallCommands } from "./cli/commands/install/index.js";
 import { registerRepoCommands } from "./cli/commands/repo/index.js";
 import { registerApiCommands } from "./generated/index.js";
 
+// Read version from package.json so `npm version` in CI is the single source of truth.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string };
+
 const program = new Command();
 
 program
   .name("arkeon")
   .description("CLI for the Arkeon API")
-  .version("0.3.2")
+  .version(pkg.version)
   .option("--api-url <url>", "Override API base URL for this process")
   .option("--space-id <id>", "Override default space ID for this process")
   .option(
