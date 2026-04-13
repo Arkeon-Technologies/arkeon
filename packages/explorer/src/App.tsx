@@ -55,7 +55,7 @@ export function App() {
   const selectParam = searchParams.get('select') || undefined
   const modeParam = searchParams.get('mode') || 'graph'
   const capParam = searchParams.get('cap')
-  const nodeCap = capParam ? Math.max(1, parseInt(capParam, 10) || 10000) : 10000
+  const nodeCap = capParam ? Math.max(1, parseInt(capParam, 10) || 3000) : 3000
 
   type Mode = 'graph' | 'feed'
   const initialMode: Mode = modeParam === 'feed' ? 'feed' : 'graph'

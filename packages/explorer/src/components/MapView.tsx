@@ -26,39 +26,8 @@ interface MapViewProps {
   onEntitySelect?: (entityId: string) => void
 }
 
-const EDGE_COLORS: Record<string, string> = {
-  contains: '#22c55e',
-  references: '#3b82f6',
-  relates_to: '#8b5cf6',
-  created_by: '#f59e0b',
-  owned_by: '#ec4899',
-  prior_art_for: '#06b6d4',
-  influenced: '#f97316',
-  enables: '#84cc16',
-}
-
-function getEdgeColor(predicate: string): string {
-  return EDGE_COLORS[predicate] ?? '#52525b'
-}
-
 function getPeerId(rel: ArkeRelationship, entityId: string): string {
   return rel.source_id === entityId ? rel.target_id : rel.source_id
-}
-
-function colorToHex(color: string): string {
-  if (color.startsWith('#')) return color
-  const m = color.match(/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)/)
-  if (!m) return color
-  const h = parseFloat(m[1])
-  const s = parseFloat(m[2]) / 100
-  const l = parseFloat(m[3]) / 100
-  const a = s * Math.min(l, 1 - l)
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12
-    const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
-    return Math.round(255 * c).toString(16).padStart(2, '0')
-  }
-  return `#${f(0)}${f(8)}${f(4)}`
 }
 
 interface GraphEventsProps {
@@ -106,7 +75,7 @@ function GraphSyncAndEvents({
           x: Math.cos(angle) * dist,
           y: Math.sin(angle) * dist,
           size: 2,
-          color: colorToHex(getEntitySpaceColor(loaded.entity.space_ids)),
+          color: getEntitySpaceColor(loaded.entity.space_ids),
           label: (loaded.entity.properties?.label as string) || loaded.entity.type,
           type: 'circle',
         })
@@ -182,7 +151,9 @@ function GraphSyncAndEvents({
         }
       }
 
-      const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 100 : 60
+      // Scale iterations down for large graphs to avoid UI freeze
+      // (FA2 runs synchronously on main thread)
+      const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 80 : graph.order <= 3000 ? 50 : 30
       forceAtlas2.assign(graph, { iterations: iters, settings })
     } else {
       // Incremental: settle new nodes from polling
@@ -198,13 +169,12 @@ function GraphSyncAndEvents({
     if (!graph.hasNode(selectId)) return
 
     const timer = setTimeout(() => {
-      // Sigma camera coords are in the graph coordinate space after normalization.
-      // getNodeAttributes gives us the raw graph coordinates.
-      const attrs = graph.getNodeAttributes(selectId)
+      const displayData = sigma.getNodeDisplayData(selectId)
+      if (!displayData) return
       const camera = sigma.getCamera()
-      // Use sigma's normalization: convert graph coords to framed graph coords
-      const { x: normX, y: normY } = sigma.graphToFramedGraph(attrs as { x: number; y: number })
-      camera.animate({ x: normX, y: normY, ratio: 0.1 }, { duration: 600 })
+      // viewportToFramedGraph converts pixel coords to camera coords
+      const pos = sigma.viewportToFramedGraph(displayData)
+      camera.animate({ x: pos.x, y: pos.y, ratio: 0.1 }, { duration: 600 })
       onSelect(selectId)
       fetchRelationships(selectId)
     }, 300)
@@ -287,7 +257,7 @@ function GraphSyncAndEvents({
   return null
 }
 
-export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: MapViewProps) {
+export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: MapViewProps) {
   const data = useMapData(client, nodeCap, selectId)
   const { entities, isLoading, entityCount, fetchRelationships, ensureEntity, resetView } = data
 

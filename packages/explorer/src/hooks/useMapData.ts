@@ -325,6 +325,7 @@ export function useMapData(
           const results = await Promise.all(fetches)
           for (const pair of results) {
             if (!pair || !mountedRef.current) continue
+            if (entitiesRef.current.size >= nodeCap) break
             const [entity, rels] = pair
             if (entity.kind === 'relationship') continue
             const loaded = createLoadedEntity(entity, rels.relationships, rels.outCursor, rels.inCursor)
