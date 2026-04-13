@@ -60,15 +60,11 @@ export function createApp() {
   if (!existsSync(explorerDist)) {
     console.warn(`[explorer] dist not found at ${explorerDist} — /explore will 404. Run: npm run build -w packages/explorer`);
   }
-  app.use("/explore/*", serveStatic({
-    root: explorerDist,
-    rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
-  }));
-  // SPA fallback: serve index.html with the admin key injected so the
-  // explorer auto-authenticates. Only injected in local mode (set by the
-  // CLI via ARKEON_LOCAL=true) — deployed instances must not leak the
-  // admin key in page source. Asset requests (.js, .css, etc.) fall
-  // through to the static handler above and 404 properly.
+  // SPA fallback with auto-auth: intercept extension-less paths (route
+  // navigations) and serve index.html with the admin key injected. Only
+  // injected in local mode (ARKEON_LOCAL=true set by the CLI) so deployed
+  // instances don't leak the admin key. Asset requests (.js, .css, etc.)
+  // fall through to serveStatic below.
   let cachedExplorerHtml: string | null = null;
   function getExplorerHtml(): string | null {
     if (cachedExplorerHtml) return cachedExplorerHtml;
@@ -86,15 +82,20 @@ export function createApp() {
     }
     return cachedExplorerHtml;
   }
-  app.get("/explore/*", async (c, next) => {
-    const path = c.req.path;
-    if (/\.[a-zA-Z0-9]+$/.test(path)) {
+  app.use("/explore/*", async (c, next) => {
+    // Let asset requests (.js, .css, .png, etc.) fall through to serveStatic
+    if (/\.[a-zA-Z0-9]+$/.test(c.req.path)) {
       return next();
     }
+    // Serve injected index.html for SPA route navigations
     const html = getExplorerHtml();
-    if (!html) return next();
-    return c.html(html);
+    if (html) return c.html(html);
+    return next();
   });
+  app.use("/explore/*", serveStatic({
+    root: explorerDist,
+    rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
+  }));
   app.get("/explore", (c) => c.redirect("/explore/"));
 
   app.get("/", (c) =>
