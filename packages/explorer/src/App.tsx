@@ -12,10 +12,15 @@ import { MapView } from '@/components/MapView'
 // history, server logs, referers, or shared bookmarks.
 function readAndStripApiKey(): string | undefined {
   if (typeof window === 'undefined') return undefined
+
+  // 1. Server-injected key (auto-auth for local/deployed instances)
+  const injected = (window as Record<string, unknown>).__ARKEON_KEY__ as string | undefined
+  if (injected) return injected
+
+  // 2. Explicit URL param (manual override)
   const params = new URLSearchParams(window.location.search)
   const key = params.get('key') || undefined
   if (key) {
-    // Persist for this tab session so reloads don't lose it
     try { sessionStorage.setItem('arke-api-key', key) } catch {}
     params.delete('key')
     const qs = params.toString()
@@ -23,7 +28,7 @@ function readAndStripApiKey(): string | undefined {
     window.history.replaceState({}, '', newUrl)
     return key
   }
-  // Fall back to sessionStorage from a previous load in this tab
+  // 3. Fall back to sessionStorage from a previous load in this tab
   try { return sessionStorage.getItem('arke-api-key') || undefined } catch {}
   return undefined
 }

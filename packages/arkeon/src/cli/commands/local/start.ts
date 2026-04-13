@@ -236,6 +236,7 @@ async function runStart(options: StartOptions): Promise<void> {
   console.log("");
   console.log("[arkeon] Ready.");
   console.log(`         API:       http://localhost:${apiPort}`);
+  console.log(`         Explorer:  http://localhost:${apiPort}/explore`);
   console.log(`         Health:    http://localhost:${apiPort}/health`);
   console.log(`         Ready:     http://localhost:${apiPort}/ready`);
   console.log(`         Admin key: ${adminBootstrapKey}`);
