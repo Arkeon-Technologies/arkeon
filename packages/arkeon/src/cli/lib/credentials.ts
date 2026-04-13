@@ -123,18 +123,18 @@ function getRepoActorKey(): string | null {
 
   const actorName = state.current_actor ?? "ingestor";
 
-  // Try instance actor registry first
-  const port = portFromUrl(state.api_url);
-  const instanceActor = getInstanceActor(port, actorName);
-  if (instanceActor) {
-    const key = store.get("actorKeys")?.[instanceActor.actor_id]?.api_key;
+  // Per-repo state.actors takes priority (repo-scoped, not shared across repos)
+  const repoActor = state.actors?.[actorName];
+  if (repoActor) {
+    const key = store.get("actorKeys")?.[repoActor.actor_id]?.api_key;
     if (key) return key;
   }
 
-  // Fallback: legacy state.actors map
-  const legacyActor = state.actors?.[actorName];
-  if (legacyActor) {
-    return store.get("actorKeys")?.[legacyActor.actor_id]?.api_key ?? null;
+  // Fallback: instance actor registry (shared across repos on same instance)
+  const port = portFromUrl(state.api_url);
+  const instanceActor = getInstanceActor(port, actorName);
+  if (instanceActor) {
+    return store.get("actorKeys")?.[instanceActor.actor_id]?.api_key ?? null;
   }
 
   return null;
