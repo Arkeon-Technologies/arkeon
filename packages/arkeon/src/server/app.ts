@@ -65,7 +65,9 @@ export function createApp() {
     rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
   }));
   // SPA fallback: serve index.html with the admin key injected so the
-  // explorer auto-authenticates. Asset requests (.js, .css, etc.) fall
+  // explorer auto-authenticates. Only injected in local mode (set by the
+  // CLI via ARKEON_LOCAL=true) — deployed instances must not leak the
+  // admin key in page source. Asset requests (.js, .css, etc.) fall
   // through to the static handler above and 404 properly.
   let cachedExplorerHtml: string | null = null;
   function getExplorerHtml(): string | null {
@@ -73,12 +75,15 @@ export function createApp() {
     const indexPath = join(explorerDist, "index.html");
     if (!existsSync(indexPath)) return null;
     const raw = readFileSync(indexPath, "utf-8");
-    const adminKey = process.env.ADMIN_BOOTSTRAP_KEY ?? "";
-    const escaped = adminKey.replace(/[\\'"]/g, "\\$&");
-    cachedExplorerHtml = raw.replace(
-      "</head>",
-      `<script>window.__ARKEON_KEY__="${escaped}"</script></head>`,
-    );
+    const isLocal = process.env.ARKEON_LOCAL === "true";
+    if (isLocal && process.env.ADMIN_BOOTSTRAP_KEY) {
+      cachedExplorerHtml = raw.replace(
+        "</head>",
+        `<script>window.__ARKEON_KEY__=${JSON.stringify(process.env.ADMIN_BOOTSTRAP_KEY)}</script></head>`,
+      );
+    } else {
+      cachedExplorerHtml = raw;
+    }
     return cachedExplorerHtml;
   }
   app.get("/explore/*", async (c, next) => {

@@ -202,6 +202,7 @@ async function runStart(options: StartOptions): Promise<void> {
   // process cwd.
   process.env.STORAGE_BACKEND = process.env.STORAGE_BACKEND ?? "local";
   process.env.STORAGE_DIR = process.env.STORAGE_DIR ?? storageDir;
+  process.env.ARKEON_LOCAL = "true";
 
   const explorerDist = findExplorerDist();
   if (!explorerDist) {
