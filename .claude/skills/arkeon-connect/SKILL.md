@@ -99,8 +99,7 @@ Write to `/tmp/arkeon-connect-ops.json`:
       "source": "01ENTITY_IN_SPACE_A",
       "target": "01ENTITY_IN_SPACE_B",
       "predicate": "same_as",
-      "detail": "Same person appearing in both theology and philosophy corpora",
-      "cross_space": true
+      "detail": "Same person appearing in both theology and philosophy corpora"
     }
   ]
 }
