@@ -53,6 +53,9 @@ async function findDocBySourceFile(
 /**
  * Check whether an entity has multiple extracted_from sources.
  * We only need to know if there's more than one, so limit=2 suffices.
+ *
+ * TODO: batch this check — currently called per-child (N+1 pattern).
+ * A server-side endpoint that returns source counts would be better.
  */
 async function hasMultipleSources(
   apiUrl: string,

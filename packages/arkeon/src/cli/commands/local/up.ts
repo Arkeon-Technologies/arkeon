@@ -254,7 +254,7 @@ async function runUp(opts: UpOptions): Promise<void> {
     if (meResp.ok) {
       const meBody = (await meResp.json()) as { actor?: { id?: string } };
       if (meBody.actor?.id) {
-        saveInstanceActor(apiPort, "admin", meBody.actor.id);
+        saveInstanceActor(apiUrl, "admin", meBody.actor.id);
         credentials.saveActorKey(meBody.actor.id, secrets.adminBootstrapKey, "admin");
       }
     }

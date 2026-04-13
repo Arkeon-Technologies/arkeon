@@ -3,7 +3,7 @@ name: arkeon-ingest
 description: Initialize a repo as an Arkeon knowledge base and build a knowledge graph from its documents.
 disable-model-invocation: true
 argument-hint: [space-name]
-allowed-tools: Bash(npx arkeon *, arkeon *, ls *, cat *), Read, Glob, Grep, Write
+allowed-tools: Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write
 ---
 
 # Arkeon Ingest
@@ -210,10 +210,10 @@ For every relationship, provide at minimum:
 
 #### d. Write ops
 
-Create a JSON file with the ops envelope and submit it:
+Use the Write tool to create a JSON file with the ops envelope, then submit it:
 
-```bash
-cat > /tmp/arkeon-ops.json << 'ENDJSON'
+Write to `/tmp/arkeon-ops.json`:
+```json
 {
   "format": "arke.ops/v1",
   "defaults": {},
@@ -225,7 +225,10 @@ cat > /tmp/arkeon-ops.json << 'ENDJSON'
     {"op": "relate", "source": "@augustine", "target": "01EXISTING_ULID", "predicate": "influenced_by", "detail": "Augustine draws heavily on Platonic philosophy"}
   ]
 }
-ENDJSON
+```
+
+Then submit:
+```bash
 npx arkeon ingest post-ops --data @/tmp/arkeon-ops.json
 ```
 

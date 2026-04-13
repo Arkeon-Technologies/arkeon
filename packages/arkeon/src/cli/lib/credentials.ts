@@ -3,7 +3,7 @@
 
 import Conf from "conf";
 
-import { getInstanceActor, portFromUrl } from "./instances.js";
+import { getInstanceActor } from "./instances.js";
 import { loadRepoState } from "./repo-state.js";
 
 export type StoredCredentials = {
@@ -131,8 +131,7 @@ function getRepoActorKey(): string | null {
   }
 
   // Fallback: instance actor registry (shared across repos on same instance)
-  const port = portFromUrl(state.api_url);
-  const instanceActor = getInstanceActor(port, actorName);
+  const instanceActor = getInstanceActor(state.api_url, actorName);
   if (instanceActor) {
     return store.get("actorKeys")?.[instanceActor.actor_id]?.api_key ?? null;
   }

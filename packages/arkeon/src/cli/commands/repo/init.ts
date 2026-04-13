@@ -14,7 +14,7 @@ import { basename, join } from "node:path";
 
 import { apiPost } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
-import { findInstanceByName, listInstances, portFromUrl, resolveAdminKeyForUrl, saveInstanceActor } from "../../lib/instances.js";
+import { findInstanceByName, listInstances, resolveAdminKeyForUrl, saveInstanceActor } from "../../lib/instances.js";
 import { isProcessAlive, readSecrets } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
 import { saveRepoState, stateFilePath } from "../../lib/repo-state.js";
@@ -145,7 +145,7 @@ export function registerInitCommand(program: Command): void {
 
         // Store key in global credential store + instance actor registry
         credentials.saveActorKey(actorId, actorApiKey, `ingestor-${name}`);
-        saveInstanceActor(portFromUrl(apiUrl), "ingestor", actorId);
+        saveInstanceActor(apiUrl, "ingestor", actorId);
 
         // Create space (using the new actor's key — actor becomes owner)
         output.progress(`Creating space "${name}"...`);

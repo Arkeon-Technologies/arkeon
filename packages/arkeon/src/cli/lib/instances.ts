@@ -105,12 +105,12 @@ export function findInstanceByName(name: string): StackInstance | null {
 
 type ActorEntry = { actor_id: string };
 
-function actorRegistryPath(apiPort: number): string {
-  return join(instancesDir(), `${apiPort}-actors.json`);
+function actorRegistryPath(key: string): string {
+  return join(instancesDir(), `${key}-actors.json`);
 }
 
-function readActorRegistry(apiPort: number): Record<string, ActorEntry> {
-  const path = actorRegistryPath(apiPort);
+function readActorRegistry(key: string): Record<string, ActorEntry> {
+  const path = actorRegistryPath(key);
   if (!existsSync(path)) return {};
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as Record<string, ActorEntry>;
@@ -119,30 +119,30 @@ function readActorRegistry(apiPort: number): Record<string, ActorEntry> {
   }
 }
 
-function writeActorRegistry(apiPort: number, registry: Record<string, ActorEntry>): void {
+function writeActorRegistry(key: string, registry: Record<string, ActorEntry>): void {
   const dir = instancesDir();
   mkdirSync(dir, { recursive: true });
-  writeFileSync(actorRegistryPath(apiPort), JSON.stringify(registry, null, 2) + "\n");
+  writeFileSync(actorRegistryPath(key), JSON.stringify(registry, null, 2) + "\n");
 }
 
-export function saveInstanceActor(apiPort: number, name: string, actorId: string): void {
-  const registry = readActorRegistry(apiPort);
+export function saveInstanceActor(apiUrl: string, name: string, actorId: string): void {
+  const registry = readActorRegistry(registryKeyFromUrl(apiUrl));
   registry[name] = { actor_id: actorId };
-  writeActorRegistry(apiPort, registry);
+  writeActorRegistry(registryKeyFromUrl(apiUrl), registry);
 }
 
-export function getInstanceActor(apiPort: number, name: string): ActorEntry | null {
-  return readActorRegistry(apiPort)[name] ?? null;
+export function getInstanceActor(apiUrl: string, name: string): ActorEntry | null {
+  return readActorRegistry(registryKeyFromUrl(apiUrl))[name] ?? null;
 }
 
-export function removeInstanceActor(apiPort: number, name: string): void {
-  const registry = readActorRegistry(apiPort);
+export function removeInstanceActor(apiUrl: string, name: string): void {
+  const registry = readActorRegistry(registryKeyFromUrl(apiUrl));
   delete registry[name];
-  writeActorRegistry(apiPort, registry);
+  writeActorRegistry(registryKeyFromUrl(apiUrl), registry);
 }
 
-export function listInstanceActors(apiPort: number): Record<string, ActorEntry> {
-  return readActorRegistry(apiPort);
+export function listInstanceActors(apiUrl: string): Record<string, ActorEntry> {
+  return readActorRegistry(registryKeyFromUrl(apiUrl));
 }
 
 /**
@@ -154,6 +154,21 @@ export function portFromUrl(apiUrl: string): number {
     return Number(url.port) || (url.protocol === "https:" ? 443 : 80);
   } catch {
     return 80;
+  }
+}
+
+/**
+ * Derive a filesystem-safe registry key from an API URL.
+ * Uses host-port to avoid collisions between different hosts on the same port.
+ */
+export function registryKeyFromUrl(apiUrl: string): string {
+  try {
+    const url = new URL(apiUrl);
+    const host = url.hostname.replace(/\./g, "-");
+    const port = Number(url.port) || (url.protocol === "https:" ? 443 : 80);
+    return `${host}-${port}`;
+  } catch {
+    return "unknown-80";
   }
 }
 

@@ -10,7 +10,6 @@ import { apiRequest } from "../../lib/http.js";
 import {
   getInstanceActor,
   listInstanceActors,
-  portFromUrl,
   removeInstanceActor,
   saveInstanceActor,
 } from "../../lib/instances.js";
@@ -202,8 +201,8 @@ export function registerAuthCommands(program: Command): void {
         if (state) {
           // Repo context — show profile info
           const actorName = state.current_actor ?? "ingestor";
-          const port = portFromUrl(state.api_url);
-          const entry = getInstanceActor(port, actorName) ?? state.actors?.[actorName];
+          const apiUrl = state.api_url;
+          const entry = getInstanceActor(apiUrl, actorName) ?? state.actors?.[actorName];
           const actorId = entry?.actor_id ?? null;
           const key = actorId ? credentials.getActorKey(actorId) : null;
 
@@ -264,10 +263,10 @@ export function registerAuthCommands(program: Command): void {
         const state = loadRepoState();
         if (!state) throw new Error("Not in an initialized repo. Run `arkeon init` first.");
 
-        const port = portFromUrl(state.api_url);
-        const entry = getInstanceActor(port, name) ?? state.actors?.[name];
+        const apiUrl = state.api_url;
+        const entry = getInstanceActor(apiUrl, name) ?? state.actors?.[name];
         if (!entry) {
-          const available = Object.keys(listInstanceActors(port));
+          const available = Object.keys(listInstanceActors(apiUrl));
           throw new Error(
             `Profile "${name}" not found for this instance. Available: ${available.join(", ") || "(none)"}.\nRun \`arkeon auth add ${name}\` to create it.`,
           );
@@ -300,8 +299,8 @@ export function registerAuthCommands(program: Command): void {
         const state = loadRepoState();
         if (!state) throw new Error("Not in an initialized repo. Run `arkeon init` first.");
 
-        const port = portFromUrl(state.api_url);
-        const existing = getInstanceActor(port, name);
+        const apiUrl = state.api_url;
+        const existing = getInstanceActor(apiUrl, name);
         if (existing) {
           throw new Error(`Profile "${name}" already exists (actor ${existing.actor_id}). Use \`arkeon auth remove ${name}\` first.`);
         }
@@ -313,16 +312,29 @@ export function registerAuthCommands(program: Command): void {
         if (opts.maxReadLevel !== undefined) body.max_read_level = Number(opts.maxReadLevel);
         if (opts.maxWriteLevel !== undefined) body.max_write_level = Number(opts.maxWriteLevel);
 
+        // Creating actors requires admin privileges. Resolve the admin key
+        // from the instance registry or the instance's secrets.json.
+        const adminEntry = getInstanceActor(apiUrl, "admin");
+        const adminKey = adminEntry
+          ? credentials.getActorKey(adminEntry.actor_id)
+          : null;
+        if (!adminKey) {
+          throw new Error(
+            "Creating actors requires admin privileges. No admin profile found.\n" +
+              "Run `arkeon auth use admin` first, or ensure the instance has an admin profile registered.",
+          );
+        }
+
         output.progress(`Creating ${opts.kind} actor "${name}"...`);
         const result = await apiRequest<{ actor: { id: string }; api_key: string }>("/actors", {
           method: "POST",
-          auth: true,
           body: JSON.stringify(body),
+          headers: { authorization: `ApiKey ${adminKey}` },
         });
 
         const actorId = result.actor.id;
         credentials.saveActorKey(actorId, result.api_key, name);
-        saveInstanceActor(port, name, actorId);
+        saveInstanceActor(apiUrl, name, actorId);
 
         output.result({
           operation: "auth.add",
@@ -350,8 +362,8 @@ export function registerAuthCommands(program: Command): void {
           throw new Error(`Cannot remove "${name}" — it is the active profile. Run \`arkeon auth use <other>\` first.`);
         }
 
-        const port = portFromUrl(state.api_url);
-        const entry = getInstanceActor(port, name) ?? state.actors?.[name];
+        const apiUrl = state.api_url;
+        const entry = getInstanceActor(apiUrl, name) ?? state.actors?.[name];
         if (!entry) {
           throw new Error(`Profile "${name}" not found.`);
         }
@@ -361,7 +373,7 @@ export function registerAuthCommands(program: Command): void {
           await apiRequest(`/actors/${entry.actor_id}`, { method: "DELETE", auth: true });
         }
 
-        removeInstanceActor(port, name);
+        removeInstanceActor(apiUrl, name);
         credentials.deleteActorKey(entry.actor_id);
 
         // Clean up legacy state.actors if present
@@ -390,8 +402,8 @@ export function registerAuthCommands(program: Command): void {
         const state = loadRepoState();
         if (!state) throw new Error("Not in an initialized repo. Run `arkeon init` first.");
 
-        const port = portFromUrl(state.api_url);
-        const actors = listInstanceActors(port);
+        const apiUrl = state.api_url;
+        const actors = listInstanceActors(apiUrl);
         const currentActor = state.current_actor ?? "ingestor";
 
         const profiles = Object.entries(actors).map(([name, entry]) => {
