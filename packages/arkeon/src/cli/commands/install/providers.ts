@@ -8,7 +8,7 @@
  * Each provider knows where to write skills and what format to use.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -46,6 +46,18 @@ const claude: Provider = {
     const dir = this.skillDir();
     const skills = SKILLS?.["claude"] ?? {};
     const installed: string[] = [];
+    const currentNames = new Set(Object.keys(skills));
+
+    // Remove stale arkeon-* skills from previous versions
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith("arkeon-") && !currentNames.has(entry.name)) {
+          rmSync(join(dir, entry.name), { recursive: true });
+        }
+      }
+    } catch {
+      // dir may not exist yet — that's fine
+    }
 
     const VALID_NAME = /^[a-z0-9][a-z0-9-]*$/;
     for (const [name, content] of Object.entries(skills) as [string, string][]) {
