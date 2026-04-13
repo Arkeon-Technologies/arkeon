@@ -14,13 +14,13 @@ Requires Node.js 18.17+. No Docker, no external services.
 
 ## Quick start
 
-Open [Claude Code](https://claude.ai/download) in any repository and run:
+Open your AI coding assistant in any repository and run:
 
 ```
 /arkeon-ingest
 ```
 
-This starts Arkeon, analyzes the codebase, and builds a knowledge graph. Repeat in other repos, then run `/arkeon-connect` to link them together.
+This starts Arkeon, analyzes the codebase, and builds a knowledge graph. Repeat in other repos, then run `/arkeon-connect` to link them together. Skills are installed automatically — currently supports Claude Code, with Cursor and Codex coming soon.
 
 Open [http://localhost:8000/explore](http://localhost:8000/explore) to see the graph.
 

@@ -14,17 +14,24 @@ Requires Node.js 18.17+. No Docker, no external services.
 
 **2. Ingest a repo**
 
-Open [Claude Code](https://claude.ai/download) in any repository and run:
+Open your AI coding assistant in any repository and run the ingest skill:
 
 ```
 /arkeon-ingest
 ```
 
-This starts Arkeon (if not already running), analyzes the codebase, and builds a knowledge graph for it in its own space. The first run downloads embedded Postgres and Meilisearch — cached after that.
+This starts Arkeon (if not already running), analyzes the codebase, and
+builds a knowledge graph for it in its own space. The first run downloads
+embedded Postgres and Meilisearch — cached after that.
+
+Arkeon ships skills for [Claude Code](https://claude.ai/download) today,
+with Cursor and Codex support coming soon. Skills are installed
+automatically on first run.
 
 **3. Ingest more repos**
 
-Repeat step 2 in other repositories. Each repo gets its own space with its own knowledge graph.
+Repeat step 2 in other repositories. Each repo gets its own space with
+its own knowledge graph.
 
 **4. Connect them**
 
@@ -34,11 +41,14 @@ Once you've ingested a few repos, run:
 /arkeon-connect
 ```
 
-This finds and creates relationships across spaces — shared concepts, common patterns, dependencies between projects.
+This finds and creates relationships across spaces — shared concepts,
+common patterns, dependencies between projects.
 
 **5. Explore**
 
-Open [http://localhost:8000/explore](http://localhost:8000/explore) to see the graph explorer. Browse entities, traverse relationships, and search across everything you've ingested.
+Open [http://localhost:8000/explore](http://localhost:8000/explore) to
+see the graph explorer. Browse entities, traverse relationships, and
+search across everything you've ingested.
 
 ## What you get
 
@@ -84,33 +94,9 @@ The API is self-documenting:
 
 ## Configuration
 
-### State directory
-
-All state lives in `~/.arkeon/` by default (override with `ARKEON_HOME` or `--data-dir`):
-
-```
-~/.arkeon/
-  bin/meilisearch       # downloaded once
-  data/postgres/        # embedded Postgres cluster
-  data/meili/           # Meilisearch index
-  data/files/           # uploaded files (local storage)
-  secrets.json          # admin key, encryption key, PG password
-  arkeon.pid / .log     # daemon pidfile + log
-```
-
-### Bring your own Postgres / Meilisearch
-
-For production or managed infrastructure:
-
-```bash
-export ARKEON_DATABASE_URL=postgresql://arke_app:PASSWORD@db.example.com:5432/arke
-export ARKE_APP_PASSWORD=PASSWORD
-export ARKEON_MEILI_URL=https://ms-xxxx.meilisearch.io
-export ARKEON_MEILI_MASTER_KEY=...
-arkeon up
-```
-
-Embedded services are skipped when external URLs are set.
+All state lives in `~/.arkeon/` by default (override with `ARKEON_HOME`).
+For external Postgres/Meilisearch and other configuration options, see
+the [quickstart](docs/user/QUICKSTART.md).
 
 ## Advanced features
 

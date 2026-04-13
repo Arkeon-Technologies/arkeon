@@ -1,6 +1,7 @@
 # Schema
 
-Overview of the Postgres schema and migration system.
+Overview of the Postgres schema design and migration system. For column
+definitions, read the SQL files directly in `packages/arkeon/src/schema/`.
 
 ## Migration system
 
@@ -8,25 +9,19 @@ Migrations live in `packages/arkeon/src/schema/` as numbered SQL files
 (001 through 038). The runner (`migrate.ts`) executes them in order on
 every startup — there is no migration state tracker.
 
-**Every migration must be idempotent.** A migration that worked once
-will run again on the next deploy and must not fail. Rules:
-
-- `CREATE TABLE` / `CREATE INDEX` — use `IF NOT EXISTS`
-- `ALTER TABLE ADD COLUMN` — use `ADD COLUMN IF NOT EXISTS`
-- `ALTER TABLE DROP COLUMN` / `DROP CONSTRAINT` — use `IF EXISTS`
-- `DROP TABLE` / `DROP INDEX` — use `IF EXISTS`
-- `INSERT` seed data — use `ON CONFLICT ... DO NOTHING`
-- Do not use loadable extensions (`CREATE EXTENSION`)
-
-Test by running `arkeon migrate` twice in a row — the second must succeed.
+**Every migration must be idempotent.** See CLAUDE.md for the full list
+of idempotency rules. The short version: always use `IF NOT EXISTS` /
+`IF EXISTS`, always use `ON CONFLICT` for seed data, never use
+`CREATE EXTENSION`.
 
 ### Adding a new migration
 
 1. Create `src/schema/NNN-descriptive-name.sql` (next number in sequence)
-2. Follow idempotency rules above
+2. Follow the idempotency rules in CLAUDE.md
 3. The runner splits on semicolons, handling dollar-quoted blocks (`$$`)
    and comments correctly
 4. Template variable `:'arke_app_password'` is replaced at runtime
+5. Test by running `arkeon migrate` twice — the second run must succeed
 
 ### Runner internals
 
@@ -36,115 +31,44 @@ applies template variables, splits statements, and executes them. Errors
 with code `42P07` (already exists) or `42703` (column not found during
 rename) are silently skipped for idempotency.
 
-## Core tables
+## Data model
 
-### actors
+The graph is built from a small set of core tables:
 
-Authenticated identities: agents (humans/bots with API keys) and workers
-(sandboxed AI agents with system-managed keys).
+- **actors** — authenticated identities (agents with API keys, workers
+  with system-managed keys). Each has classification ceilings that cap
+  what they can read and write.
+- **entities** — knowledge graph nodes. Everything is an entity: documents,
+  concepts, people, relationships. Each has a semantic `type`, versioned
+  `properties` (JSONB), and a classification level.
+- **relationship_edges** — graph structure. Each edge links a source entity
+  to a target entity with a `predicate`. Edges are themselves entities
+  (kind = `relationship`), so they carry their own properties and permissions.
+- **spaces** — curated entity collections. Each space has its own permission
+  model (`space_permissions`) and a join table (`space_entities`).
+- **api_keys** — SHA-256 hashed authentication tokens.
+- **entity_permissions** — write ACL grants (admin, editor roles).
+- **groups** / **group_memberships** — actor groups that can be grantees
+  in permission tables.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | TEXT (ULID) | Primary key |
-| kind | TEXT | `agent` or `worker` |
-| max_read_level | INT | Classification ceiling (0–4) |
-| max_write_level | INT | Write ceiling |
-| is_admin | BOOL | Bypasses all ACL checks |
-| owner_id | FK actors | Who created this actor |
-| properties | JSONB | Name, config, etc. |
-| status | TEXT | `active`, `suspended`, `deactivated` |
-
-### entities
-
-Knowledge graph nodes. Every piece of content, concept, document, or
-relationship is an entity.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | TEXT (ULID) | Primary key |
-| kind | TEXT | `entity` or `relationship` |
-| type | TEXT | Semantic type (book, person, concept, ...) |
-| ver | INT | Monotonically increasing version |
-| properties | JSONB | Type-specific content |
-| owner_id | FK actors | Creator |
-| read_level | INT | Classification (0–4) |
-| write_level | INT | Write classification |
-| edited_by | FK actors | Last editor |
-
-### relationship_edges
-
-Graph structure joining entities. Each edge is also an entity (kind =
-`relationship`) with its own properties and permissions.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | TEXT (FK entities) | The relationship entity |
-| source_id | FK entities | From node |
-| target_id | FK entities | To node |
-| predicate | TEXT | Edge label (`cites`, `contains`, ...) |
-
-Read access requires `max(source.read_level, target.read_level)` to
-defend against inference attacks.
-
-### spaces
-
-Curated entity collections with their own permission model.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| id | TEXT (ULID) | Primary key |
-| name | TEXT | Display name |
-| owner_id | FK actors | |
-| read_level, write_level | INT | Classification |
-| entity_count | INT | Denormalized, maintained by trigger |
-
-Join table `space_entities` links entities to spaces. `space_permissions`
-grants `admin`, `editor`, or `contributor` roles.
-
-### api_keys
-
-Authentication tokens. Keys are SHA-256 hashed; only the prefix is stored
-in cleartext for display.
-
-### entity_permissions
-
-Write ACL grants. Roles: `admin` (full control) and `editor` (can edit
-properties). Read access is controlled solely by classification levels,
-not by grants.
-
-### groups / group_memberships
-
-Actor groups (org, project, editorial, admin types). Groups can be
-grantees in `entity_permissions` and `space_permissions`.
+Supporting tables handle versioning (`entity_versions`), audit logging
+(`entity_activity`), comments, notifications, worker invocations, and
+the knowledge extraction pipeline.
 
 ## Access control
 
 Two layers enforced by Postgres RLS:
 
-1. **Classification levels (reads):** `actor.max_read_level >= entity.read_level`
+1. **Classification levels (reads):** `actor.max_read_level >= entity.read_level`.
+   Five tiers: 0 (PUBLIC) through 4 (RESTRICTED).
 2. **ACL grants (writes):** Actor must have sufficient classification
    *and* an explicit grant (owner, admin, or editor) on the entity or
-   its space
+   its space.
 
-Session context is set by middleware via `SET LOCAL`:
-- `app.actor_id`
-- `app.actor_read_level`, `app.actor_write_level`
-- `app.actor_is_admin`
+Middleware sets session context via `SET LOCAL` (`app.actor_id`,
+`app.actor_read_level`, etc.) and RLS policies reference these variables.
+Admin actors bypass all policies.
 
-RLS policies reference these session variables. Admin actors bypass
-all policies.
-
-## Audit trail
-
-- **entity_versions** — snapshots of every entity version (properties, ver, note)
-- **entity_activity** — event log (create, update, delete, content changes)
-- **notifications** — per-actor notifications triggered by activity
-
-## Supporting tables
-
-| Migration | Table(s) | Purpose |
-|-----------|----------|---------|
-| 013 | comments | Entity discussion threads |
-| 017, 021–025 | worker_invocations | Worker job queue + history |
-| 029–037 | knowledge_* | Knowledge extraction pipeline |
-| 018 | system_config | Encrypted config storage |
+Relationship visibility requires `max(source.read_level, target.read_level)`
+to defend against inference attacks — you can't discover a RESTRICTED
+entity's existence by reading its PUBLIC neighbor's edges.

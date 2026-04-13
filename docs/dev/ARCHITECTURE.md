@@ -1,6 +1,9 @@
 # Architecture
 
-High-level map of the Arkeon codebase for contributors.
+High-level map of the Arkeon codebase for contributors. For build rules,
+bundling invariants, and migration idempotency requirements, see
+`CLAUDE.md` at the repo root — this document covers the *what* and *why*
+of the architecture, not the rules for working in it.
 
 ## Packages
 
@@ -58,31 +61,6 @@ HTTP request
 Meilisearch is called for `/search` endpoints. S3 (or local filesystem)
 is called for file uploads/downloads.
 
-## Build pipeline
-
-The build has several stages, all wired through `package.json` scripts:
-
-1. **fetch-spec** — imports `app.ts` directly (no running server) and
-   writes the OpenAPI snapshot to `spec/openapi.snapshot.json`
-2. **generate** — reads the snapshot and generates CLI commands into
-   `src/generated/`
-3. **bundle-assets** — embeds the Genesis seed data into
-   `src/generated/assets.ts`
-4. **tsup** — compiles `src/` to ESM (`dist/`). Auto-externalizes
-   everything in `package.json` `dependencies`
-5. **bundle-explorer** — builds the React SPA and copies output to
-   `dist/explorer/`
-6. **bundle-schema** — copies `src/schema/*.sql` to `dist/schema/`
-
-**Healthy build output** (~2.5–3 MB total):
-- `dist/index.js` — ~200 KB CLI entry
-- `dist/server-*.js` — ~500 KB lazy-loaded server chunk
-- `dist/explorer/` — ~500 KB Vite SPA
-- `dist/schema/*.sql` — migration files
-
-If dist balloons past ~3 MB or you see AWS SDK chunks inlined, something
-is misconfigured — check `tsup.config.ts` for stray `noExternal` entries.
-
 ## Startup sequence
 
 `arkeon start` / `arkeon up` runs this in order:
@@ -99,17 +77,6 @@ is misconfigured — check `tsup.config.ts` for stray `noExternal` entries.
 
 Graceful shutdown drains in-flight work with a configurable timeout
 (`DRAIN_TIMEOUT_MS`, default 320s), then force-exits.
-
-## Key invariants
-
-- **Do not bundle server code into the CLI.** Tsup uses all defaults —
-  no `noExternal`, no explicit `external` list. See `CLAUDE.md` for details.
-- **Migrations are idempotent.** Every migration runs on every deploy.
-  Always use `IF NOT EXISTS` / `IF EXISTS`. See [SCHEMA.md](SCHEMA.md).
-- **No in-process rate limiting.** By design — see `docs/ADVANCED.md`.
-- **Single package, single deps list.** Do not split subtrees into
-  separate published packages unless there is a genuine external consumer
-  with an independent release cadence.
 
 ## Explorer
 
