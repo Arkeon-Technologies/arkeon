@@ -99,6 +99,64 @@ export function findInstanceByName(name: string): StackInstance | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Per-instance actor registry
+// ---------------------------------------------------------------------------
+
+type ActorEntry = { actor_id: string };
+
+function actorRegistryPath(apiPort: number): string {
+  return join(instancesDir(), `${apiPort}-actors.json`);
+}
+
+function readActorRegistry(apiPort: number): Record<string, ActorEntry> {
+  const path = actorRegistryPath(apiPort);
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as Record<string, ActorEntry>;
+  } catch {
+    return {};
+  }
+}
+
+function writeActorRegistry(apiPort: number, registry: Record<string, ActorEntry>): void {
+  const dir = instancesDir();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(actorRegistryPath(apiPort), JSON.stringify(registry, null, 2) + "\n");
+}
+
+export function saveInstanceActor(apiPort: number, name: string, actorId: string): void {
+  const registry = readActorRegistry(apiPort);
+  registry[name] = { actor_id: actorId };
+  writeActorRegistry(apiPort, registry);
+}
+
+export function getInstanceActor(apiPort: number, name: string): ActorEntry | null {
+  return readActorRegistry(apiPort)[name] ?? null;
+}
+
+export function removeInstanceActor(apiPort: number, name: string): void {
+  const registry = readActorRegistry(apiPort);
+  delete registry[name];
+  writeActorRegistry(apiPort, registry);
+}
+
+export function listInstanceActors(apiPort: number): Record<string, ActorEntry> {
+  return readActorRegistry(apiPort);
+}
+
+/**
+ * Extract the port number from an API URL.
+ */
+export function portFromUrl(apiUrl: string): number {
+  try {
+    const url = new URL(apiUrl);
+    return Number(url.port) || (url.protocol === "https:" ? 443 : 80);
+  } catch {
+    return 80;
+  }
+}
+
 /**
  * Resolve the admin key for a given API URL by finding the instance's
  * ARKEON_HOME and reading its secrets.json.

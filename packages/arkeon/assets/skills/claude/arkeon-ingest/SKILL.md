@@ -55,6 +55,28 @@ Parse the JSON output. Report: space name, space ID, API URL.
 
 If the command fails (e.g., stack not running), report the error and suggest `arkeon up` first.
 
+### 3b. Set up ingestor identity
+
+Check if an "ingestor" profile exists:
+
+```bash
+npx arkeon auth profiles
+```
+
+If no "ingestor" profile is listed, create one:
+
+```bash
+npx arkeon auth add ingestor --kind agent
+```
+
+Then ensure it's the active profile:
+
+```bash
+npx arkeon auth use ingestor
+```
+
+All subsequent commands automatically use the ingestor identity — no manual API key setup needed. The CLI resolves the active profile from `.arkeon/state.json` and the instance actor registry.
+
 ### 4. Reconcile files
 
 Run the diff to see what needs syncing:

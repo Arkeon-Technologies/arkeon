@@ -3,6 +3,9 @@
 
 import Conf from "conf";
 
+import { getInstanceActor, portFromUrl } from "./instances.js";
+import { loadRepoState } from "./repo-state.js";
+
 export type StoredCredentials = {
   apiKey: string;
   keyPrefix: string;
@@ -47,7 +50,16 @@ export const credentials = {
   },
 
   getApiKey(): string | null {
-    return getEnvKey() ?? this.get()?.apiKey ?? null;
+    // 1. Explicit env override
+    const envKey = getEnvKey();
+    if (envKey) return envKey;
+
+    // 2. Repo-scoped actor key (instance registry or legacy state.actors)
+    const repoKey = getRepoActorKey();
+    if (repoKey) return repoKey;
+
+    // 3. Global credential store
+    return this.get()?.apiKey ?? null;
   },
 
   getIdentity(): Pick<StoredCredentials, "publicKey" | "privateKey" | "entityId"> | null {
@@ -104,3 +116,26 @@ export const credentials = {
     store.set("actorKeys", keys);
   },
 };
+
+function getRepoActorKey(): string | null {
+  const state = loadRepoState();
+  if (!state) return null;
+
+  const actorName = state.current_actor ?? "ingestor";
+
+  // Try instance actor registry first
+  const port = portFromUrl(state.api_url);
+  const instanceActor = getInstanceActor(port, actorName);
+  if (instanceActor) {
+    const key = store.get("actorKeys")?.[instanceActor.actor_id]?.api_key;
+    if (key) return key;
+  }
+
+  // Fallback: legacy state.actors map
+  const legacyActor = state.actors?.[actorName];
+  if (legacyActor) {
+    return store.get("actorKeys")?.[legacyActor.actor_id]?.api_key ?? null;
+  }
+
+  return null;
+}

@@ -20,6 +20,8 @@ export type RepoState = {
   api_url: string;
   space_id: string;
   space_name: string;
+  current_actor?: string;
+  /** @deprecated Use instance actor registry instead. Kept for backward compat. */
   actors: Record<string, ActorRef>;
   created_at: string;
 };
