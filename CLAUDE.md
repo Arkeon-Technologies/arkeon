@@ -177,3 +177,4 @@ Checklist for route changes:
 - Use OpenAPI path params like `/{id}` in route metadata
 - Keep summaries concise; put detail in parameter descriptions and schema descriptions
 - Make request and response schemas accurate enough for CLI codegen and `/help` rendering
+- **Regenerate CLI commands**: after any route change, run `npm run build -w packages/sdk-ts && npm run build -w packages/arkeon` and commit the updated `spec/openapi.snapshot.json`, `src/generated/index.ts`, and `src/generated/assets.ts`. This works offline — `fetch-spec` imports `app.ts` directly, no running server needed. CI (`check-cli-spec-drift`) will fail if these files are stale.

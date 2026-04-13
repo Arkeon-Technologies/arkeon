@@ -866,6 +866,174 @@
         ],
         "type": "object"
       },
+      "TraverseEdge": {
+        "properties": {
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "source_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "target_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "predicate",
+          "properties"
+        ],
+        "type": "object"
+      },
+      "TraverseNode": {
+        "properties": {
+          "created_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "entity",
+              "relationship"
+            ],
+            "type": "string"
+          },
+          "properties": {
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "label",
+              "description"
+            ],
+            "type": "object"
+          },
+          "read_level": {
+            "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
+            "maximum": 4,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "score": {
+            "description": "Ranking score (connectivity + recency + proximity + query relevance)",
+            "type": "number"
+          },
+          "source_depth": {
+            "description": "Hops from the nearest source entity",
+            "type": "integer"
+          },
+          "target_depth": {
+            "description": "Hops from the nearest target entity (null in neighborhood mode)",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "example": "2026-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "type",
+          "properties",
+          "read_level",
+          "created_at",
+          "updated_at",
+          "source_depth",
+          "target_depth",
+          "score"
+        ],
+        "type": "object"
+      },
+      "TraverseResponse": {
+        "properties": {
+          "edges": {
+            "description": "Edges connecting source, target, and discovered nodes",
+            "items": {
+              "$ref": "#/components/schemas/TraverseEdge"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "description": "Ranked nodes discovered by traversal",
+            "items": {
+              "$ref": "#/components/schemas/TraverseNode"
+            },
+            "type": "array"
+          },
+          "source_ids": {
+            "description": "Resolved source entity IDs",
+            "items": {
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_ids": {
+            "description": "Resolved target entity IDs (null in neighborhood mode)",
+            "items": {
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "truncated": {
+            "description": "True if more results exist beyond the limit",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_ids",
+          "target_ids",
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "WorkerConfig": {
         "properties": {
           "arke_key_hint": {
@@ -6269,6 +6437,150 @@
         ],
         "x-arke-rules": [
           "Results filtered by your classification clearance"
+        ]
+      }
+    },
+    "/graph/traverse": {
+      "get": {
+        "description": "Universal graph traversal primitive with two modes:\n\n**Neighborhood mode** (no target): BFS from source, returns top-K ranked nearby nodes.\n  Example: `?source=id:01ABC&hops=2&limit=20`\n\n**Bridge mode** (target specified): bidirectional BFS finds nodes connecting two entity sets.\n  Example: `?source=properties.work:Moby-Dick&target=properties.work:Crime and Punishment&hops=4`\n\nSource and target accept either `id:<ULID>` for a single entity, or the standard filter syntax\n(e.g. `type:concept,properties.work:Moby-Dick`). See GET /help for filter syntax.\n\nRanking heuristic: connectivity (edge count) + recency + proximity (fewer hops = higher) + optional query-term boost.",
+        "operationId": "graphTraverse",
+        "parameters": [
+          {
+            "description": "Source entity filter. Use id:<ULID> for a single entity, or filter syntax (e.g. type:concept,properties.work:Moby-Dick)",
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "description": "Source entity filter. Use id:<ULID> for a single entity, or filter syntax (e.g. type:concept,properties.work:Moby-Dick)",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target entity filter (enables bridge mode). Same syntax as source.",
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "description": "Target entity filter (enables bridge mode). Same syntax as source.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max edge traversals (default 2, max 6)",
+            "in": "query",
+            "name": "hops",
+            "required": false,
+            "schema": {
+              "description": "Max edge traversals (default 2, max 6)",
+              "maximum": 6,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Max nodes to return (default 20, max 100)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max nodes to return (default 20, max 100)",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Comma-separated edge predicate filter (e.g. related_to,influenced_by)",
+            "in": "query",
+            "name": "predicates",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated edge predicate filter (e.g. related_to,influenced_by)",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional query terms — matching nodes get a ranking boost",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Optional query terms — matching nodes get a ranking boost",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Constrain traversal to entities within this space",
+            "in": "query",
+            "name": "space_id",
+            "required": false,
+            "schema": {
+              "description": "Constrain traversal to entities within this space",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraverseResponse"
+                }
+              }
+            },
+            "description": "Traversal result: ranked nodes and connecting edges"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Traverse the graph from a source set, optionally finding bridges to a target set",
+        "tags": [
+          "Graph"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /entities/{id}",
+          "GET /entities/{id}/relationships",
+          "GET /search"
+        ],
+        "x-arke-rules": [
+          "Source and target entities filtered by your classification clearance",
+          "Traversal follows edges in both directions",
+          "Limits are global, not per-hop",
+          "Results ranked by connectivity + recency + proximity + query relevance",
+          "If space_id is provided, traversal is constrained to entities within that space",
+          "Bridge mode uses bidirectional BFS for efficiency at higher hop counts"
         ]
       }
     },

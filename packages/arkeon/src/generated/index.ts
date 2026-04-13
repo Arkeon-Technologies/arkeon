@@ -514,6 +514,19 @@ const OPERATIONS: GeneratedOperation[] = [
     bodyFields: [],
   },
   {
+    operationId: "graphTraverse",
+    group: "graph",
+    action: "get",
+    method: "GET",
+    path: "/graph/traverse",
+    summary: "Traverse the graph from a source set, optionally finding bridges to a target set",
+    description: "Universal graph traversal primitive with two modes:\n\n**Neighborhood mode** (no target): BFS from source, returns top-K ranked nearby nodes.\n  Example: `?source=id:01ABC&hops=2&limit=20`\n\n**Bridge mode** (target specified): bidirectional BFS finds nodes connecting two entity sets.\n  Example: `?source=properties.work:Moby-Dick&target=properties.work:Crime and Punishment&hops=4`\n\nSource and target accept either `id:<ULID>` for a single entity, or the standard filter syntax\n(e.g. `type:concept,properties.work:Moby-Dick`). See GET /help for filter syntax.\n\nRanking heuristic: connectivity (edge count) + recency + proximity (fewer hops = higher) + optional query-term boost.",
+    auth: "optional",
+    pathParams: [],
+    queryParams: [{ name: "source", description: "Source entity filter. Use id:<ULID> for a single entity, or filter syntax (e.g. type:concept,properties.work:Moby-Dick)", required: true, type: "string" }, { name: "target", description: "Target entity filter (enables bridge mode). Same syntax as source.", required: false, type: "string" }, { name: "hops", description: "Max edge traversals (default 2, max 6)", required: false, type: "integer" }, { name: "limit", description: "Max nodes to return (default 20, max 100)", required: false, type: "integer" }, { name: "predicates", description: "Comma-separated edge predicate filter (e.g. related_to,influenced_by)", required: false, type: "string" }, { name: "q", description: "Optional query terms — matching nodes get a ranking boost", required: false, type: "string" }, { name: "space_id", description: "Constrain traversal to entities within this space", required: false, type: "string" }],
+    bodyFields: [],
+  },
+  {
     operationId: "addGroupMember",
     group: "groups",
     action: "add-member",
@@ -1140,7 +1153,7 @@ const OPERATIONS: GeneratedOperation[] = [
 ];
 
 export function registerApiCommands(program: Command, options: { skipExisting?: boolean } = {}): void {
-  for (const group of ["activity","actors","admin","auth","comments","entities","groups","ingest","knowledge","relationships","search","spaces","workers"]) {
+  for (const group of ["activity","actors","admin","auth","comments","entities","graph","groups","ingest","knowledge","relationships","search","spaces","workers"]) {
     const existing = program.commands.find((command) => command.name() === group);
     if (existing && options.skipExisting) {
       registerGeneratedGroup(existing, OPERATIONS.filter((operation) => operation.group === group));
