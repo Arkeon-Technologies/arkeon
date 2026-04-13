@@ -5083,11 +5083,12 @@
                   },
                   "property_strategy": {
                     "default": "keep_source",
-                    "description": "How to merge properties: keep_target, keep_source (default), or shallow_merge (source wins conflicts)",
+                    "description": "How to merge properties: keep_target, keep_source (default), shallow_merge (source wins conflicts), or accumulate (never drops info)",
                     "enum": [
                       "keep_target",
                       "keep_source",
-                      "shallow_merge"
+                      "shallow_merge",
+                      "accumulate"
                     ],
                     "type": "string"
                   },
@@ -6437,6 +6438,172 @@
         ],
         "x-arke-rules": [
           "Results filtered by your classification clearance"
+        ]
+      }
+    },
+    "/entities/merge-batch": {
+      "post": {
+        "description": "Each group contains entity IDs that should be merged into one. The entity with the richest properties is auto-selected as the merge target. Groups are processed concurrently; partial success is possible.",
+        "operationId": "mergeBatchEntities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "groups": {
+                    "description": "Groups of duplicate entities to merge",
+                    "items": {
+                      "properties": {
+                        "entity_ids": {
+                          "description": "Entity ULIDs to merge into one (min 2, max 500)",
+                          "items": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "maxItems": 500,
+                          "minItems": 2,
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "entity_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "property_strategy": {
+                    "default": "accumulate",
+                    "description": "How to merge properties: accumulate (default, never drops info), shallow_merge (source wins), keep_target, keep_source",
+                    "enum": [
+                      "keep_target",
+                      "keep_source",
+                      "shallow_merge",
+                      "accumulate"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "groups"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "failed": {
+                      "description": "Total groups that failed",
+                      "type": "integer"
+                    },
+                    "groups": {
+                      "items": {
+                        "properties": {
+                          "error": {
+                            "description": "Error message if group failed",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "final_ver": {
+                            "description": "Target version after all merges",
+                            "type": "integer"
+                          },
+                          "merged_count": {
+                            "description": "Number of sources merged into target",
+                            "type": "integer"
+                          },
+                          "target_id": {
+                            "description": "Entity chosen as merge target",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "target_id",
+                          "merged_count",
+                          "final_ver",
+                          "error"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "merged": {
+                      "description": "Total entities successfully merged",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "merged",
+                    "failed",
+                    "groups"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Batch merge results (partial success possible)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Merge multiple groups of duplicate entities in a single request",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /entities/{id}/merge",
+          "POST /entities/bulk"
+        ],
+        "x-arke-rules": [
+          "Requires admin access on all entities in every group",
+          "All entities in a group must have the same kind (entity or relationship)",
+          "Entity with richest properties is auto-selected as merge target",
+          "Maximum 100 groups per request, 500 entities per group",
+          "An entity ID must not appear in more than one group"
         ]
       }
     },
