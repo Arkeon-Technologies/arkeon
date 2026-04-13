@@ -66,6 +66,8 @@ interface GraphEventsProps {
   client: ArkeInstanceClient
   selectId?: string
   selectedId: string | null
+  /** When a relationship is selected, the source and target node IDs */
+  selectedRelEndpoints: { sourceId: string; targetId: string; edgeId: string } | null
   onSelect: (id: string) => void
   onDeselect: () => void
   onEntitySelect?: (entityId: string) => void
@@ -76,6 +78,7 @@ function GraphSyncAndEvents({
   client,
   selectId,
   selectedId,
+  selectedRelEndpoints,
   onSelect,
   onDeselect,
   onEntitySelect,
@@ -129,14 +132,22 @@ function GraphSyncAndEvents({
     }
 
     if (addedNodes > 0) {
-      const settings = forceAtlas2.inferSettings(graph)
+      const inferred = forceAtlas2.inferSettings(graph)
+      // Low gravity lets clusters form naturally instead of one dense ball.
+      // Higher scalingRatio spreads nodes apart within clusters.
+      const settings = {
+        ...inferred,
+        gravity: 1,
+        scalingRatio: 10,
+        strongGravityMode: false,
+        barnesHutOptimize: graph.order > 500,
+      }
       if (!initialLayoutDoneRef.current) {
         initialLayoutDoneRef.current = true
-        const iters = graph.order <= 200 ? 100 : graph.order <= 1000 ? 60 : 30
-        forceAtlas2.assign(graph, { iterations: iters, settings: { ...settings, gravity: 10 } })
+        const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 100 : 60
+        forceAtlas2.assign(graph, { iterations: iters, settings })
       } else {
-        // Incremental: few iterations to settle new nodes
-        forceAtlas2.assign(graph, { iterations: 10, settings: { ...settings, gravity: 10 } })
+        forceAtlas2.assign(graph, { iterations: 15, settings })
       }
     }
   }, [entities, isLoading, sigma])
@@ -170,6 +181,11 @@ function GraphSyncAndEvents({
         onEntitySelect?.(node)
         fetchRelationships(node)
       },
+      clickEdge: ({ edge }) => {
+        // Edge ID is the relationship entity ID — select it to show in EntityPanel
+        onSelect(edge)
+        onEntitySelect?.(edge)
+      },
       clickStage: () => {
         onDeselect()
       },
@@ -179,21 +195,42 @@ function GraphSyncAndEvents({
   // Node/edge reducers for selection highlighting
   useEffect(() => {
     const graph = sigma.getGraph()
+    const rel = selectedRelEndpoints
 
     setSettings({
       nodeReducer: (node, attrs) => {
-        if (!selectedId) return attrs
+        if (!selectedId && !rel) return attrs
+
+        // Relationship selected — highlight both endpoints
+        if (rel) {
+          if (node === rel.sourceId || node === rel.targetId) {
+            return { ...attrs, size: 10, color: '#ffffff', zIndex: 2 }
+          }
+          return { ...attrs, color: '#333333', size: 3, zIndex: 0 }
+        }
+
+        // Node selected
         if (node === selectedId) {
           return { ...attrs, size: 10, color: '#ffffff', zIndex: 2 }
         }
-        const isNeighbor = graph.hasNode(selectedId) && graph.areNeighbors(node, selectedId)
+        const isNeighbor = graph.hasNode(selectedId!) && graph.areNeighbors(node, selectedId!)
         if (isNeighbor) {
           return { ...attrs, size: 7, zIndex: 1 }
         }
         return { ...attrs, color: '#333333', size: 3, zIndex: 0 }
       },
       edgeReducer: (edge, attrs) => {
-        if (!selectedId) return attrs
+        if (!selectedId && !rel) return attrs
+
+        // Relationship selected — highlight the specific edge
+        if (rel) {
+          if (edge === rel.edgeId) {
+            return { ...attrs, size: 3, color: '#ffffff', zIndex: 2 }
+          }
+          return { ...attrs, color: '#1a1a1a', size: 0.5, zIndex: 0 }
+        }
+
+        // Node selected — highlight connected edges
         const source = graph.source(edge)
         const target = graph.target(edge)
         if (source === selectedId || target === selectedId) {
@@ -202,7 +239,7 @@ function GraphSyncAndEvents({
         return { ...attrs, color: '#1a1a1a', size: 0.5, zIndex: 0 }
       },
     })
-  }, [selectedId, sigma, setSettings])
+  }, [selectedId, selectedRelEndpoints, sigma, setSettings])
 
   return null
 }
@@ -250,6 +287,15 @@ export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: M
     ? (entities.get(selectedId) || detailEntitiesRef.current.get(selectedId) || null)
     : null
 
+  // When a relationship entity is selected, compute the endpoints for highlighting
+  const selectedRelEndpoints = useMemo(() => {
+    if (!selectedEntity) return null
+    if (selectedEntity.entity.kind !== 'relationship') return null
+    const triplet = selectedEntity.triplet
+    if (!triplet) return null
+    return { sourceId: triplet.source_id, targetId: triplet.target_id, edgeId: selectedId! }
+  }, [selectedEntity, selectedId])
+
   const loadedEntityIds = useMemo(() => new Set(entities.keys()), [entities])
 
   return (
@@ -267,6 +313,7 @@ export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: M
           defaultNodeColor: '#52525b',
           defaultEdgeColor: '#333333',
           defaultEdgeType: 'arrow',
+          enableEdgeEvents: true,
           zIndex: true,
           minCameraRatio: 0.01,
           maxCameraRatio: 10,
@@ -277,6 +324,7 @@ export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: M
           client={client}
           selectId={selectId}
           selectedId={selectedId}
+          selectedRelEndpoints={selectedRelEndpoints}
           onSelect={selectEntity}
           onDeselect={() => setSelectedId(null)}
           onEntitySelect={onEntitySelect}

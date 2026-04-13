@@ -9,7 +9,7 @@ import { RequestPool } from '@/lib/request-pool'
 const POLL_INTERVAL = 3_000
 const CACHE_DB_NAME = 'arkeon-explorer'
 const CACHE_STORE = 'graph-cache'
-const CACHE_KEY = 'map-state'
+const CACHE_KEY = 'map-state-v2'
 
 // ---------------------------------------------------------------------------
 // IndexedDB cache helpers
