@@ -55,6 +55,11 @@ const SET_CAP = 200;
 const HOP_EDGE_LIMIT = 200;
 const BFS_CEILING = 500;
 
+/** Escape ILIKE wildcards so user input doesn't match everything. */
+function escapeIlike(s: string): string {
+  return s.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+}
+
 // ── Set resolution ────────────────────────────────────────────────────
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
@@ -74,7 +79,7 @@ async function resolveEntitySet(
     const results = await sql.transaction([
       ...setActorContext(sql, actor),
       sql.query(
-        `SELECT id FROM entities WHERE id = $1 AND kind = 'entity' LIMIT 1`,
+        `SELECT id FROM entities WHERE id = $1 LIMIT 1`,
         [id],
       ),
     ]);
@@ -84,7 +89,7 @@ async function resolveEntitySet(
 
   // Filter path: use buildFilterSql to resolve a set
   const params: unknown[] = [];
-  const where: string[] = ["kind = 'entity'"];
+  const where: string[] = [];
   let nextIndex = 1;
 
   const filterResult = buildFilterSql(filter, params, nextIndex);
@@ -143,16 +148,25 @@ async function expandFrontier(
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
-      `SELECT DISTINCT
-         CASE WHEN re.source_id = ANY($1::text[]) THEN re.target_id ELSE re.source_id END AS neighbor_id
-       FROM relationship_edges re
-       JOIN entities rel_ent ON rel_ent.id = re.id
-       JOIN entities neighbor ON neighbor.id =
-         CASE WHEN re.source_id = ANY($1::text[]) THEN re.target_id ELSE re.source_id END
-       WHERE (re.source_id = ANY($1::text[]) OR re.target_id = ANY($1::text[]))
-         AND neighbor.kind = 'entity'
-         ${predicateClause}
-         ${spaceClause}
+      `SELECT DISTINCT neighbor_id FROM (
+         -- Standard edge traversal: follow source_id/target_id
+         SELECT
+           CASE WHEN re.source_id = ANY($1::text[]) THEN re.target_id ELSE re.source_id END AS neighbor_id
+         FROM relationship_edges re
+         JOIN entities rel_ent ON rel_ent.id = re.id
+         JOIN entities neighbor ON neighbor.id =
+           CASE WHEN re.source_id = ANY($1::text[]) THEN re.target_id ELSE re.source_id END
+         WHERE (re.source_id = ANY($1::text[]) OR re.target_id = ANY($1::text[]))
+           ${predicateClause}
+           ${spaceClause}
+         UNION
+         -- Relationship entity traversal: if frontier contains a relationship
+         -- entity, follow to its source and target endpoints
+         SELECT unnest(ARRAY[re2.source_id, re2.target_id]) AS neighbor_id
+         FROM relationship_edges re2
+         JOIN entities neighbor2 ON neighbor2.id = re2.source_id OR neighbor2.id = re2.target_id
+         WHERE re2.id = ANY($1::text[])
+       ) sub
        LIMIT $${nextIndex}`,
       params,
     ),
@@ -258,7 +272,7 @@ export async function fetchTraversal(
   const hops = Math.min(Math.max(options.hops, 1), MAX_HOPS);
   const limit = Math.min(Math.max(options.limit, 1), MAX_LIMIT);
   const predicates = options.predicates?.length ? options.predicates : null;
-  const query = options.query ?? null;
+  const query = options.query ? escapeIlike(options.query) : null;
   const spaceId = options.spaceId ?? null;
 
   // ── Resolve source (and target if bridge mode) ──────────────────
@@ -390,7 +404,10 @@ async function bridgeTraverse(
     }
   }
 
-  while (sourceHops + targetHops < hops && bridges.size < limit) {
+  const maxExpansions = hops;
+  let expansions = 0;
+
+  while (expansions < maxExpansions && bridges.size < limit) {
     // Pick the side with the smaller frontier to expand
     const expandSource =
       targetFrontier.length === 0 ||
@@ -419,6 +436,7 @@ async function bridgeTraverse(
         }
       }
       sourceFrontier = nextFrontier;
+      expansions++;
     } else if (targetFrontier.length > 0) {
       targetHops++;
       const newNodes = await expandFrontier(
@@ -440,6 +458,7 @@ async function bridgeTraverse(
         }
       }
       targetFrontier = nextFrontier;
+      expansions++;
     } else {
       break;
     }

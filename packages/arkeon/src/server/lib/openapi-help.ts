@@ -132,7 +132,7 @@ const LLMS_FILTER_SYNTAX = [
   "#   rel.<predicate>:<entity_id>      entities with this relationship (either direction)",
   "#   rel_out.<predicate>:<entity_id>  entities that are the source of this relationship",
   "#   rel_in.<predicate>:<entity_id>   entities that are the target of this relationship",
-  "#   Use !: for negation: rel!:.extracted_from:<id> = no such relationship",
+  "#   Use !: for negation: rel.extracted_from!:<id> = no such relationship",
   "#",
   "#   Example: filter=rel.extracted_from:01ABC returns all entities",
   "#   that have an extracted_from relationship to entity 01ABC.",
