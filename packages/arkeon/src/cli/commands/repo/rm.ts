@@ -10,6 +10,7 @@
 
 import type { Command } from "commander";
 
+import { apiGet, apiDelete } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
 import { output } from "../../lib/output.js";
 import { requireRepoState } from "../../lib/repo-state.js";
@@ -34,32 +35,6 @@ type RelationshipsResponse = {
   cursor: string | null;
 };
 
-async function apiFetchGet<T>(apiUrl: string, path: string, apiKey: string): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    headers: { accept: "application/json", authorization: `ApiKey ${apiKey}` },
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-async function apiDelete(apiUrl: string, path: string, apiKey: string): Promise<void> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "DELETE",
-    headers: { authorization: `ApiKey ${apiKey}` },
-  });
-  if (!response.ok && response.status !== 404) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-}
-
 async function findDocBySourceFile(
   apiUrl: string,
   apiKey: string,
@@ -67,7 +42,7 @@ async function findDocBySourceFile(
   sourceFile: string,
 ): Promise<string | null> {
   const filter = `type:document,properties.source_file:${sourceFile}`;
-  const resp = await apiFetchGet<ListResponse>(
+  const resp = await apiGet<ListResponse>(
     apiUrl,
     `/entities?filter=${encodeURIComponent(filter)}&space_id=${spaceId}&limit=1`,
     apiKey,
@@ -85,7 +60,7 @@ async function deleteDocumentAndChildren(
   let cursor: string | null = null;
   for (;;) {
     const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
-    const resp: RelationshipsResponse = await apiFetchGet<RelationshipsResponse>(
+    const resp: RelationshipsResponse = await apiGet<RelationshipsResponse>(
       apiUrl,
       `/entities/${entityId}/relationships?direction=in&predicate=extracted_from&limit=200${cursorParam}`,
       apiKey,
@@ -104,18 +79,43 @@ async function deleteDocumentAndChildren(
   return cascaded;
 }
 
+async function countExtractedChildren(
+  apiUrl: string,
+  apiKey: string,
+  entityId: string,
+): Promise<number> {
+  let count = 0;
+  let cursor: string | null = null;
+  for (;;) {
+    const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+    const resp: RelationshipsResponse = await apiGet<RelationshipsResponse>(
+      apiUrl,
+      `/entities/${entityId}/relationships?direction=in&predicate=extracted_from&limit=200${cursorParam}`,
+      apiKey,
+    );
+    count += resp.relationships.length;
+    cursor = resp.cursor;
+    if (!cursor) break;
+  }
+  return count;
+}
+
 export function registerRmCommand(program: Command): void {
   program
     .command("rm")
     .description("Delete document entities and their extracted children from the graph")
     .argument("<paths...>", "Source file paths to remove (matches source_file property)")
-    .action(async (paths: string[]) => {
+    .option("--dry-run", "Show what would be deleted without actually deleting")
+    .action(async (paths: string[], opts: { dryRun?: boolean }) => {
       try {
         const cwd = process.cwd();
         const state = requireRepoState(cwd);
         const actorId = state.actors.ingestor?.actor_id;
         if (!actorId) throw new Error("No ingestor actor in state. Run `arkeon init` first.");
         const apiKey = credentials.requireActorKey(actorId);
+        const dryRun = opts.dryRun ?? false;
+
+        if (dryRun) output.progress("(dry run — no changes will be made)");
 
         let removedDocs = 0;
         let cascadedEntities = 0;
@@ -125,6 +125,16 @@ export function registerRmCommand(program: Command): void {
           const entityId = await findDocBySourceFile(state.api_url, apiKey, state.space_id, sourcePath);
           if (!entityId) {
             output.warn(`No document entity found for: ${sourcePath}`);
+            continue;
+          }
+
+          if (dryRun) {
+            // Count children without deleting
+            const rels = await countExtractedChildren(state.api_url, apiKey, entityId);
+            output.progress(`  - ${sourcePath} (${entityId}) — would delete ${rels} extracted entities`);
+            removed.push({ path: sourcePath, entity_id: entityId, cascaded: rels });
+            removedDocs++;
+            cascadedEntities += rels;
             continue;
           }
 
@@ -141,6 +151,7 @@ export function registerRmCommand(program: Command): void {
 
         output.result({
           operation: "rm",
+          dry_run: dryRun,
           removed: removedDocs,
           cascaded_entities: cascadedEntities,
           documents: removed,

@@ -29,7 +29,7 @@ import { homedir } from "node:os";
 
 import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
-import { listInstances, registerInstance } from "../../lib/instances.js";
+import { listInstances, registerInstance, unregisterInstance } from "../../lib/instances.js";
 import {
   DEFAULT_API_PORT,
   DEFAULT_MEILI_PORT,
@@ -58,11 +58,12 @@ interface UpOptions {
 }
 
 /**
- * Deterministic port slot from instance name. Maps to slot 1-99.
+ * Deterministic port slot from instance name. Maps to slot 1-999.
+ * Uses two bytes of the hash for a wider range (reduces collision probability).
  */
 function nameToPortSlot(name: string): number {
   const hash = createHash("sha256").update(name).digest();
-  return (hash[0]! % 99) + 1;
+  return ((hash[0]! << 8 | hash[1]!) % 999) + 1;
 }
 
 export function registerUpCommand(program: Command): void {
@@ -93,6 +94,13 @@ async function runUp(opts: UpOptions): Promise<void> {
   const isNamed = Boolean(opts.name);
   const timeoutMs = (Number.parseInt(opts.timeout ?? "120", 10) || 120) * 1000;
 
+  // Prune stale registry entries from crashed instances
+  for (const inst of listInstances()) {
+    if (!isProcessAlive(inst.pid)) {
+      unregisterInstance(inst.api_port);
+    }
+  }
+
   // Resolve ports and ARKEON_HOME
   let apiPort: number;
   let pgPort: number;
@@ -103,6 +111,18 @@ async function runUp(opts: UpOptions): Promise<void> {
     apiPort = Number(opts.port ?? DEFAULT_API_PORT + slot);
     pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT + slot);
     meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT + 10000 + slot);
+
+    // Check for port collision with another named instance
+    if (!opts.port) {
+      const existing = listInstances().find((i) => i.api_port === apiPort && i.name !== instanceName && isProcessAlive(i.pid));
+      if (existing) {
+        throw new Error(
+          `Port ${apiPort} is already in use by instance "${existing.name}". ` +
+          `Use --port to pick a different port: arkeon up --name ${instanceName} --port ${apiPort + 1}`,
+        );
+      }
+    }
+
     // Named instances get isolated state under ~/.arkeon/<name>/
     process.env.ARKEON_HOME = process.env.ARKEON_HOME ?? join(homedir(), ".arkeon", instanceName);
     output.progress(`[arkeon] Starting named instance "${instanceName}" — API=${apiPort}, PG=${pgPort}, Meili=${meiliPort}`);
@@ -198,6 +218,10 @@ async function runUp(opts: UpOptions): Promise<void> {
 
   child.unref();
 
+  if (!child.pid) {
+    throw new Error("Failed to spawn arkeon start — no child PID. Check `arkeon logs` for errors.");
+  }
+
   output.progress(`[arkeon] Daemon started (child pid ${child.pid}). Waiting for /health...`);
 
   // Poll /health. We can't rely on the child's pidfile existing yet —
@@ -218,7 +242,7 @@ async function runUp(opts: UpOptions): Promise<void> {
     api_url: apiUrl,
     api_port: apiPort,
     arkeon_home: arkeonDir(),
-    pid: child.pid!,
+    pid: child.pid,
     started_at: new Date().toISOString(),
   });
 

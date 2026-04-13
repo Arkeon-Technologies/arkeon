@@ -51,14 +51,23 @@ const genesisOps = readJson(genesisOpsPath);
 
 const skillsDir = join(cliRoot, "assets", "skills");
 const skills: Record<string, Record<string, string>> = {};
+const VALID_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
 try {
   for (const provider of readdirSync(skillsDir, { withFileTypes: true })) {
     if (!provider.isDirectory()) continue;
+    if (!VALID_NAME.test(provider.name)) {
+      console.warn(`bundle-assets: skipping provider "${provider.name}" — invalid name`);
+      continue;
+    }
     const providerDir = join(skillsDir, provider.name);
     skills[provider.name] = {};
     for (const skill of readdirSync(providerDir, { withFileTypes: true })) {
       if (!skill.isDirectory()) continue;
+      if (!VALID_NAME.test(skill.name)) {
+        console.warn(`bundle-assets: skipping skill "${skill.name}" — invalid name`);
+        continue;
+      }
       const skillFile = join(providerDir, skill.name, "SKILL.md");
       try {
         skills[provider.name]![skill.name] = readText(skillFile);

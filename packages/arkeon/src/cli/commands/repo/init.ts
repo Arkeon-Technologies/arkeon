@@ -12,6 +12,7 @@ import type { Command } from "commander";
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { apiPost } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
 import { resolveAdminKeyForUrl } from "../../lib/instances.js";
 import { output } from "../../lib/output.js";
@@ -68,24 +69,6 @@ function ensureGitignore(cwd: string): void {
   }
 }
 
-async function apiFetch<T>(apiUrl: string, path: string, apiKey: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `ApiKey ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
@@ -124,7 +107,7 @@ export function registerInitCommand(program: Command): void {
 
         // Create agent actor
         output.progress("Creating agent actor...");
-        const actorResp = await apiFetch<ActorResponse>(apiUrl, "/actors", adminKey, {
+        const actorResp = await apiPost<ActorResponse>(apiUrl, "/actors", adminKey, {
           kind: "agent",
           properties: { label: `ingestor-${name}` },
         });
@@ -136,7 +119,7 @@ export function registerInitCommand(program: Command): void {
 
         // Create space (using the new actor's key — actor becomes owner)
         output.progress(`Creating space "${name}"...`);
-        const spaceResp = await apiFetch<SpaceResponse>(apiUrl, "/spaces", actorApiKey, {
+        const spaceResp = await apiPost<SpaceResponse>(apiUrl, "/spaces", actorApiKey, {
           name,
           description: `Repository: ${name}`,
           properties: { repo_root: cwd },

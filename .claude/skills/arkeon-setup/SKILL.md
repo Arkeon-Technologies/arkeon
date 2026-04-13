@@ -109,4 +109,4 @@ Summarize what happened:
 > - Space: **{name}** (`{id}`)
 > - Documents: {N} added, {M} updated, {D} removed, {U} unchanged
 >
-> Run `/arkeon-ingest` to build the knowledge graph from these documents.
+> The next step is to build the knowledge graph from these documents using an ingest workflow.

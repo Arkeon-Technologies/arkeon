@@ -47,7 +47,9 @@ const claude: Provider = {
     const skills = SKILLS?.["claude"] ?? {};
     const installed: string[] = [];
 
+    const VALID_NAME = /^[a-z0-9][a-z0-9-]*$/;
     for (const [name, content] of Object.entries(skills) as [string, string][]) {
+      if (!VALID_NAME.test(name)) continue;
       const skillDir = join(dir, name);
       mkdirSync(skillDir, { recursive: true });
       writeFileSync(join(skillDir, this.skillFileName), content);
@@ -124,7 +126,7 @@ export const providers: Record<string, Provider> = {
 };
 
 export function getProvider(name: string): Provider | null {
-  return providers[name] ?? null;
+  return Object.hasOwn(providers, name) ? providers[name]! : null;
 }
 
 export function listProviders(): Provider[] {

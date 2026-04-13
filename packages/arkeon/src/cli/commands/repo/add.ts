@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
+import { apiGet, apiPost, apiPut } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
 import { output } from "../../lib/output.js";
 import { requireRepoState } from "../../lib/repo-state.js";
@@ -28,6 +29,8 @@ const IGNORE_DIRS = new Set([".arkeon", ".git", "node_modules", ".claude"]);
  */
 function expandPath(p: string, cwd: string): string[] {
   const abs = join(cwd, p);
+  // Guard against path traversal — files must be under cwd
+  if (!abs.startsWith(cwd + "/") && abs !== cwd) return [];
   if (!existsSync(abs)) return [];
   const stat = statSync(abs);
   if (stat.isFile()) return [relative(cwd, abs)];
@@ -85,55 +88,6 @@ function fileType(ext: string): string {
   return map[ext] ?? "binary";
 }
 
-async function apiFetchGet<T>(apiUrl: string, path: string, apiKey: string): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    headers: { accept: "application/json", authorization: `ApiKey ${apiKey}` },
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-async function apiPost<T>(apiUrl: string, path: string, apiKey: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `ApiKey ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-async function apiPut<T>(apiUrl: string, path: string, apiKey: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "PUT",
-    headers: {
-      "content-type": "application/json",
-      authorization: `ApiKey ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 async function findExistingDoc(
   apiUrl: string,
   apiKey: string,
@@ -141,7 +95,7 @@ async function findExistingDoc(
   sourceFile: string,
 ): Promise<{ entity_id: string; source_hash: string; ver: number } | null> {
   const filter = `type:document,properties.source_file:${sourceFile}`;
-  const resp = await apiFetchGet<ListResponse>(
+  const resp = await apiGet<ListResponse>(
     apiUrl,
     `/entities?filter=${encodeURIComponent(filter)}&space_id=${spaceId}&limit=1`,
     apiKey,
@@ -246,6 +200,8 @@ export function registerAddCommand(program: Command): void {
             properties.content = file.content;
           }
 
+          // PUT /entities/{id} shallow-merges properties — omitted keys
+          // (source_file, label) are preserved, only provided keys are updated.
           await apiPut(state.api_url, `/entities/${file.entity_id}`, apiKey, {
             ver: file.ver,
             properties,
@@ -282,11 +238,13 @@ export function registerAddCommand(program: Command): void {
             ops,
           });
 
-          for (let j = 0; j < batch.length; j++) {
-            const created = result.created[j];
-            if (created) {
-              documents.push({ path: batch[j]!.relPath, entity_id: created.id, action: "added" });
-              output.progress(`  + ${batch[j]!.relPath} -> ${created.id}`);
+          // Match results by ref (not positional index) for robustness
+          const refToPath = new Map(batch.map((file, idx) => [`@doc${i + idx}`, file.relPath]));
+          for (const created of result.created) {
+            const path = refToPath.get(created.ref);
+            if (path) {
+              documents.push({ path, entity_id: created.id, action: "added" });
+              output.progress(`  + ${path} -> ${created.id}`);
               addedCount++;
             }
           }

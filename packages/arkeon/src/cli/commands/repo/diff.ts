@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
+import { apiGet } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
 import { output } from "../../lib/output.js";
 import { requireRepoState } from "../../lib/repo-state.js";
@@ -44,22 +45,6 @@ function walkDir(dir: string, base: string, extensions: Set<string>): string[] {
   return results;
 }
 
-async function apiFetchGet<T>(apiUrl: string, path: string, apiKey: string): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    headers: {
-      accept: "application/json",
-      authorization: `ApiKey ${apiKey}`,
-    },
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(payload?.error?.message ?? `${response.status} ${response.statusText}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function sha256(filePath: string): string {
   const content = readFileSync(filePath);
   return createHash("sha256").update(content).digest("hex");
@@ -88,9 +73,9 @@ async function fetchDocumentEntities(
 
   for (;;) {
     const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
-    const resp: ListResponse = await apiFetchGet<ListResponse>(
+    const resp: ListResponse = await apiGet<ListResponse>(
       apiUrl,
-      `/entities?filter=type:document&space_id=${spaceId}&limit=200${cursorParam}`,
+      `/entities?filter=${encodeURIComponent("type:document")}&space_id=${spaceId}&limit=200${cursorParam}`,
       apiKey,
     );
 
