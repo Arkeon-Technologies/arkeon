@@ -15,6 +15,7 @@ import { registerLocalCommands } from "./cli/commands/local/index.js";
 import { registerInstallCommands } from "./cli/commands/install/index.js";
 import { registerRepoCommands } from "./cli/commands/repo/index.js";
 import { syncSkillsIfNeeded } from "./cli/lib/skill-sync.js";
+import { checkForUpdate } from "./cli/lib/version-check.js";
 import { registerApiCommands } from "./generated/index.js";
 
 // Read version from package.json so `npm version` in CI is the single source of truth.
@@ -50,6 +51,7 @@ program.hook("preAction", (command) => {
     process.env.ARKEON_HOME = options.dataDir;
   }
   syncSkillsIfNeeded(pkg.version);
+  checkForUpdate(pkg.version);
 });
 
 registerRepoCommands(program);
