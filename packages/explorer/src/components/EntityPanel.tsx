@@ -116,7 +116,7 @@ function RelationshipRow({
                 <p className="text-xs text-zinc-300 break-words">
                   {typeof value === 'string'
                     ? value.length > 500 ? value.slice(0, 500) + '...' : value
-                    : String(value)}
+                    : typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '')}
                 </p>
               </div>
             ))}

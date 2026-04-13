@@ -29,15 +29,42 @@ export interface LayoutResult {
   edges: Array<{ source: string; target: string; predicate: string; relationshipId: string }>;
 }
 
-// Layout constants - balanced for intra-cluster spreading without extreme inter-cluster separation
-const NODE_RADIUS = 140; // Collision radius for node spacing
-const LINK_DISTANCE = 300; // Distance between connected nodes
-const REPULSION_STRENGTH = -600; // Moderate repulsion for local spreading
-const REPULSION_DISTANCE_MAX = 500; // Limit repulsion range - prevents disconnected clusters from flying apart
-const CENTER_STRENGTH = 0.015; // Very weak centering to keep clusters within bounds
-const ITERATIONS_FULL = 150; // Full settling for initial load or bulk adds
-const ITERATIONS_INCREMENTAL = 20; // Light settling for small incremental adds
-const INCREMENTAL_THRESHOLD = 0.2; // Below 20% new nodes → use incremental ticks
+// Layout presets
+interface LayoutPreset {
+  nodeRadius: number;
+  linkDistance: number;
+  linkStrength: number;
+  repulsionStrength: number;
+  repulsionDistanceMax: number;
+  centerStrength: number;
+  spawnDistance: number;
+}
+
+// Default: spacious layout for neighborhood exploration (Graph mode)
+const GRAPH_PRESET: LayoutPreset = {
+  nodeRadius: 140,
+  linkDistance: 300,
+  linkStrength: 0.4,
+  repulsionStrength: -600,
+  repulsionDistanceMax: 500,
+  centerStrength: 0.015,
+  spawnDistance: 150,
+};
+
+// Map: connected nodes cluster together, but enough space for cards not to overlap
+const MAP_PRESET: LayoutPreset = {
+  nodeRadius: 140,
+  linkDistance: 250,
+  linkStrength: 0.5,
+  repulsionStrength: -500,
+  repulsionDistanceMax: 400,
+  centerStrength: 0.02,
+  spawnDistance: 120,
+};
+
+const ITERATIONS_FULL = 150;
+const ITERATIONS_INCREMENTAL = 20;
+const INCREMENTAL_THRESHOLD = 0.2;
 
 /**
  * Force-directed layout that naturally expands outward.
@@ -49,7 +76,8 @@ const INCREMENTAL_THRESHOLD = 0.2; // Below 20% new nodes → use incremental ti
 export function useGraphLayout(
   entities: Map<string, LoadedEntity>,
   pinnedPositions?: Map<string, { x: number; y: number }>,
-  initialPositions?: Map<string, { x: number; y: number }>
+  initialPositions?: Map<string, { x: number; y: number }>,
+  mode: 'graph' | 'map' = 'graph',
 ): LayoutResult {
   // Persist positions across renders so nodes don't jump
   // Initialize with saved positions on first mount (for page refresh)
@@ -58,6 +86,7 @@ export function useGraphLayout(
   );
 
   const result = useMemo(() => {
+    const p = mode === 'map' ? MAP_PRESET : GRAPH_PRESET;
     const prevPositions = positionsRef.current;
 
     // Build nodes array
@@ -109,7 +138,7 @@ export function useGraphLayout(
         if (peerPos) {
           // Random angle, moderate distance - D3 repulsion will push it outward
           const angle = Math.random() * Math.PI * 2;
-          const distance = 150 + Math.random() * 100;
+          const distance = p.spawnDistance + Math.random() * (p.spawnDistance * 0.67);
           nodes.push({
             id: entityId,
             entity: loadedEntity,
@@ -166,19 +195,18 @@ export function useGraphLayout(
         'link',
         forceLink<LayoutNode, LayoutLink>(links)
           .id((d) => d.id)
-          .distance(LINK_DISTANCE)
-          .strength(0.4) // Moderate link strength to keep connected nodes together
+          .distance(p.linkDistance)
+          .strength(p.linkStrength)
       )
       .force(
         'charge',
         forceManyBody()
-          .strength(REPULSION_STRENGTH)
-          .distanceMax(REPULSION_DISTANCE_MAX) // Key: limit repulsion range to prevent cluster drift
+          .strength(p.repulsionStrength)
+          .distanceMax(p.repulsionDistanceMax)
       )
-      .force('collide', forceCollide<LayoutNode>(NODE_RADIUS).strength(1))
-      // Very weak centering - just enough to keep clusters from flying to infinity
-      .force('x', forceX(0).strength(CENTER_STRENGTH))
-      .force('y', forceY(0).strength(CENTER_STRENGTH))
+      .force('collide', forceCollide<LayoutNode>(p.nodeRadius).strength(1))
+      .force('x', forceX(0).strength(p.centerStrength))
+      .force('y', forceY(0).strength(p.centerStrength))
       .stop();
 
     // Adaptive tick count: few ticks for incremental adds, full for bulk/initial
@@ -206,7 +234,7 @@ export function useGraphLayout(
     }));
 
     return { nodes: layoutNodes, edges: layoutEdges };
-  }, [entities, pinnedPositions]);
+  }, [entities, pinnedPositions, mode]);
 
   // Persist computed positions for next render — done as a side effect outside
   // useMemo so React 19 StrictMode's double-invocation doesn't cause position drift.

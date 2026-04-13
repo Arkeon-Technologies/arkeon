@@ -54,7 +54,7 @@ export function useMapData(
     return true
   }, [nodeCap])
 
-  const fetchRelationships = useCallback(async (id: string) => {
+  const fetchRelationships = useCallback(async (id: string, silent = false) => {
     if (fetchedRelsRef.current.has(id)) return
     fetchedRelsRef.current.add(id)
 
@@ -75,7 +75,7 @@ export function useMapData(
           hasMore: result.hasMore,
         }
         entitiesRef.current.set(id, updated)
-        rerender()
+        if (!silent) rerender()
       }
     } catch (err) {
       console.error(`Failed to fetch relationships for ${id}:`, err)
@@ -83,16 +83,18 @@ export function useMapData(
     }
   }, [client, rerender])
 
-  // Background relationship fetching for a batch of entity IDs
+  // Fetch relationships for a batch of entity IDs.
+  // Uses parallel fetching via the pool, suppresses per-entity rerenders.
   const fetchRelsBatch = useCallback(async (ids: string[]) => {
     const toFetch = ids.filter(id => !fetchedRelsRef.current.has(id))
-    // Stagger to avoid overwhelming the pool
-    for (const id of toFetch) {
-      if (!mountedRef.current) break
-      if (entitiesRef.current.size === 0) break
-      await fetchRelationships(id)
-    }
-  }, [fetchRelationships])
+    if (toFetch.length === 0) return
+
+    // Fetch all in parallel (pool limits concurrency to 8)
+    await Promise.all(toFetch.map(id => fetchRelationships(id, true)))
+
+    // Single rerender after all relationships are loaded
+    if (mountedRef.current) rerender()
+  }, [fetchRelationships, rerender])
 
   // Initial bulk load
   const initialLoadDone = useRef(false)
@@ -127,10 +129,14 @@ export function useMapData(
           }
 
           cursor = result.cursor
-          rerender()
         } while (cursor && totalLoaded < nodeCap && mountedRef.current)
 
         lastActivityTsRef.current = startTs
+
+        // Fetch relationships for all loaded entities BEFORE first render
+        // so the layout has full topology info and places connected nodes together.
+        const ids = Array.from(entitiesRef.current.keys())
+        await fetchRelsBatch(ids)
       } catch (err) {
         console.error('Map initial load failed:', err)
       } finally {
@@ -139,10 +145,6 @@ export function useMapData(
           rerender()
         }
       }
-
-      // Background: fetch relationships for all loaded entities
-      const ids = Array.from(entitiesRef.current.keys())
-      fetchRelsBatch(ids)
     }
     load()
   }, [client, nodeCap, addEntity, rerender, fetchRelsBatch])

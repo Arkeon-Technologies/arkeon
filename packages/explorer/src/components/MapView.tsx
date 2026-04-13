@@ -10,6 +10,7 @@ import {
   PanOnScrollMode,
   useNodesState,
   useEdgesState,
+  useStore,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -67,8 +68,9 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [pinnedPositions, setPinnedPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
+  const zoom = useStore((s) => s.transform[2])
 
-  const layout = useGraphLayout(entities, pinnedPositions)
+  const layout = useGraphLayout(entities, pinnedPositions, undefined, 'map')
 
   const selectedEntity = selectedId ? entities.get(selectedId) : null
 
@@ -110,6 +112,9 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
     })
   }, [layout.nodes, selectedId, neighborIds, entities])
 
+  // Hide edge labels when zoomed out — they just add noise at low zoom
+  const showEdgeLabels = zoom >= 0.5
+
   const rfEdges: Edge[] = useMemo(() => {
     return layout.edges.map((e) => {
       const isConnected = selectedId != null && (
@@ -127,13 +132,13 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
         source: e.source,
         target: e.target,
         type: 'smoothstep',
-        label: e.predicate.replace(/_/g, ' '),
-        labelStyle: {
+        label: showEdgeLabels ? e.predicate.replace(/_/g, ' ') : undefined,
+        labelStyle: showEdgeLabels ? {
           fill: isConnected ? '#d4d4d8' : '#71717a',
           fontSize: 10,
           fontWeight: isConnected ? 600 : 500,
-        },
-        labelBgStyle: { fill: '#0a0a0a', fillOpacity: 0.8 },
+        } : undefined,
+        labelBgStyle: showEdgeLabels ? { fill: '#0a0a0a', fillOpacity: 0.8 } : undefined,
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
         markerEnd: {
@@ -146,7 +151,7 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
           stroke: color,
           strokeWidth: crossSpace ? 2 : (isConnected ? 2.5 : 1.5),
           strokeDasharray: crossSpace ? '8 4' : undefined,
-          opacity: isConnected ? 1 : (selectedId ? 0.2 : 0.5),
+          opacity: isConnected ? 1 : (selectedId ? 0.15 : 0.4),
           cursor: 'pointer',
         },
         interactionWidth: 20,
@@ -154,7 +159,7 @@ function MapViewInner({ client, nodeCap = 500, onEntitySelect }: MapViewProps) {
         zIndex: isConnected ? 10 : (crossSpace ? 5 : 0),
       }
     })
-  }, [layout.edges, selectedId, entities])
+  }, [layout.edges, selectedId, entities, showEdgeLabels])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes)
   const [edges, setEdges] = useEdgesState(rfEdges)
