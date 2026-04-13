@@ -50,12 +50,30 @@ async function findDocBySourceFile(
   return resp.entities[0]?.id ?? null;
 }
 
+/**
+ * Check whether an entity has multiple extracted_from sources.
+ * We only need to know if there's more than one, so limit=2 suffices.
+ */
+async function hasMultipleSources(
+  apiUrl: string,
+  apiKey: string,
+  entityId: string,
+): Promise<boolean> {
+  const resp = await apiGet<RelationshipsResponse>(
+    apiUrl,
+    `/entities/${entityId}/relationships?direction=out&predicate=extracted_from&limit=2`,
+    apiKey,
+  );
+  return resp.relationships.length > 1;
+}
+
 async function deleteDocumentAndChildren(
   apiUrl: string,
   apiKey: string,
   entityId: string,
-): Promise<number> {
+): Promise<{ cascaded: number; preserved: number }> {
   let cascaded = 0;
+  let preserved = 0;
 
   let cursor: string | null = null;
   for (;;) {
@@ -67,8 +85,15 @@ async function deleteDocumentAndChildren(
     );
 
     for (const rel of resp.relationships) {
-      await apiDelete(apiUrl, `/entities/${rel.source_id}`, apiKey);
-      cascaded++;
+      const multiSource = await hasMultipleSources(apiUrl, apiKey, rel.source_id);
+      if (multiSource) {
+        // Entity has other sources — just sever the edge, keep the entity
+        await apiDelete(apiUrl, `/relationships/${rel.id}`, apiKey);
+        preserved++;
+      } else {
+        await apiDelete(apiUrl, `/entities/${rel.source_id}`, apiKey);
+        cascaded++;
+      }
     }
 
     cursor = resp.cursor;
@@ -76,15 +101,16 @@ async function deleteDocumentAndChildren(
   }
 
   await apiDelete(apiUrl, `/entities/${entityId}`, apiKey);
-  return cascaded;
+  return { cascaded, preserved };
 }
 
 async function countExtractedChildren(
   apiUrl: string,
   apiKey: string,
   entityId: string,
-): Promise<number> {
-  let count = 0;
+): Promise<{ wouldDelete: number; wouldPreserve: number }> {
+  let wouldDelete = 0;
+  let wouldPreserve = 0;
   let cursor: string | null = null;
   for (;;) {
     const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
@@ -93,11 +119,18 @@ async function countExtractedChildren(
       `/entities/${entityId}/relationships?direction=in&predicate=extracted_from&limit=200${cursorParam}`,
       apiKey,
     );
-    count += resp.relationships.length;
+    for (const rel of resp.relationships) {
+      const multiSource = await hasMultipleSources(apiUrl, apiKey, rel.source_id);
+      if (multiSource) {
+        wouldPreserve++;
+      } else {
+        wouldDelete++;
+      }
+    }
     cursor = resp.cursor;
     if (!cursor) break;
   }
-  return count;
+  return { wouldDelete, wouldPreserve };
 }
 
 export function registerRmCommand(program: Command): void {
@@ -119,7 +152,8 @@ export function registerRmCommand(program: Command): void {
 
         let removedDocs = 0;
         let cascadedEntities = 0;
-        const removed: Array<{ path: string; entity_id: string; cascaded: number }> = [];
+        let preservedEntities = 0;
+        const removed: Array<{ path: string; entity_id: string; cascaded: number; preserved: number }> = [];
 
         for (const sourcePath of paths) {
           const entityId = await findDocBySourceFile(state.api_url, apiKey, state.space_id, sourcePath);
@@ -130,23 +164,28 @@ export function registerRmCommand(program: Command): void {
 
           if (dryRun) {
             // Count children without deleting
-            const rels = await countExtractedChildren(state.api_url, apiKey, entityId);
-            output.progress(`  - ${sourcePath} (${entityId}) — would delete ${rels} extracted entities`);
-            removed.push({ path: sourcePath, entity_id: entityId, cascaded: rels });
+            const { wouldDelete, wouldPreserve } = await countExtractedChildren(state.api_url, apiKey, entityId);
+            const parts = [`would delete ${wouldDelete} extracted entities`];
+            if (wouldPreserve > 0) parts.push(`preserve ${wouldPreserve} (multi-source)`);
+            output.progress(`  - ${sourcePath} (${entityId}) — ${parts.join(", ")}`);
+            removed.push({ path: sourcePath, entity_id: entityId, cascaded: wouldDelete, preserved: wouldPreserve });
             removedDocs++;
-            cascadedEntities += rels;
+            cascadedEntities += wouldDelete;
+            preservedEntities += wouldPreserve;
             continue;
           }
 
           output.progress(`  - ${sourcePath} (${entityId})`);
-          const cascaded = await deleteDocumentAndChildren(state.api_url, apiKey, entityId);
-          if (cascaded > 0) {
-            output.progress(`    (deleted ${cascaded} extracted entities)`);
-          }
+          const { cascaded, preserved } = await deleteDocumentAndChildren(state.api_url, apiKey, entityId);
+          const parts: string[] = [];
+          if (cascaded > 0) parts.push(`deleted ${cascaded} extracted entities`);
+          if (preserved > 0) parts.push(`preserved ${preserved} (multi-source)`);
+          if (parts.length > 0) output.progress(`    (${parts.join(", ")})`);
 
-          removed.push({ path: sourcePath, entity_id: entityId, cascaded });
+          removed.push({ path: sourcePath, entity_id: entityId, cascaded, preserved });
           removedDocs++;
           cascadedEntities += cascaded;
+          preservedEntities += preserved;
         }
 
         output.result({
@@ -154,6 +193,7 @@ export function registerRmCommand(program: Command): void {
           dry_run: dryRun,
           removed: removedDocs,
           cascaded_entities: cascadedEntities,
+          preserved_entities: preservedEntities,
           documents: removed,
         });
       } catch (error) {
