@@ -231,6 +231,43 @@ export const RelationshipSummarySchema = z
   })
   .openapi("RelationshipSummary");
 
+// --- Neighborhood ---
+
+export const NeighborhoodNodeSchema = z
+  .object({
+    id: UlidSchema,
+    kind: z.enum(["entity", "relationship"]),
+    type: z.string(),
+    properties: z.object({ label: z.string().nullable(), description: z.string().nullable() }),
+    read_level: ClassificationLevel,
+    created_at: DateTimeSchema,
+    updated_at: DateTimeSchema,
+    depth: z.number().int().describe("Hop distance from seed entity"),
+    score: z.number().describe("Ranking score (connectivity + recency + proximity + query relevance)"),
+  })
+  .openapi("NeighborhoodNode");
+
+export const NeighborhoodEdgeSchema = z
+  .object({
+    id: UlidSchema,
+    source_id: UlidSchema,
+    target_id: UlidSchema,
+    predicate: z.string(),
+    properties: JsonObjectSchema,
+  })
+  .openapi("NeighborhoodEdge");
+
+export const NeighborhoodResponseSchema = z
+  .object({
+    seed_id: UlidSchema,
+    nodes: z.array(NeighborhoodNodeSchema).describe("Ranked nodes within the traversal depth"),
+    edges: z.array(NeighborhoodEdgeSchema).describe("Edges connecting the returned nodes and the seed"),
+    truncated: z.boolean().describe("True if more nodes exist beyond the limit"),
+  })
+  .openapi("NeighborhoodResponse");
+
+// --- Expanded entity (view=expanded) ---
+
 export const ExpandedEntitySchema = EntitySchema.extend({
   _relationships: z.array(RelationshipSummarySchema)
     .describe("Relationship summaries with counterpart labels. Capped by rel_limit — use GET /entities/{id}/relationships for the full set."),
