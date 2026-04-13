@@ -3,12 +3,12 @@ name: arkeon-ingest
 description: Initialize a repo as an Arkeon knowledge base and build a knowledge graph from its documents.
 disable-model-invocation: true
 argument-hint: [space-name]
-allowed-tools: Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write
+allowed-tools: Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent
 ---
 
 # Arkeon Ingest
 
-Initialize this repository as an Arkeon knowledge base and build a knowledge graph from its documents. Combines setup (space creation, file registration) with extraction (entity and relationship creation from document content).
+Initialize this repository as an Arkeon knowledge base and build a knowledge graph from its documents. Combines setup (space creation, file registration) with parallel extraction (sub-agents process document batches) and post-extraction consolidation.
 
 ## Phase 1: Setup
 
@@ -145,7 +145,7 @@ If this is a fresh space with only document entities, note that and proceed — 
 
 ### 7. Plan the extraction
 
-Read a sample of the documents (2-3 files) to understand the corpus. Think about:
+Read a sample of the documents (3-5 files) to understand the corpus. Think about:
 
 - **What entity types make sense for this content?** Start with common types: `person`, `concept`, `work`, `event`, `place`, `organization`. Add domain-specific types as needed (e.g., `theorem`, `species`, `statute`). Don't force types that don't fit — let the content guide you.
 - **What relationship predicates capture the connections?** Common ones: `mentions`, `authored`, `influenced_by`, `part_of`, `references`, `argues_for`, `argues_against`, `quotes`. Add domain-specific predicates as needed.
@@ -169,105 +169,237 @@ npx arkeon spaces list-entities {space_id} --limit 200
 
 Parse the output. Each document has: `id`, `properties.source_file`, `properties.content`.
 
-### 9. Process each document
+### 9. Cluster documents into batches
 
-For each document entity, in order:
+Using the document list from step 8, group documents into related batches for parallel processing. Batches should cluster documents that share:
 
-#### a. Check if already ingested
+- Common actors, people, or organizations
+- Related topics or themes
+- Time periods or geographic regions
+- Source type or provenance
+
+Target 3-8 documents per batch. For small corpora (<6 documents), use a single batch.
+
+Report the clustering plan:
+
+> **Batch plan:**
+> - Batch 1 ({theme}): {file1}, {file2}, ...
+> - Batch 2 ({theme}): {file3}, {file4}, ...
+> - ...
+
+### 10. Dispatch sub-agents
+
+For each batch, spawn a sub-agent using the Agent tool. **Run all batch agents in parallel** (send all Agent tool calls in a single message).
+
+Each sub-agent receives a prompt containing:
+
+1. **The batch**: List of document entity IDs and source file paths
+2. **The extraction plan**: Entity types, relationship predicates
+3. **The space ID**: For graph queries and scoping
+4. **Graph context summary**: Existing entities from step 6 (labels, types, IDs)
+5. **Quality rules**: The extraction quality standards below
+6. **CLI commands**: How to search, create ops, update entities
+
+The sub-agent prompt must include the full extraction protocol (steps 10a-10f below) and all quality examples. The sub-agent has no memory of this skill's instructions — give it everything it needs to work independently.
+
+**Sub-agent failure handling:** If a sub-agent fails or returns an error, report which batch failed and which documents were not processed. Do not retry automatically — report to the user and let them decide whether to re-run the failed batch.
+
+#### Sub-agent extraction protocol:
+
+##### 10a. Check if already ingested
+
+For each document in the batch:
 
 ```bash
 npx arkeon relationships list {doc_id} --direction in --predicate extracted_from --limit 1
 ```
 
-If results exist, this document has already been ingested. Skip it and report:
+If results exist, skip. Report: `Skipping {source_file} — already ingested.`
 
-> Skipping **{source_file}** — already ingested ({N} extracted entities).
+##### 10b. Gather graph context
 
-#### b. Gather context
-
-Before extracting, search for entities that might connect to this document's content. Read the document content, identify key terms, and search:
+Before extracting from each document, search the graph aggressively. Read the document content first, identify 4-5 key terms (names, concepts, places), and search for each:
 
 ```bash
 npx arkeon search query --q "{key_term}" --space-id {space_id} --limit 20
 ```
 
-Do 2-3 searches for the most prominent terms. Note any existing entities that this document references — you'll link to them instead of creating duplicates.
+For each hit, note the entity ID, label, type, and description. These are your connection targets — you will link to them by ULID instead of creating duplicates.
 
-#### c. Read and extract
+**Read existing entity descriptions carefully.** Understanding what's already in the graph is how you build connections rather than isolated clusters.
+
+##### 10c. Read and extract
 
 Read the document content (from the entity's `content` property or from the file on disk). Identify:
 
 - **Entities**: People, concepts, works, events, places, arguments — anything that has identity and could be referenced from other documents.
 - **Relationships**: How entities connect to each other and to entities already in the graph.
 
+**Extraction quality standards:**
+
+Every entity description MUST:
+- Explain who or what this entity is in the world — not just how it appears in the document
+- Use your world knowledge to provide context (historical, scientific, cultural, etc.)
+- Be substantive enough to be useful without reading the source document
+- Never use phrases like "mentioned in the document" or "referenced in the text"
+
+BAD entity descriptions (do NOT produce these):
+- `"Smith — person mentioned in the report"` (says nothing about who Smith is)
+- `"Acme Corp — organization discussed in the filing"` (just restates that it appeared)
+- `"Project Aurora — referenced in multiple sections"` (no information at all)
+
+GOOD entity descriptions (aim for these):
+- `"John Smith — lead architect at Acme Corp who designed the distributed caching layer that reduced p99 latency by 40%"`
+- `"Acme Corp — Series B enterprise SaaS company (founded 2019) specializing in real-time data infrastructure for financial services"`
+- `"Project Aurora — internal initiative to migrate Acme's monolith to a service mesh architecture, launched Q2 2024 after the March outage"`
+
+Every relationship detail MUST:
+- Add information beyond what the predicate already says
+- Include timing, significance, consequences, or context
+- Never just restate the predicate in sentence form
+
+BAD relationship details (do NOT produce these):
+- `"Smith works at Acme Corp"` (for a `works_at` predicate — this is tautological)
+- `"Aurora is part of Acme"` (for `part_of` — adds nothing)
+- `"Smith is located in New York"` (for `located_in` — just restates it)
+
+GOOD relationship details (aim for these):
+- `"Smith joined Acme Corp in 2021 as a senior engineer, promoted to lead architect after the Aurora migration succeeded"` (for `works_at`)
+- `"Aurora was Acme's highest-priority internal initiative, consuming 60% of the platform team's bandwidth for two quarters"` (for `part_of`)
+- `"Smith relocated to Acme's New York headquarters in 2022 to lead the East Coast engineering hub"` (for `located_in`)
+
 For every entity, provide at minimum:
 - `type` — the entity type
 - `label` — a short, canonical name
-- `description` — a 1-2 sentence description providing context
+- `description` — a 1-3 sentence description providing analytical context
 
 For every relationship, provide at minimum:
 - `source` and `target` — either `@local_ref` for new entities or a bare ULID for existing ones
 - `predicate` — the relationship type
-- `detail` — a sentence explaining the specific connection
+- `detail` — a sentence explaining the specific connection with context that goes beyond the predicate
 
-#### d. Write ops
+##### 10d. Write ops
 
 Use the Write tool to create a JSON file with the ops envelope, then submit it:
 
-Write to `/tmp/arkeon-ops.json`:
+Write to `/tmp/arkeon-ops-{batch}-{doc}.json`:
 ```json
 {
   "format": "arke.ops/v1",
   "defaults": {},
   "source": {"entity_id": "{doc_entity_id}"},
   "ops": [
-    {"op": "entity", "ref": "@augustine", "type": "person", "label": "Augustine of Hippo", "description": "Early Church Father and philosopher, bishop of Hippo Regius"},
-    {"op": "entity", "ref": "@city_of_god", "type": "work", "label": "De Civitate Dei", "description": "Augustine's treatise contrasting the City of God with the earthly city"},
-    {"op": "relate", "source": "@augustine", "target": "@city_of_god", "predicate": "authored", "detail": "Augustine wrote De Civitate Dei between 413-426 AD"},
-    {"op": "relate", "source": "@augustine", "target": "01EXISTING_ULID", "predicate": "influenced_by", "detail": "Augustine draws heavily on Platonic philosophy"}
+    {"op": "entity", "ref": "@smith", "type": "person", "label": "John Smith", "description": "Lead architect at Acme Corp who designed the distributed caching layer that reduced p99 latency by 40%"},
+    {"op": "entity", "ref": "@aurora", "type": "project", "label": "Project Aurora", "description": "Internal initiative to migrate Acme's monolith to a service mesh architecture, launched Q2 2024"},
+    {"op": "relate", "source": "@smith", "target": "@aurora", "predicate": "leads", "detail": "Smith was appointed technical lead of Aurora after demonstrating the caching optimization proof-of-concept"},
+    {"op": "relate", "source": "@smith", "target": "01EXISTING_ULID", "predicate": "collaborated_with", "detail": "Smith and Chen co-authored the Aurora architecture RFC, with Smith focusing on the data layer and Chen on service discovery"}
   ]
 }
 ```
 
 Then submit:
 ```bash
-npx arkeon ingest post-ops --data @/tmp/arkeon-ops.json
+npx arkeon ingest post-ops --data @/tmp/arkeon-ops-{batch}-{doc}.json
 ```
 
 Key rules:
 - `source.entity_id` on the envelope creates `extracted_from` edges automatically — never create these manually.
 - `defaults.space_id` is auto-injected by the CLI if configured — you don't need to set it.
 - Use `@local_ref` for new entities defined in this batch.
-- Use bare ULIDs for entities that already exist in the graph (found in step b).
+- Use bare ULIDs for entities that already exist in the graph (found in step 10b).
 - Stay under 2000 ops per request. One document at a time is fine.
 - Do NOT set `read_level` or `write_level` — defaults are applied automatically.
 
-#### e. Report progress
+##### 10e. Enrich existing entities
+
+After extracting from each document, check if any existing entities (found in step 10b) should have their descriptions enriched with new information from this document.
+
+If the current document reveals new information about an existing entity that isn't in its current description:
+
+1. Fetch the entity fresh to get its current description and `ver`: `npx arkeon entities get {id}`
+2. Write a synthesized description that combines the existing description with the new information
+3. Update: `npx arkeon entities update {id} --properties '{"description":"enriched text"}' --ver {ver}`
+
+**Version conflict handling:** Multiple sub-agents may try to enrich the same entity concurrently. If the update fails with a version conflict (409), re-fetch the entity to get the latest `ver` and description, re-synthesize incorporating what the other sub-agent added, and retry the update. One retry is sufficient — if it fails again, skip and let consolidation (step 11b) handle it.
+
+This is critical — entity descriptions should grow richer as more documents are processed, not stay frozen at first-extraction.
+
+##### 10f. Report progress
 
 After each document, report:
 
-> **{source_file}**: {N} entities, {M} relationships created.
+> **{source_file}**: {N} entities, {M} relationships created, {E} existing entities enriched.
 
-### 10. Cross-document linking
+After the entire batch is done, report a batch summary.
 
-As you process documents, actively link new entities to entities created from previous documents. When you encounter a concept, person, or work that was already extracted from an earlier document:
+### 11. Consolidation sweep
 
-1. Search for it: `npx arkeon search query --q "{entity_label}" --space-id {space_id}`
-2. If found, use the existing entity's ULID as a bare ref in relate ops instead of creating a duplicate.
-3. If the existing entity's description can be enriched with new information from the current document, first get the entity's current `ver` value, then update: `npx arkeon entities update {id} --properties '{"description":"enriched text"}' --ver {ver}`.
+After ALL sub-agents have completed, run a consolidation pass over the full graph. This catches cross-batch duplicates and connections that individual sub-agents couldn't see.
 
-This is what makes the graph valuable — connections across documents emerge naturally.
+#### 11a. Deduplicate entities
 
-### 11. Final report
+Search for entities with similar or identical labels:
 
-After all documents are processed, summarize:
+```bash
+npx arkeon search query --q "{entity_label}" --space-id {space_id} --limit 20
+```
+
+For each high-connectivity entity type (people, organizations, places), search for potential duplicates. When found:
+
+```bash
+npx arkeon entities merge {keep_id} {duplicate_id}
+```
+
+Prefer keeping the entity with the richer description.
+
+#### 11b. Enrich key entities
+
+For entities that appear across multiple documents (high relationship count), synthesize a comprehensive description drawing on all connected documents:
+
+1. List relationships: `npx arkeon relationships list {id} --limit 50`
+2. Read connected document entities to gather context
+3. Write a synthesized description that reflects everything known about this entity across the corpus
+4. Update: `npx arkeon entities update {id} --properties '{"description":"synthesized text"}' --ver {ver}`
+
+#### 11c. Cross-batch connections
+
+Search for relationships that span batch boundaries. Look for:
+
+- People who appear in documents from different batches
+- Events referenced across time periods
+- Organizations that connect different topic clusters
+- Concepts that bridge different domains
+
+For each discovered connection, create relationship ops:
+
+Write to `/tmp/arkeon-ops-consolidation.json`:
+```json
+{
+  "format": "arke.ops/v1",
+  "defaults": {},
+  "ops": [
+    {"op": "relate", "source": "01ENTITY_A", "target": "01ENTITY_B", "predicate": "collaborated_with", "detail": "Both served on the same committee during 2024, though documented in separate report series"}
+  ]
+}
+```
+
+```bash
+npx arkeon ingest post-ops --data @/tmp/arkeon-ops-consolidation.json
+```
+
+### 12. Final report
+
+After consolidation, summarize:
 
 > **Ingest complete.**
 > - Documents processed: {N} of {total}
 > - Documents skipped (already ingested): {S}
+> - Batches: {B} (processed in parallel)
 > - Entities created: {E}
 > - Relationships created: {R}
-> - Cross-document links: {L}
+> - Entities merged (deduplication): {D}
+> - Entities enriched (cross-document): {X}
+> - Cross-batch connections: {C}
 >
 > Run `npx arkeon search query --q "{topic}" --space-id {space_id}` to explore the graph.
 >
