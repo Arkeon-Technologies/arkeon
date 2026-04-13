@@ -62,14 +62,20 @@ Shows: process state, health, seed state, LLM config, state directory, running i
 
 ## Worktree Isolation
 
-If you're in a worktree (path contains `.claude/worktrees/`), use a named instance to avoid collisions:
+**Each worktree MUST run its own named instance and only use its own CLI build.** The CLI and server are the same package — there's no version negotiation. Running worktree B's CLI against worktree A's server will break if the branches have schema or API differences.
 
 ```bash
 WORKTREE_NAME=$(basename "$PWD")
 npx tsx packages/arkeon/src/index.ts up --name "$WORKTREE_NAME"
 ```
 
-Each named instance gets isolated state at `~/.arkeon/<name>/`. The instance registry at `~/.arkeon/instances/` tracks all running instances.
+This gives each worktree:
+- Its own `ARKEON_HOME` at `~/.arkeon/<name>/` (Postgres data, Meilisearch, secrets)
+- Its own port (auto-selected, avoids collisions)
+- Its own entry in `~/.arkeon/instances/` and its own actor registry
+- Running its own branch's built code
+
+Always run `arkeon init`, `arkeon auth`, and all other commands **from the same worktree** that started the instance. Don't cross worktree/instance boundaries.
 
 Main tree (not a worktree) uses the default instance: `~/.arkeon/`, port 8000.
 
