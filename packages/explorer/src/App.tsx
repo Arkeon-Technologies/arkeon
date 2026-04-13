@@ -5,21 +5,27 @@ import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createArkeClient } from '@/lib/arke-client'
 import { NetworkGraph } from '@/components/NetworkGraph'
 import { ActivityFeed } from '@/components/ActivityFeed'
+import { MapView } from '@/components/MapView'
 
-// Read the API key from the URL once at startup, then strip it from the
-// browser URL so it doesn't leak into history, server logs, referers, or
-// shared bookmarks. The key lives only in memory after this.
+// Read the API key from the URL, persist in sessionStorage so it survives
+// reloads, then strip it from the browser URL so it doesn't leak into
+// history, server logs, referers, or shared bookmarks.
 function readAndStripApiKey(): string | undefined {
   if (typeof window === 'undefined') return undefined
   const params = new URLSearchParams(window.location.search)
   const key = params.get('key') || undefined
   if (key) {
+    // Persist for this tab session so reloads don't lose it
+    try { sessionStorage.setItem('arke-api-key', key) } catch {}
     params.delete('key')
     const qs = params.toString()
     const newUrl = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
     window.history.replaceState({}, '', newUrl)
+    return key
   }
-  return key
+  // Fall back to sessionStorage from a previous load in this tab
+  try { return sessionStorage.getItem('arke-api-key') || undefined } catch {}
+  return undefined
 }
 
 function useQueryParams() {
@@ -45,9 +51,13 @@ export function App() {
   const entityParam = searchParams.get('entity') || undefined
   const entitiesParam = searchParams.get('entities') || undefined
   const selectParam = searchParams.get('select') || undefined
-  const modeParam = searchParams.get('mode') || 'graph'
+  const modeParam = searchParams.get('mode') || 'map'
+  const capParam = searchParams.get('cap')
+  const nodeCap = capParam ? Math.max(1, parseInt(capParam, 10) || 500) : 500
 
-  const [mode, setMode] = useState<'graph' | 'feed'>(modeParam === 'feed' ? 'feed' : 'graph')
+  type Mode = 'graph' | 'feed' | 'map'
+  const initialMode: Mode = modeParam === 'feed' ? 'feed' : modeParam === 'graph' ? 'graph' : 'map'
+  const [mode, setMode] = useState<Mode>(initialMode)
 
   const initialSeedIds = useMemo(() => {
     if (entitiesParam) return entitiesParam.split(',').filter(Boolean)
@@ -81,29 +91,16 @@ export function App() {
     window.history.pushState({}, '', url.toString())
   }, [])
 
-  const switchMode = useCallback((newMode: 'graph' | 'feed') => {
+  const switchMode = useCallback((newMode: Mode) => {
     setMode(newMode)
     const url = new URL(window.location.href)
     url.searchParams.set('mode', newMode)
     window.history.pushState({}, '', url.toString())
   }, [])
 
-  if (!apiKey && !seedEntityId) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-[#0a0a0a]">
-        <div className="max-w-md p-6 bg-zinc-900 border border-zinc-800 rounded-lg">
-          <h2 className="text-lg font-semibold text-zinc-100 mb-3">Arkeon Explorer</h2>
-          <p className="text-sm text-zinc-400 mb-4">
-            Provide an API key and entity ID to explore the knowledge graph.
-          </p>
-          <div className="text-xs text-zinc-500 font-mono space-y-1">
-            <p>?key=uk_xxx&entity=ENTITY_ID</p>
-            <p>?key=uk_xxx&entities=ID1,ID2,ID3</p>
-            <p>?key=uk_xxx&mode=feed</p>
-          </div>
-        </div>
-      </div>
-    )
+  // If graph or feed mode is requested without enough context, fall back to map
+  if (mode === 'graph' && !seedEntityId && !apiKey) {
+    setMode('map')
   }
 
   const navBar = (
@@ -118,6 +115,14 @@ export function App() {
         Graph
       </button>
       <button
+        onClick={() => switchMode('map')}
+        className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+          mode === 'map' ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
+        }`}
+      >
+        Map
+      </button>
+      <button
         onClick={() => switchMode('feed')}
         className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
           mode === 'feed' ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
@@ -127,6 +132,19 @@ export function App() {
       </button>
     </div>
   )
+
+  if (mode === 'map') {
+    return (
+      <div className="h-screen bg-[#0a0a0a] relative">
+        {navBar}
+        <MapView
+          client={client}
+          nodeCap={nodeCap}
+          onEntitySelect={handleEntitySelect}
+        />
+      </div>
+    )
+  }
 
   if (mode === 'feed') {
     return (

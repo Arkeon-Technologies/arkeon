@@ -26,6 +26,10 @@ export interface ArkeInstanceClient {
   getActor(id: string): Promise<ArkeActor>
   /** Fetch comments for an entity */
   getComments(entityId: string, cursor?: string): Promise<{ comments: ArkeComment[]; cursor: string | null }>
+  /** Bulk list entities with optional space filter */
+  listEntities(options?: { spaceId?: string; limit?: number; cursor?: string }): Promise<{ entities: ArkeEntity[]; cursor: string | null }>
+  /** Fetch activity since a timestamp */
+  getActivitySince(since: string, limit?: number): Promise<{ activity: ActivityItem[]; cursor: string | null }>
 }
 
 /**
@@ -156,6 +160,29 @@ export function createArkeClient(apiKey?: string, baseUrl = ''): ArkeInstanceCli
       const qs = params.toString()
       return apiFetch<{ comments: ArkeComment[]; cursor: string | null }>(
         `/entities/${entityId}/comments${qs ? `?${qs}` : ''}`
+      )
+    },
+
+    async listEntities(options?: { spaceId?: string; limit?: number; cursor?: string }) {
+      const params = new URLSearchParams({
+        limit: String(options?.limit ?? 200),
+        sort: 'created_at',
+        order: 'desc',
+      })
+      if (options?.spaceId) params.set('space_id', options.spaceId)
+      if (options?.cursor) params.set('cursor', options.cursor)
+      return apiFetch<{ entities: ArkeEntity[]; cursor: string | null }>(
+        `/entities?${params.toString()}`
+      )
+    },
+
+    async getActivitySince(since: string, limit = 100) {
+      const params = new URLSearchParams({
+        since,
+        limit: String(limit),
+      })
+      return apiFetch<{ activity: ActivityItem[]; cursor: string | null }>(
+        `/activity?${params.toString()}`
       )
     },
   }

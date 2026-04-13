@@ -35,7 +35,9 @@ const LINK_DISTANCE = 300; // Distance between connected nodes
 const REPULSION_STRENGTH = -600; // Moderate repulsion for local spreading
 const REPULSION_DISTANCE_MAX = 500; // Limit repulsion range - prevents disconnected clusters from flying apart
 const CENTER_STRENGTH = 0.015; // Very weak centering to keep clusters within bounds
-const ITERATIONS = 150; // Iterations for settling
+const ITERATIONS_FULL = 150; // Full settling for initial load or bulk adds
+const ITERATIONS_INCREMENTAL = 20; // Light settling for small incremental adds
+const INCREMENTAL_THRESHOLD = 0.2; // Below 20% new nodes → use incremental ticks
 
 /**
  * Force-directed layout that naturally expands outward.
@@ -179,8 +181,12 @@ export function useGraphLayout(
       .force('y', forceY(0).strength(CENTER_STRENGTH))
       .stop();
 
-    // Run iterations
-    for (let i = 0; i < ITERATIONS; i++) {
+    // Adaptive tick count: few ticks for incremental adds, full for bulk/initial
+    const newNodeCount = nodes.filter(n => n.fx === undefined).length;
+    const isIncremental = newNodeCount > 0 && nodes.length > 0 && newNodeCount / nodes.length < INCREMENTAL_THRESHOLD;
+    const ticks = isIncremental ? ITERATIONS_INCREMENTAL : ITERATIONS_FULL;
+
+    for (let i = 0; i < ticks; i++) {
       simulation.tick();
     }
 

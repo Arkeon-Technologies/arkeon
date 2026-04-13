@@ -13,6 +13,8 @@ export interface GraphNodeData extends Record<string, unknown> {
   hasSelection?: boolean
   isSpawning?: boolean
   unloadedCount?: number
+  colorMode?: 'type' | 'space'
+  spaceColor?: string
 }
 
 // Inject pulse keyframes once at module load — no per-mount useEffect needed.
@@ -25,12 +27,16 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_KEYFRAMES_
       0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
       50% { box-shadow: 0 0 20px 8px rgba(99, 102, 241, 0.2); }
     }
+    @keyframes graph-node-twinkle {
+      0%, 100% { opacity: 0.7; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
   `
   document.head.appendChild(style)
 }
 
 function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?: boolean; isSpawning?: boolean }) {
-  const size = isSelected ? 28 : 20
+  const size = isSelected ? 32 : 24
   return (
     <div
       style={{
@@ -38,8 +44,14 @@ function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?
         height: size,
         borderRadius: '50%',
         backgroundColor: color,
-        border: isSelected ? '2px solid white' : 'none',
-        boxShadow: isSpawning ? '0 0 12px 4px rgba(99, 102, 241, 0.4)' : undefined,
+        border: isSelected ? '3px solid white' : 'none',
+        boxShadow: isSpawning
+          ? `0 0 20px 8px rgba(99, 102, 241, 0.6)`
+          : `0 0 10px 4px ${color}66`,
+        animation: isSpawning
+          ? 'graph-node-pulse 1.5s ease-in-out infinite'
+          : 'graph-node-twinkle 3s ease-in-out infinite',
+        animationDelay: `${Math.random() * 3}s`,
         transition: 'width 0.15s, height 0.15s',
       }}
     />
@@ -111,9 +123,9 @@ function CardView({
 
 function GraphNodeInner({ data }: NodeProps) {
   const nodeData = data as unknown as GraphNodeData
-  const { entity, isSelected, isSpawning, unloadedCount } = nodeData
+  const { entity, isSelected, isSpawning, unloadedCount, colorMode, spaceColor } = nodeData
   const zoom = useStore((s) => s.transform[2])
-  const color = getTypeColor(entity.entity.type)
+  const color = colorMode === 'space' && spaceColor ? spaceColor : getTypeColor(entity.entity.type)
 
   const handleStyle = { opacity: 0, pointerEvents: 'none' as const, width: 6, height: 6 }
 
