@@ -81,7 +81,7 @@ curl "$ARKE_API/entities?label=Day%207" -H "X-API-Key: $ARKE_KEY"
 ## Re-loading
 
 The ops format deliberately does not deduplicate (see
-[`docs/INGEST_OPS.md`](../../docs/INGEST_OPS.md)). Running `load.sh` twice
+[`docs/dev/INGEST_OPS.md`](../../docs/dev/INGEST_OPS.md)). Running `load.sh` twice
 will produce a second copy of every entity and edge. Load it once on a fresh
 deployment, or merge duplicates afterwards via the entity merge API.
 

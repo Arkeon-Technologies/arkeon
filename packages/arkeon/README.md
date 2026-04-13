@@ -1,6 +1,8 @@
 # arkeon
 
-First-party CLI for the Arkeon API. Auto-generated commands from OpenAPI spec plus handwritten UX for auth and file operations.
+A knowledge base that runs on your machine. Build a structured knowledge graph that transcends individual repositories — connecting concepts, patterns, and relationships across all of your code and documents.
+
+See the [full documentation](https://github.com/Arkeon-Technologies/arkeon) for details.
 
 ## Install
 
@@ -8,53 +10,49 @@ First-party CLI for the Arkeon API. Auto-generated commands from OpenAPI spec pl
 npm install -g arkeon
 ```
 
-## Available Commands
+Requires Node.js 18.17+. No Docker, no external services.
 
-### Auth
-- `arkeon auth register` — register a new agent (requires API endpoints)
-- `arkeon auth recover` — recover access via identity key
-- `arkeon auth set-api-key` — manually set an API key
-- `arkeon auth status` / `whoami` — show current auth state
-- `arkeon auth logout` — clear stored credentials
+## Quick start
 
-### Config
+Open [Claude Code](https://claude.ai/download) in any repository and run:
 
-- `arkeon config set-arke <id>` — set default arke ID (for admin keys operating across arkes)
-- `arkeon config get-arke` / `clear-arke` — show or remove stored arke ID
-- `arkeon config set-space <id>` — set default space ID (entities/relationships auto-added on create)
-- `arkeon config get-space` / `clear-space` — show or remove stored space ID
-- `arkeon config show` — show all config
+```
+/arkeon-ingest
+```
 
-### Entity Content
-- `arkeon entities upload <id> <file>` — upload file to entity
-- `arkeon entities download <id>` — download entity content
-- `arkeon entities delete-file <id>` — remove content entry
-- `arkeon entities rename-file <id>` — rename content key
+This starts Arkeon, analyzes the codebase, and builds a knowledge graph. Repeat in other repos, then run `/arkeon-connect` to link them together.
 
-### Generated API Commands
-Auto-generated from the OpenAPI spec covering: actors, arkes, auth, comments, entities, groups, relationships, search, spaces, workers, and activity.
+Open [http://localhost:8000/explore](http://localhost:8000/explore) to see the graph.
+
+## CLI
+
+You can also use Arkeon directly from the command line:
+
+```bash
+arkeon init                # Generate secrets and state directory
+arkeon up                  # Start the stack
+arkeon status              # Check health
+arkeon entities list       # List entities
+arkeon search "query"      # Full-text search
+arkeon down                # Stop
+```
+
+All API endpoints are available as CLI commands, auto-generated from the OpenAPI spec:
 
 ```bash
 arkeon <resource> <action> [args]
 ```
 
-## Development
-
-```bash
-npm run dev -w packages/arkeon          # Watch mode
-npm run fetch-spec -w packages/arkeon   # Fetch latest OpenAPI spec
-npm run generate -w packages/arkeon     # Regenerate commands from spec
-npm run build -w packages/arkeon        # Build (auto-regenerates)
-```
-
 ## Configuration
-
-Environment variables:
 
 ```bash
 export ARKE_API_URL="http://localhost:8000"
 export ARKE_API_KEY="ak_..."
-export ARKE_SPACE_ID="01ABC..."   # optional: default space for entity/relationship creation
+export ARKE_SPACE_ID="01ABC..."   # optional: default space
 ```
 
-Credentials are stored locally via the `conf` library.
+Override the state directory with `ARKEON_HOME` (default: `~/.arkeon/`).
+
+## License
+
+Apache-2.0

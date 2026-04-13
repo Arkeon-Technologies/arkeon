@@ -1,17 +1,20 @@
-# Advanced features
+# Advanced and in-development features
 
-Opt-in features that are off by default because they require external
-services, cost money, or change the runtime behavior in ways that aren't
-universally desirable.
+Features that are functional but under active development. They may
+change significantly between releases. If you're evaluating Arkeon,
+start with the [quickstart](user/QUICKSTART.md) — everything below is
+opt-in and not required for core usage.
 
 ---
 
-## Knowledge extraction pipeline
+## Knowledge extraction pipeline (in development)
 
-A background service that watches `entity_activity` for `content_uploaded`
-events and extracts structured knowledge (text chunks, PDF/PPTX/DOCX pages,
-visual descriptions, entity relationships) from newly uploaded content
-using an LLM.
+A background service that watches for new content uploads and
+automatically extracts structured knowledge — text chunks, PDF/PPTX/DOCX
+pages, visual descriptions, entity relationships — using an LLM.
+
+**Status:** Functional but evolving. The extraction quality, job
+management, and configuration surface are all under active iteration.
 
 It is **off by default** because it:
 
@@ -113,6 +116,69 @@ in the `gpt-4o` / `gpt-4o-mini` class. A single PDF page with vision can
 run roughly $0.001–$0.01 depending on image size and prompt length.
 Whatever provider you point at, set a reasonable spend cap on the
 provider account before enabling the pipeline at scale.
+
+---
+
+## Worker runtime (in development)
+
+Sandboxed AI agents that can read and write the knowledge graph
+autonomously. Workers execute shell commands in an isolated environment
+with access to the Arkeon API.
+
+**Status:** Functional but the scheduling, invocation management, and
+developer experience are under active iteration. The sandbox provides
+real isolation on Linux (via bubblewrap); macOS uses a direct-execution
+fallback without isolation boundaries.
+
+### What workers are
+
+A worker is an actor (kind = `worker`) with:
+- A system prompt defining its behavior
+- Access to shell tools (`bash`, `curl`, `jq`, `python3`)
+- An API key scoped to its permissions
+- An optional cron schedule for recurring execution
+
+Workers are BYOK (bring your own key) — each worker invocation calls
+an LLM provider you configure. The worker itself does not ship with or
+require any specific LLM.
+
+### Prerequisites
+
+- **Linux**: `sudo apt-get install bubblewrap curl jq python3`
+- **macOS**: `brew install curl jq python3` (no bubblewrap — unsandboxed fallback)
+
+`arkeon start` / `up` warns at boot if these are missing but won't
+refuse to start. Workers that shell out will fail at runtime if the
+tools aren't installed.
+
+### How invocations work
+
+Workers are invoked via `POST /workers/:id/invoke`. Each invocation:
+1. Creates a sandboxed environment with the worker's tools and API key
+2. Sends the system prompt + invocation prompt to the configured LLM
+3. The LLM can call tools (shell commands, API requests) in a loop
+4. Results, token usage, and duration are recorded
+
+Invocations have retry logic with backoff. History is retained for 30
+days by default.
+
+### Scheduling
+
+Workers can be scheduled via `node-cron` expressions. The scheduler
+runs in-process — no external cron daemon needed. Scheduled workers
+execute automatically at their configured interval.
+
+For full details on the sandbox environment, pre-installed packages,
+and environment variables available to workers, see
+[dev/RUNTIME_ENVIRONMENT.md](dev/RUNTIME_ENVIRONMENT.md) and
+[dev/AGENT_RUNTIME.md](dev/AGENT_RUNTIME.md).
+
+---
+
+## Cron runtime (planned — v1.1)
+
+A more robust scheduling system for worker execution, replacing the
+current in-process `node-cron` approach. Design is not finalized.
 
 ---
 

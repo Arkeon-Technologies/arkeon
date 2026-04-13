@@ -119,7 +119,11 @@ database quotas, not in-process.
 
 ## Documentation Principles
 
-Docs in `docs/` are for information that is **not derivable from reading the code**:
+Docs are organized into `docs/user/` (for people running Arkeon),
+`docs/dev/` (for contributors and API consumers), `docs/ADVANCED.md`
+(in-development features), and `docs/future/` (planned features).
+
+All docs are for information that is **not derivable from reading the code**:
 - **Why**: Design rationale, trade-offs, architectural decisions
 - **How things interact**: Cross-cutting behavior spanning multiple packages/services
 - **Conventions**: Client-side patterns not enforced by code (e.g., entity refs, `arke:` URIs)
@@ -133,7 +137,7 @@ After changes that rename concepts, remove/replace features, add features previo
 
 1. Run `/review-docs all` or `/review-docs <filename>` to compare docs against codebase
 2. Delete docs about removed features
-3. Move "future" docs to `docs/` when the feature ships
+3. Move "future" docs to `docs/user/` or `docs/dev/` when the feature ships
 4. Trim any section that just restates what the code already says
 5. Update terminology, file paths, and column names to match current code
 6. Grep remaining docs for stale references (`git grep` old table names, endpoints, etc.)
