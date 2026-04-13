@@ -61,7 +61,7 @@ It will auto-detect the worktree, pick free ports, write `.devports` and `.env`,
 
 If the fix involves a new feature, new route, behavioral change, or anything beyond a simple bug fix:
 
-1. Look at existing tests in `packages/api/test/e2e/` to find the most relevant file
+1. Look at existing tests in `packages/arkeon/test/e2e/` to find the most relevant file
 2. **Extend an existing test file** if the feature relates to an existing test domain (entities, actors, spaces, etc.)
 3. **Create a new `*.test.ts` file** only if no existing file covers this domain
 4. Follow the established patterns: vitest, import helpers from `helpers.ts`, async API calls, descriptive test names
@@ -73,7 +73,7 @@ For simple bug fixes where the existing test suite already covers the affected b
 
 ```bash
 # Run e2e tests — .env provides E2E_BASE_URL and ADMIN_BOOTSTRAP_KEY automatically
-npm run test:e2e -w packages/api
+npm run test:e2e -w packages/arkeon
 ```
 
 If tests fail, fix the issue and re-run. Do not proceed to the PR step with failing tests.
@@ -146,7 +146,7 @@ git branch -d fix/issue-$ARGUMENTS
 - All work happens inside the worktree
 - Run migrations if any SQL files changed
 - Run e2e tests before opening the PR
-- If changing `packages/runtime/src/sandbox.ts` or `packages/api/src/lib/worker-invoke.ts`, run `./scripts/test-sandbox.sh`. On Linux this exercises real bubblewrap; on macOS it exercises the direct-execution fallback. The CI workflow installs bubblewrap on Ubuntu and runs the same script, so full-isolation tests still run in CI even if you develop on a Mac.
+- If changing `packages/arkeon/src/runtime/sandbox.ts` or `packages/arkeon/src/server/lib/worker-invoke.ts`, run `./scripts/test-sandbox.sh`. On Linux this exercises real bubblewrap; on macOS it exercises the direct-execution fallback. The CI workflow installs bubblewrap on Ubuntu and runs the same script, so full-isolation tests still run in CI even if you develop on a Mac.
 - If tests fail, fix and re-test — don't open a broken PR
 - **Labeling is mandatory**: `in-progress` must be added before any work begins; transition to `in-review` when the PR is opened
 - If you abandon the issue (user says stop, or it's blocked), remove the `in-progress` label: `gh issue edit $ARGUMENTS --remove-label "in-progress"`

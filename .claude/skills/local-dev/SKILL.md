@@ -54,7 +54,7 @@ Main tree (not a worktree) uses defaults: `PG_PORT=5433`, `API_PORT=8000`, `MEIL
 2. Check if already running: `curl -sf http://localhost:$API_PORT/health`.
 3. If not running, start the stack:
    ```bash
-   ARKEON_HOME="$ARKEON_HOME" nohup npx tsx packages/cli/src/index.ts start \
+   ARKEON_HOME="$ARKEON_HOME" nohup npx tsx packages/arkeon/src/index.ts start \
      --port $API_PORT --pg-port $PG_PORT --meili-port $MEILI_PORT \
      > /tmp/arkeon-$API_PORT.log 2>&1 &
    echo $! > /tmp/arkeon-$API_PORT.pid
@@ -80,13 +80,13 @@ Main tree (not a worktree) uses defaults: `PG_PORT=5433`, `API_PORT=8000`, `MEIL
    ```bash
    E2E_BASE_URL=http://localhost:$API_PORT \
    ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
-   npm run test:e2e -w packages/api
+   npm run test:e2e -w packages/arkeon
    ```
 4. Report results.
 
 ### `test:sandbox`
 
-Runs `packages/runtime/test/sandbox.test.ts`. On Linux, exercises real bubblewrap namespace isolation (install with `sudo apt-get install bubblewrap` if missing). On macOS, exercises the direct-execution fallback path.
+Runs `packages/arkeon/test/sandbox.test.ts`. On Linux, exercises real bubblewrap namespace isolation (install with `sudo apt-get install bubblewrap` if missing). On macOS, exercises the direct-execution fallback path.
 
 ```bash
 ./scripts/test-sandbox.sh
@@ -99,7 +99,7 @@ Wipes the Postgres data and Meilisearch index for this worktree's `ARKEON_HOME`.
 1. Stop the running process (same as `stop`).
 2. Wipe data:
    ```bash
-   ARKEON_HOME="$ARKEON_HOME" npx tsx packages/cli/src/index.ts reset --force
+   ARKEON_HOME="$ARKEON_HOME" npx tsx packages/arkeon/src/index.ts reset --force
    ```
    This removes `$ARKEON_HOME/data/` but preserves secrets and the downloaded Meilisearch binary. Use `--hard` to wipe everything.
 3. Start fresh with `start`.

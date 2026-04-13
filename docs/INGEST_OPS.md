@@ -1,6 +1,6 @@
 # Bulk Ingestion via `arke.ops/v1`
 
-`POST /ops` is the canonical path for creating multiple entities and relationships in one atomic request. This document describes the format conventions, the ref system, and the extensibility contract — everything that isn't derivable from the Zod schemas in `packages/api/src/lib/ops-schema.ts` or the route definition in `packages/api/src/routes/ops.ts`.
+`POST /ops` is the canonical path for creating multiple entities and relationships in one atomic request. This document describes the format conventions, the ref system, and the extensibility contract — everything that isn't derivable from the Zod schemas in `packages/arkeon/src/server/lib/ops-schema.ts` or the route definition in `packages/arkeon/src/server/routes/ops.ts`.
 
 For the HTTP surface (field names, types, error codes) see `GET /help/POST/ops`.
 

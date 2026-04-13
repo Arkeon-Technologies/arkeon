@@ -16,7 +16,7 @@ Three audiences need to understand the same API, but through different lenses:
 
 ## Architecture
 
-### Shared Operations (`packages/shared/`)
+### Shared Operations (`packages/arkeon/src/shared/`)
 
 Single source of truth for two concerns:
 
@@ -27,7 +27,7 @@ Single source of truth for two concerns:
 - Worker prompt (generates full CLI reference)
 - `/llms.txt` (generates full API reference)
 
-### API Help System (`packages/api/`)
+### API Help System (`packages/arkeon/src/server/`)
 
 Layered discovery for HTTP consumers. All generated at runtime from route definitions + Zod schemas via `@hono/zod-openapi`.
 
@@ -56,7 +56,7 @@ An LLM that reads `/llms.txt` once has everything it needs to use the API correc
 - `x-arke-rules` — permission/authorization rule descriptions
 - `x-arke-related` — cross-references to related routes
 
-### CLI Help System (`packages/cli/`)
+### CLI Help System (`packages/arkeon/src/cli/`)
 
 Layered discovery for terminal users. Commands are auto-generated from the same OpenAPI spec using the shared `parseOperations()`.
 
@@ -69,9 +69,9 @@ arkeon <group> <command> --help       # full usage, params, auth, route
 arkeon guide                          # getting-started guide with CLI examples
 ```
 
-**Auto-generated commands** (~78 operations, 12 groups) are created by `scripts/generate-commands.ts`, which imports `parseOperations` from `@arkeon-technologies/shared` and produces `src/generated/index.ts`.
+**Auto-generated commands** (~78 operations, 12 groups) are created by `scripts/generate-commands.ts`, which imports `parseOperations` from `src/shared/cli-operations.ts` and produces `src/generated/index.ts`.
 
-### Worker System Prompt (`packages/api/src/lib/worker-prompt.ts`)
+### Worker System Prompt (`packages/arkeon/src/server/lib/worker-prompt.ts`)
 
 The most critical context surface. Workers are LLMs running in sandboxes — their effectiveness is entirely determined by the quality of their starting context.
 
@@ -105,7 +105,7 @@ The most critical context surface. Workers are LLMs running in sandboxes — the
 
 **What's dynamic:**
 - CLI reference — generated at startup via `renderFullReferenceFromSpec()`, stored via `setWorkerCliReference()`. Uses `parseOperations()` from shared to get exact CLI command names, flag names, types, and descriptions.
-- Shared concepts — imported from `packages/shared/`
+- Shared concepts — imported from `packages/arkeon/src/shared/`
 
 **What's static (worker-specific):**
 - SDK examples and method signatures
@@ -129,13 +129,13 @@ Route definitions (createRoute + Zod)
         +---> CLI commands (parseOperations at build time)
         +---> Worker CLI reference (renderFullReferenceFromSpec at startup)
 
-Shared concepts (packages/shared/concepts.ts)
+Shared concepts (packages/arkeon/src/shared/concepts.ts)
         |
         +---> API guide (/help/guide) + HTTP examples
         +---> CLI guide (arkeon guide) + CLI examples
         +---> Worker system prompt
 
-Shared operations (packages/shared/cli-operations.ts)
+Shared operations (packages/arkeon/src/shared/cli-operations.ts)
         |
         +---> CLI codegen (generate-commands.ts)
         +---> Worker prompt (renderFullReferenceFromSpec)
@@ -144,11 +144,11 @@ Shared operations (packages/shared/cli-operations.ts)
 
 ## Maintaining This System
 
-**Adding a route:** Define it with `createRoute()` and Zod schemas. It automatically appears in `/help`, `/llms.txt`, `/openapi.json`, the worker CLI reference, and CLI commands (after `npm run build -w packages/cli`). If the route needs a non-default CLI group/action mapping, add an entry to `CLI_OVERRIDES` in `packages/shared/src/cli-operations.ts`.
+**Adding a route:** Define it with `createRoute()` and Zod schemas. It automatically appears in `/help`, `/llms.txt`, `/openapi.json`, the worker CLI reference, and CLI commands (after `npm run build -w packages/arkeon`). If the route needs a non-default CLI group/action mapping, add an entry to `CLI_OVERRIDES` in `packages/arkeon/src/shared/cli-operations.ts`.
 
-**Changing a concept:** Edit `packages/shared/src/concepts.ts`. The API guide, CLI guide, and worker prompt all update automatically.
+**Changing a concept:** Edit `packages/arkeon/src/shared/concepts.ts`. The API guide, CLI guide, and worker prompt all update automatically.
 
-**Changing SDK examples:** Edit `packages/api/src/lib/worker-prompt.ts` (worker) and the `FILTER_SYNTAX_BLOCK` preamble in `packages/api/src/lib/openapi-help.ts` (`/llms.txt`).
+**Changing SDK examples:** Edit `packages/arkeon/src/server/lib/worker-prompt.ts` (worker) and the `FILTER_SYNTAX_BLOCK` preamble in `packages/arkeon/src/server/lib/openapi-help.ts` (`/llms.txt`).
 
 **Updating the route index for workers:** Happens automatically at server startup. No manual step required.
 

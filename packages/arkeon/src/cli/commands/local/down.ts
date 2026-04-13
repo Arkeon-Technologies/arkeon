@@ -16,9 +16,10 @@ import { runStop } from "./stop.js";
 export function registerDownCommand(program: Command): void {
   program
     .command("down")
-    .description("Stop the running Arkeon stack (alias for `arkeon stop`)")
+    .description("Stop an Arkeon instance. Pass a name to stop a specific named instance.")
+    .argument("[name]", "Instance name to stop (default: stop the default instance)")
     .option("--timeout <ms>", "How long to wait for graceful shutdown before giving up", "30000")
-    .action(async (options: { timeout: string }) => {
-      await runStop("down", options);
+    .action(async (name: string | undefined, options: { timeout: string }) => {
+      await runStop("down", { ...options, name });
     });
 }

@@ -28,7 +28,7 @@ Client -> GET /search?q=...
 
 Sync is fire-and-forget: entity CUD operations push updates to Meilisearch via `backgroundTask()`. The search index is eventually consistent.
 
-Admin reindex: `POST /admin/reindex` or `npx tsx packages/api/src/lib/reindex.ts`.
+Admin reindex: `POST /admin/reindex` or `npx tsx packages/arkeon/src/server/lib/reindex.ts`.
 
 ## Future enhancement: Meilisearch vector search
 

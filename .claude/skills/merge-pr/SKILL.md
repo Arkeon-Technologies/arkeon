@@ -46,7 +46,7 @@ Then watch it to completion:
 gh run watch <run-id>
 ```
 
-**If the run succeeds:** Report success. The Docker image has been pushed to ECR and will auto-deploy to running instances within the hour.
+**If the run succeeds:** Report success. Tests passed and the merge is complete.
 
 **If the run fails:**
 1. Get the failure logs:
@@ -64,7 +64,7 @@ Each publishable package has its own tag prefix (see `.github/workflows/publish.
 ```bash
 # CLI: last release and changes since
 LAST_CLI_TAG=$(git tag -l 'arkeon-v*' --sort=-v:refname | head -1)
-CLI_CHANGES=$(git diff --name-only "$LAST_CLI_TAG"..HEAD -- packages/cli/src/ packages/cli/package.json | head -5)
+CLI_CHANGES=$(git diff --name-only "$LAST_CLI_TAG"..HEAD -- packages/arkeon/src/cli/ packages/arkeon/package.json | head -5)
 
 # SDK: last release and changes since
 LAST_SDK_TAG=$(git tag -l 'sdk-v*' --sort=-v:refname | head -1)

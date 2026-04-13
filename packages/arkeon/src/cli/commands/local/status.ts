@@ -14,6 +14,7 @@
 
 import type { Command } from "commander";
 
+import { listInstances, unregisterInstance } from "../../lib/instances.js";
 import {
   arkeonDir,
   DEFAULT_API_PORT,
@@ -134,6 +135,13 @@ async function runStatus(opts: StatusOptions): Promise<void> {
     probeLlmConfigured(apiUrl, adminKey),
   ]);
 
+  // Collect all registered instances and their liveness
+  const instances = listInstances().map((inst) => {
+    const alive = isProcessAlive(inst.pid);
+    if (!alive) unregisterInstance(inst.api_port);
+    return { name: inst.name, api_url: inst.api_url, pid: inst.pid, alive, arkeon_home: inst.arkeon_home };
+  }).filter((i) => i.alive);
+
   output.result({
     operation: "status",
     state: "running",
@@ -148,6 +156,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
     llm_model: llmState.model,
     state_dir: arkeonDir(),
     admin_key_prefix: `${adminKey.slice(0, 8)}...`,
+    instances: instances.length > 0 ? instances : undefined,
   });
   process.exit(ready ? 0 : 1);
 }

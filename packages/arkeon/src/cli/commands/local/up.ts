@@ -21,12 +21,15 @@
  */
 
 import type { Command } from "commander";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, openSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 
 import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
+import { listInstances, registerInstance, unregisterInstance } from "../../lib/instances.js";
 import {
   DEFAULT_API_PORT,
   DEFAULT_MEILI_PORT,
@@ -46,6 +49,7 @@ import {
 import { output } from "../../lib/output.js";
 
 interface UpOptions {
+  name?: string;
   port?: string;
   pgPort?: string;
   meiliPort?: string;
@@ -53,13 +57,23 @@ interface UpOptions {
   timeout?: string;
 }
 
+/**
+ * Deterministic port slot from instance name. Maps to slot 1-999.
+ * Uses two bytes of the hash for a wider range (reduces collision probability).
+ */
+function nameToPortSlot(name: string): number {
+  const hash = createHash("sha256").update(name).digest();
+  return ((hash[0]! << 8 | hash[1]!) % 999) + 1;
+}
+
 export function registerUpCommand(program: Command): void {
   program
     .command("up")
     .description("Start the Arkeon stack as a detached background daemon, wait for health, apply LLM config")
-    .option("--port <port>", "API port", String(DEFAULT_API_PORT))
-    .option("--pg-port <port>", "Embedded Postgres port", String(DEFAULT_PG_PORT))
-    .option("--meili-port <port>", "Meilisearch port", String(DEFAULT_MEILI_PORT))
+    .option("--name <name>", "Named instance — auto-picks ports and isolates state in ~/.arkeon/<name>/")
+    .option("--port <port>", `API port (default: ${DEFAULT_API_PORT})`)
+    .option("--pg-port <port>", `Embedded Postgres port (default: ${DEFAULT_PG_PORT})`)
+    .option("--meili-port <port>", `Meilisearch port (default: ${DEFAULT_MEILI_PORT})`)
     .option(
       "--knowledge",
       "Enable the LLM knowledge extraction pipeline (requires a staged or existing LLM config)",
@@ -76,10 +90,59 @@ export function registerUpCommand(program: Command): void {
 }
 
 async function runUp(opts: UpOptions): Promise<void> {
-  const apiPort = Number(opts.port ?? DEFAULT_API_PORT);
-  const pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT);
-  const meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT);
+  const instanceName = opts.name ?? "default";
+  const isNamed = Boolean(opts.name);
   const timeoutMs = (Number.parseInt(opts.timeout ?? "120", 10) || 120) * 1000;
+
+  // Prune stale registry entries from crashed instances
+  for (const inst of listInstances()) {
+    if (!isProcessAlive(inst.pid)) {
+      unregisterInstance(inst.api_port);
+    }
+  }
+
+  // Resolve ports and ARKEON_HOME
+  let apiPort: number;
+  let pgPort: number;
+  let meiliPort: number;
+
+  if (isNamed) {
+    const slot = nameToPortSlot(instanceName);
+    apiPort = Number(opts.port ?? DEFAULT_API_PORT + slot);
+    pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT + slot);
+    meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT + 10000 + slot);
+
+    // Check for port collision with another named instance
+    if (!opts.port) {
+      const existing = listInstances().find((i) => i.api_port === apiPort && i.name !== instanceName && isProcessAlive(i.pid));
+      if (existing) {
+        throw new Error(
+          `Port ${apiPort} is already in use by instance "${existing.name}". ` +
+          `Use --port to pick a different port: arkeon up --name ${instanceName} --port ${apiPort + 1}`,
+        );
+      }
+    }
+
+    // Named instances get isolated state under ~/.arkeon/<name>/
+    process.env.ARKEON_HOME = process.env.ARKEON_HOME ?? join(homedir(), ".arkeon", instanceName);
+    output.progress(`[arkeon] Starting named instance "${instanceName}" — API=${apiPort}, PG=${pgPort}, Meili=${meiliPort}`);
+    output.progress(`[arkeon] State dir: ${process.env.ARKEON_HOME}`);
+  } else {
+    apiPort = Number(opts.port ?? DEFAULT_API_PORT);
+    pgPort = Number(opts.pgPort ?? DEFAULT_PG_PORT);
+    meiliPort = Number(opts.meiliPort ?? DEFAULT_MEILI_PORT);
+
+    // Check if there's already a running instance on this port
+    const running = listInstances().filter((i) => isProcessAlive(i.pid));
+    if (running.length > 0 && !opts.port) {
+      const list = running.map((i) => `  ${i.name} — ${i.api_url} (pid ${i.pid})`).join("\n");
+      throw new Error(
+        `An Arkeon instance is already running:\n${list}\n\n` +
+        `To start an additional instance, use: arkeon up --name <name>\n` +
+        `To stop one: arkeon down <name>`,
+      );
+    }
+  }
 
   const existingPid = readPidfile();
   if (existingPid && isProcessAlive(existingPid)) {
@@ -155,6 +218,10 @@ async function runUp(opts: UpOptions): Promise<void> {
 
   child.unref();
 
+  if (!child.pid) {
+    throw new Error("Failed to spawn arkeon start — no child PID. Check `arkeon logs` for errors.");
+  }
+
   output.progress(`[arkeon] Daemon started (child pid ${child.pid}). Waiting for /health...`);
 
   // Poll /health. We can't rely on the child's pidfile existing yet —
@@ -168,8 +235,18 @@ async function runUp(opts: UpOptions): Promise<void> {
     );
   }
 
-  // Apply any pending LLM config staged by `arkeon init --llm-*`.
+  // Register this instance so other commands can discover it.
   const apiUrl = `http://localhost:${apiPort}`;
+  registerInstance({
+    name: instanceName,
+    api_url: apiUrl,
+    api_port: apiPort,
+    arkeon_home: arkeonDir(),
+    pid: child.pid,
+    started_at: new Date().toISOString(),
+  });
+
+  // Apply any pending LLM config staged by `arkeon init --llm-*`.
   let pushedLlm: PendingLlmConfig | null = null;
   try {
     pushedLlm = await pushPendingLlmConfig(secrets.adminBootstrapKey, apiUrl);

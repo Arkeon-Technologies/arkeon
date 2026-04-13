@@ -10,7 +10,7 @@ covered in `PERMISSIONS.md`.
 ## The 0–4 scale
 
 Classification is a single `int` validated by `ClassificationLevel` in
-`packages/api/src/lib/schemas.ts`:
+`packages/arkeon/src/server/lib/schemas.ts`:
 
 | Level | Name | Meaning |
 |---|---|---|
@@ -53,7 +53,7 @@ Use `PUT /entities/{id}/level` with a partial body:
 { "read_level": 2, "write_level": 2 }
 ```
 
-Rules, enforced in `packages/api/src/routes/entities.ts`:
+Rules, enforced in `packages/arkeon/src/server/routes/entities.ts`:
 
 - The caller must be the owner, an editor, or an entity admin.
 - New `read_level` cannot exceed the caller's `max_read_level`.
@@ -79,7 +79,7 @@ relationship.read_level ≥ GREATEST(source.read_level, target.read_level)
 ```
 
 The trigger `relationship_classification_guard` in
-`packages/schema/015-rls-policies.sql` rejects any insert or update that
+`packages/arkeon/src/schema/015-rls-policies.sql` rejects any insert or update that
 violates the rule. The API layer sets the relationship's level to
 `GREATEST(src, tgt)` by default so callers don't have to think about it;
 the trigger is the safety net against direct SQL or future bugs.

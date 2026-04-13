@@ -79,7 +79,7 @@ plumbed in. Until a config is stored, extraction jobs throw
    `pptx.extract`, `docx.extract`, `text.extract`, etc.), which may fan
    out to child jobs (`pdf.page_group`, `text.chunk_extract`, ...).
 
-3. **Handlers** — live in `packages/api/src/knowledge/pipeline/`. Each one
+3. **Handlers** — live in `packages/arkeon/src/server/knowledge/pipeline/`. Each one
    takes a job record and the associated entity, produces new entities and
    relationships, and records token usage on the job.
 

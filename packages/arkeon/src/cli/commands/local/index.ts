@@ -9,7 +9,6 @@
  * Two naming families for historical reasons:
  *
  *   Quickstart / daemon style (background, familiar to Docker users):
- *     arkeon init    — create ~/.arkeon, stage LLM config
  *     arkeon up      — start as a detached daemon, apply LLM, save creds
  *     arkeon down    — stop the daemon (alias of stop)
  *     arkeon logs    — tail the daemon log
@@ -29,7 +28,6 @@
 
 import { Command } from "commander";
 
-import { registerInitCommand } from "./init.js";
 import { registerUpCommand } from "./up.js";
 import { registerStartCommand } from "./start.js";
 import { registerStopCommand } from "./stop.js";
@@ -45,7 +43,6 @@ export function registerLocalCommands(program: Command): void {
   // flow first (init/up/down/logs/status/seed) since it's what new
   // users are copy-pasting from the README, then the foreground /
   // maintenance commands.
-  registerInitCommand(program);
   registerUpCommand(program);
   registerDownCommand(program);
   registerLogsCommand(program);

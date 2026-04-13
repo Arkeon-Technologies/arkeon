@@ -11,7 +11,12 @@ export type StoredCredentials = {
   privateKey?: string;
 };
 
-const store = new Conf<{ credentials?: StoredCredentials }>({
+export type ActorKey = {
+  api_key: string;
+  label: string;
+};
+
+const store = new Conf<{ credentials?: StoredCredentials; actorKeys?: Record<string, ActorKey> }>({
   projectName: "arkeon-cli",
   configName: "credentials",
 });
@@ -67,5 +72,35 @@ export const credentials = {
 
   path(): string {
     return store.path;
+  },
+
+  saveActorKey(actorId: string, apiKey: string, label: string): void {
+    const keys = store.get("actorKeys") ?? {};
+    keys[actorId] = { api_key: apiKey, label };
+    store.set("actorKeys", keys);
+  },
+
+  getActorKey(actorId: string): string | null {
+    return store.get("actorKeys")?.[actorId]?.api_key ?? null;
+  },
+
+  requireActorKey(actorId: string): string {
+    const key = this.getActorKey(actorId);
+    if (!key) {
+      throw new AuthError(
+        `No API key found for actor ${actorId}. Run \`arkeon init\` to set up this repo.`,
+      );
+    }
+    return key;
+  },
+
+  listActorKeys(): Record<string, ActorKey> {
+    return store.get("actorKeys") ?? {};
+  },
+
+  deleteActorKey(actorId: string): void {
+    const keys = store.get("actorKeys") ?? {};
+    delete keys[actorId];
+    store.set("actorKeys", keys);
   },
 };
