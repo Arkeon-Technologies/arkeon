@@ -82,9 +82,19 @@ export class Sandbox {
   }
 
   private installHelpers(): void {
-    // Helper scripts are shell scripts used inside bwrap (Linux-only).
-    // Skip on Windows where they'd be useless.
-    if (IS_WIN) return;
+    if (IS_WIN) {
+      // Windows equivalent: PowerShell script that touches the done-signal file.
+      const donePs1 = [
+        "if (-not $env:ARKE_DONE_SIGNAL_FILE) { throw 'ARKE_DONE_SIGNAL_FILE is not set' }",
+        "New-Item -ItemType File -Path $env:ARKE_DONE_SIGNAL_FILE -Force | Out-Null",
+        "Write-Output $env:ARKE_DONE_SIGNAL_FILE",
+      ].join("\r\n");
+
+      for (const name of ["arke-done.ps1", "done.ps1"]) {
+        writeFileSync(join(this.sandboxBinDir, name), donePs1, "utf-8");
+      }
+      return;
+    }
 
     const doneScript = [
       "#!/bin/sh",
@@ -95,11 +105,7 @@ export class Sandbox {
 
     for (const name of ["arke-done", "done"]) {
       const scriptPath = join(this.sandboxBinDir, name);
-      writeFileSync(
-        scriptPath,
-        doneScript,
-        "utf-8",
-      );
+      writeFileSync(scriptPath, doneScript, "utf-8");
       chmodSync(scriptPath, 0o755);
     }
   }

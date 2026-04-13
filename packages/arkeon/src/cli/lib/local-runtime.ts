@@ -405,7 +405,10 @@ export async function startEmbeddedPostgres(opts: {
 // =====================================================================
 
 export function checkWorkerToolchain(): void {
-  const tools = ["bash", "curl", "jq", "python3"];
+  // On Windows, execDirect() uses PowerShell — bash isn't needed.
+  const tools = platform() === "win32"
+    ? ["curl", "jq", "python3"]
+    : ["bash", "curl", "jq", "python3"];
   const missing: string[] = [];
   for (const tool of tools) {
     const r = spawnSync(tool, ["--version"], { stdio: "ignore" });

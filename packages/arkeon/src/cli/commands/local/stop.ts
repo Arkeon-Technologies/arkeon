@@ -98,7 +98,9 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
 
   output.error(
     new Error(
-      `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`kill -9 ${pid}\`.`,
+      platform() === "win32"
+        ? `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`taskkill /F /PID ${pid}\`.`
+        : `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`kill -9 ${pid}\`.`,
     ),
     { operation },
   );
