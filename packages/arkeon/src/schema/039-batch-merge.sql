@@ -9,6 +9,10 @@
 -- CAS is checked on the first iteration only. Subsequent ver increments are
 -- deterministic within the transaction.
 --
+-- Only the final iteration writes the merged properties and a version snapshot.
+-- Intermediate iterations just bump ver and log the merge activity. This avoids
+-- creating noisy intermediate version entries.
+--
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION perform_group_merge(
@@ -29,12 +33,16 @@ DECLARE
   v_expected_ver INTEGER;
   v_new_ver INTEGER;
   v_i INTEGER;
+  v_count INTEGER;
+  v_is_last BOOLEAN;
 BEGIN
   v_expected_ver := p_start_ver;
+  v_count := array_length(p_source_ids, 1);
 
-  FOR v_i IN 1..array_length(p_source_ids, 1) LOOP
+  FOR v_i IN 1..v_count LOOP
     v_source_id := p_source_ids[v_i];
     v_new_ver := v_expected_ver + 1;
+    v_is_last := (v_i = v_count);
 
     -- 1. Delete self-referential edges (source <-> target)
     DELETE FROM entities WHERE id IN (
@@ -88,10 +96,11 @@ BEGIN
     -- 8. Transfer comments
     UPDATE comments SET entity_id = p_target_id WHERE entity_id = v_source_id;
 
-    -- 9. Update target entity (CAS guard on first iteration only)
+    -- 9. Update target entity
+    -- CAS guard on first iteration; properties only written on last iteration
     IF v_i = 1 THEN
       UPDATE entities
-      SET properties = CASE WHEN v_i = array_length(p_source_ids, 1) THEN p_merged_properties ELSE properties END,
+      SET properties = CASE WHEN v_is_last THEN p_merged_properties ELSE properties END,
           ver = v_new_ver,
           edited_by = p_actor_id,
           note = 'batch merge',
@@ -104,7 +113,7 @@ BEGIN
       END IF;
     ELSE
       UPDATE entities
-      SET properties = CASE WHEN v_i = array_length(p_source_ids, 1) THEN p_merged_properties ELSE properties END,
+      SET properties = CASE WHEN v_is_last THEN p_merged_properties ELSE properties END,
           ver = v_new_ver,
           edited_by = p_actor_id,
           note = 'batch merge',
@@ -113,13 +122,13 @@ BEGIN
       RETURNING * INTO v_updated;
     END IF;
 
-    -- 10. Insert version snapshot
-    INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
-    VALUES (p_target_id, v_new_ver,
-            CASE WHEN v_i = array_length(p_source_ids, 1) THEN p_merged_properties ELSE v_updated.properties END,
-            p_actor_id, 'batch merge', p_now);
+    -- 10. Version snapshot only on last iteration (avoids noisy intermediates)
+    IF v_is_last THEN
+      INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
+      VALUES (p_target_id, v_new_ver, p_merged_properties, p_actor_id, 'batch merge', p_now);
+    END IF;
 
-    -- 11. Log merge activity
+    -- 11. Log merge activity (always — one entry per source for audit trail)
     INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
     VALUES (p_target_id, p_actor_id, 'entity_merged', p_merge_details[v_i], p_now);
 

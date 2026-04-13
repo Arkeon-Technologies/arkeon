@@ -1219,6 +1219,48 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
 // ---------------------------------------------------------------------------
 
 /**
+ * Deep-merge two plain objects. Recurses into nested objects; for other types:
+ * - Strings: keep longest
+ * - Arrays: union by JSON equality
+ * - Other: keep existing (first non-null wins)
+ */
+function deepMergeObjects(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...a };
+  for (const [key, value] of Object.entries(b)) {
+    const existing = result[key];
+    if (existing === undefined || existing === null) {
+      result[key] = value;
+    } else if (typeof existing === "string" && typeof value === "string") {
+      if (value.length > existing.length) result[key] = value;
+    } else if (Array.isArray(existing) && Array.isArray(value)) {
+      const seen = new Set(existing.map((v) => JSON.stringify(v)));
+      const merged = [...existing];
+      for (const item of value) {
+        const k = JSON.stringify(item);
+        if (!seen.has(k)) {
+          merged.push(item);
+          seen.add(k);
+        }
+      }
+      result[key] = merged;
+    } else if (
+      typeof existing === "object" && existing !== null && !Array.isArray(existing) &&
+      typeof value === "object" && value !== null && !Array.isArray(value)
+    ) {
+      result[key] = deepMergeObjects(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+    // else: keep existing (first non-null wins for other types)
+  }
+  return result;
+}
+
+/**
  * Accumulate properties from multiple entities. Never drops information:
  * - Strings: keep longest
  * - Arrays: union (concat + dedupe by JSON equality)
@@ -1228,37 +1270,10 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
 function accumulateProperties(
   entities: EntityRecord[],
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+  let result: Record<string, unknown> = {};
   for (const entity of entities) {
     if (!entity.properties) continue;
-    for (const [key, value] of Object.entries(entity.properties)) {
-      const existing = result[key];
-      if (existing === undefined || existing === null) {
-        result[key] = value;
-      } else if (typeof existing === "string" && typeof value === "string") {
-        // Keep longest string
-        if (value.length > existing.length) result[key] = value;
-      } else if (Array.isArray(existing) && Array.isArray(value)) {
-        // Union arrays by JSON equality
-        const seen = new Set(existing.map((v) => JSON.stringify(v)));
-        const merged = [...existing];
-        for (const item of value) {
-          const key = JSON.stringify(item);
-          if (!seen.has(key)) {
-            merged.push(item);
-            seen.add(key);
-          }
-        }
-        result[key] = merged;
-      } else if (
-        typeof existing === "object" && existing !== null && !Array.isArray(existing) &&
-        typeof value === "object" && value !== null && !Array.isArray(value)
-      ) {
-        // Deep merge objects
-        result[key] = { ...(existing as Record<string, unknown>), ...(value as Record<string, unknown>) };
-      }
-      // else: keep existing (first non-null wins for other types)
-    }
+    result = deepMergeObjects(result, entity.properties as Record<string, unknown>);
   }
   return result;
 }
@@ -1283,9 +1298,10 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
     throw new ApiError(400, "invalid_body", "Invalid property_strategy");
   }
 
-  // Validate: no entity ID in multiple groups
+  // Dedupe IDs within each group, then validate no ID across groups
+  const deduplicatedGroups: Array<{ entity_ids: string[] }> = [];
   const allIds: string[] = [];
-  const seenIds = new Set<string>();
+  const globalSeenIds = new Set<string>();
   for (const group of groups) {
     if (!Array.isArray(group.entity_ids) || group.entity_ids.length < 2) {
       throw new ApiError(400, "invalid_body", "Each group must have at least 2 entity_ids");
@@ -1293,11 +1309,17 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
     if (group.entity_ids.length > 500) {
       throw new ApiError(400, "invalid_body", "Maximum 500 entities per group");
     }
-    for (const id of group.entity_ids) {
-      if (seenIds.has(id)) {
+    // Dedupe within group
+    const uniqueIds = [...new Set(group.entity_ids)];
+    if (uniqueIds.length < 2) {
+      throw new ApiError(400, "invalid_body", "Each group must have at least 2 unique entity_ids");
+    }
+    deduplicatedGroups.push({ entity_ids: uniqueIds });
+    for (const id of uniqueIds) {
+      if (globalSeenIds.has(id)) {
         throw new ApiError(400, "invalid_body", `Entity ${id} appears in multiple groups`);
       }
-      seenIds.add(id);
+      globalSeenIds.add(id);
       allIds.push(id);
     }
   }
@@ -1363,6 +1385,22 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
     source_ids: string[];
   };
 
+  // If any entities are relationships, fetch edge data for endpoint validation
+  const relationshipIds = allIds.filter((id) => entityMap.get(id)!.kind === "relationship");
+  const edgeMap = new Map<string, { source_id: string; target_id: string }>();
+  if (relationshipIds.length > 0) {
+    const edgeResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT id, source_id, target_id FROM relationship_edges WHERE id = ANY($1::text[])`,
+        [relationshipIds],
+      ),
+    ]);
+    for (const row of edgeResults[ctxLen] as Array<{ id: string; source_id: string; target_id: string }>) {
+      edgeMap.set(row.id, { source_id: row.source_id, target_id: row.target_id });
+    }
+  }
+
   const processGroup = async (group: { entity_ids: string[] }): Promise<GroupResult> => {
     const entities = group.entity_ids.map((id) => entityMap.get(id)!);
 
@@ -1376,6 +1414,32 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
         error: "All entities in group must have the same kind",
         source_ids: [],
       };
+    }
+
+    // If relationships, validate all share the same endpoints
+    if (entities[0].kind === "relationship") {
+      const firstEdge = edgeMap.get(entities[0].id);
+      if (!firstEdge) {
+        return {
+          target_id: "",
+          merged_count: 0,
+          final_ver: 0,
+          error: "Relationship edge data not found",
+          source_ids: [],
+        };
+      }
+      for (let i = 1; i < entities.length; i++) {
+        const edge = edgeMap.get(entities[i].id);
+        if (!edge || edge.source_id !== firstEdge.source_id || edge.target_id !== firstEdge.target_id) {
+          return {
+            target_id: "",
+            merged_count: 0,
+            final_ver: 0,
+            error: "Cannot merge relationships with different endpoints",
+            source_ids: [],
+          };
+        }
+      }
     }
 
     // Pick target: entity with most property keys, tie-break by oldest (lowest ULID)
@@ -1471,8 +1535,8 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
   // Execute groups with bounded concurrency (10 at a time)
   const CONCURRENCY = 10;
   const results: GroupResult[] = [];
-  for (let i = 0; i < groups.length; i += CONCURRENCY) {
-    const batch = groups.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < deduplicatedGroups.length; i += CONCURRENCY) {
+    const batch = deduplicatedGroups.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.allSettled(batch.map(processGroup));
     for (const result of batchResults) {
       if (result.status === "fulfilled") {

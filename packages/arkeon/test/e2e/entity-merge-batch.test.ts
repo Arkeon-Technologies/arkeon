@@ -341,4 +341,114 @@ describe("Entity Merge Batch", () => {
     expect(props.unique_to_2).toBe(true);
     expect(props.unique_to_3).toBe(true);
   });
+
+  // --- Deep merge ---
+
+  test("accumulate deep-merges nested objects recursively", async () => {
+    const e1 = await createEntity(actor.apiKey, "person", {
+      label: "test",
+      metadata: { level1: { a: 1, b: 2 } },
+    });
+    const e2 = await createEntity(actor.apiKey, "person", {
+      label: "test",
+      metadata: { level1: { c: 3 }, level2: "new" },
+    });
+
+    const { body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [{ entity_ids: [e1.id, e2.id] }],
+        property_strategy: "accumulate",
+      },
+    });
+
+    const targetId = (body as any).groups[0].target_id;
+    const { body: entityBody } = await getJson(`/entities/${targetId}`, actor.apiKey);
+    const meta = (entityBody as any).entity.properties.metadata;
+
+    // Nested object keys from both entities should be preserved
+    expect(meta.level1.a).toBe(1);
+    expect(meta.level1.b).toBe(2);
+    expect(meta.level1.c).toBe(3);
+    expect(meta.level2).toBe("new");
+  });
+
+  // --- Intra-group duplicate IDs ---
+
+  test("duplicate IDs within a group are deduplicated silently", async () => {
+    const e1 = await createEntity(actor.apiKey, "note", { label: uniqueName("d1") });
+    const e2 = await createEntity(actor.apiKey, "note", { label: uniqueName("d2") });
+
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [{ entity_ids: [e1.id, e2.id, e1.id] }], // e1 duplicated
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect((body as any).merged).toBe(1); // only 1 merge, not 2
+    expect((body as any).groups[0].error).toBeNull();
+  });
+
+  test("400 when intra-group dedup leaves fewer than 2 unique IDs", async () => {
+    const e1 = await createEntity(actor.apiKey, "note", { label: uniqueName("solo") });
+
+    const { response } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [{ entity_ids: [e1.id, e1.id] }],
+      },
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  // --- Relationship endpoint validation ---
+
+  test("error when merging relationships with different endpoints", async () => {
+    const a = await createEntity(actor.apiKey, "note", { label: uniqueName("a") });
+    const b = await createEntity(actor.apiKey, "note", { label: uniqueName("b") });
+    const c = await createEntity(actor.apiKey, "note", { label: uniqueName("c") });
+
+    const rel1 = await createRelationship(actor.apiKey, a.id, "cites", b.id);
+    const rel2 = await createRelationship(actor.apiKey, a.id, "cites", c.id); // different target
+
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [{ entity_ids: [rel1.relationship.id, rel2.relationship.id] }],
+      },
+    });
+
+    expect(response.status).toBe(200);
+    // Group should fail with endpoint mismatch error
+    expect((body as any).groups[0].error).toContain("different endpoints");
+    expect((body as any).failed).toBe(1);
+  });
+
+  test("relationships with same endpoints merge successfully", async () => {
+    const a = await createEntity(actor.apiKey, "note", { label: uniqueName("a") });
+    const b = await createEntity(actor.apiKey, "note", { label: uniqueName("b") });
+
+    const rel1 = await createRelationship(actor.apiKey, a.id, "cites", b.id, { weight: 1 });
+    const rel2 = await createRelationship(actor.apiKey, a.id, "references", b.id, { weight: 5 });
+
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [{ entity_ids: [rel1.relationship.id, rel2.relationship.id] }],
+        property_strategy: "accumulate",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect((body as any).merged).toBe(1);
+    expect((body as any).groups[0].error).toBeNull();
+  });
 });
