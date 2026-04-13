@@ -31,6 +31,13 @@ export const FILTERABLE_COLUMNS = Object.entries(COLUMN_WHITELIST).map(
   ([name, type]) => ({ name, type }),
 );
 
+/** Relationship filter prefixes available in the filter API, exported for help docs. */
+export const RELATIONSHIP_FILTER_PREFIXES = [
+  { prefix: "rel.<predicate>", description: "Entities with a relationship (either direction) of this predicate to the given entity ID" },
+  { prefix: "rel_out.<predicate>", description: "Entities that are the source of a relationship with this predicate to the given entity ID" },
+  { prefix: "rel_in.<predicate>", description: "Entities that are the target of a relationship with this predicate from the given entity ID" },
+];
+
 export function parseFilter(filter: string | undefined): FilterClause[] {
   if (!filter) {
     return [];
@@ -102,6 +109,42 @@ export function buildFilterSql(
   let nextIndex = startIndex;
 
   for (const clause of clauses) {
+    // Relationship filter: rel.<predicate>:<target_id>
+    // Matches entities that have a relationship with the given predicate
+    // to/from the specified entity. Supports directional variants:
+    //   rel.<pred>:<id>     — either direction
+    //   rel_out.<pred>:<id> — this entity is the source
+    //   rel_in.<pred>:<id>  — this entity is the target
+    const relMatch = clause.path.match(/^(rel|rel_out|rel_in)\.(.+)$/);
+    if (relMatch && (clause.op === ":" || clause.op === "!:")) {
+      const [, direction, predicate] = relMatch;
+      const entityId = clause.value;
+      params.push(predicate, entityId);
+      const predIdx = nextIndex;
+      const idIdx = nextIndex + 1;
+      nextIndex += 2;
+
+      let directionSql: string;
+      // Use entities.id explicitly to avoid ambiguity with relationship_edges.id
+      if (direction === "rel_out") {
+        // This entity is the source, value is the target
+        directionSql = `re_f.source_id = entities.id AND re_f.target_id = $${idIdx}`;
+      } else if (direction === "rel_in") {
+        // This entity is the target, value is the source
+        directionSql = `re_f.target_id = entities.id AND re_f.source_id = $${idIdx}`;
+      } else {
+        // Either direction
+        directionSql = `(re_f.source_id = entities.id AND re_f.target_id = $${idIdx}) OR (re_f.target_id = entities.id AND re_f.source_id = $${idIdx})`;
+      }
+
+      const existsClause = `${clause.op === "!:" ? "NOT " : ""}EXISTS (
+        SELECT 1 FROM relationship_edges re_f
+        WHERE re_f.predicate = $${predIdx} AND (${directionSql})
+      )`;
+      sql.push(existsClause);
+      continue;
+    }
+
     const columnType = COLUMN_WHITELIST[clause.path];
 
     if (columnType) {
