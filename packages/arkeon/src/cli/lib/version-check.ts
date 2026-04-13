@@ -53,7 +53,7 @@ function writeCache(latest: string): void {
 /**
  * Compare two semver strings. Returns true if remote > local.
  */
-function isNewer(remote: string, local: string): boolean {
+export function isNewer(remote: string, local: string): boolean {
   const r = remote.split(".").map(Number);
   const l = local.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
@@ -102,7 +102,7 @@ export function checkForUpdate(currentVersion: string): void {
       if (age < CHECK_INTERVAL_MS) {
         // Cache is fresh — warn if newer version exists
         if (isNewer(cache.latest, currentVersion)) {
-          const msg = `\x1b[33mUpdate available: arkeon ${cache.latest} (current: ${currentVersion}). Run \`npm install -g arkeon@latest\` to update.\x1b[0m`;
+          const msg = `\x1b[33mUpdate available: arkeon ${cache.latest} (current: ${currentVersion}). Run \`arkeon update\` to update.\x1b[0m`;
           process.stderr.write(msg + "\n");
         }
         return;
