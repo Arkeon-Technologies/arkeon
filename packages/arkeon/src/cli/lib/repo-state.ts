@@ -20,12 +20,18 @@ export type RepoState = {
   api_url: string;
   space_id: string;
   space_name: string;
+  current_actor?: string;
+  /** @deprecated Prefer instance actor registry. Still written by init for backward compat and per-repo scoping. */
   actors: Record<string, ActorRef>;
   created_at: string;
 };
 
 const STATE_DIR = ".arkeon";
 const STATE_FILE = "state.json";
+
+// Cache: avoid re-reading state.json on every apiRequest call.
+// Invalidated by saveRepoState() so writes are immediately visible.
+let cachedState: RepoState | null | undefined;
 
 function findStateDir(from: string): string | null {
   let dir = resolve(from);
@@ -47,12 +53,21 @@ function findStateDir(from: string): string | null {
 }
 
 export function loadRepoState(cwd?: string): RepoState | null {
+  // Use cached result when reading from the default cwd (hot path)
+  if (!cwd && cachedState !== undefined) return cachedState;
+
   const base = findStateDir(cwd ?? process.cwd());
-  if (!base) return null;
+  if (!base) {
+    if (!cwd) cachedState = null;
+    return null;
+  }
   try {
     const raw = readFileSync(join(base, STATE_DIR, STATE_FILE), "utf-8");
-    return JSON.parse(raw) as RepoState;
+    const state = JSON.parse(raw) as RepoState;
+    if (!cwd) cachedState = state;
+    return state;
   } catch {
+    if (!cwd) cachedState = null;
     return null;
   }
 }
@@ -70,6 +85,8 @@ export function saveRepoState(state: RepoState, cwd?: string): void {
   const dir = join(base, STATE_DIR);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, STATE_FILE), JSON.stringify(state, null, 2) + "\n");
+  // Invalidate cache so subsequent reads see the new state
+  if (!cwd) cachedState = state;
 }
 
 export function stateFilePath(cwd?: string): string {

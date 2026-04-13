@@ -96,6 +96,17 @@ ARKEON_HOME=./state npx arkeon down
 
 Do not skip this step.
 
+## Lockfile hygiene after structural changes
+
+If you add, remove, or restructure workspace packages, or change version specifiers in any `package.json`, always regenerate the lockfile from a clean state:
+
+```bash
+rm -rf node_modules packages/*/node_modules package-lock.json
+npm install
+```
+
+Do NOT run `npm install` on top of an existing `node_modules` — npm will preserve the old hoist layout in the lockfile even when the new package.json would resolve differently. A stale lockfile can cause CI to place deps per-package instead of hoisted-to-root, breaking builds that depend on cross-workspace resolution (e.g., the SDK's `tsc --emitDeclarationOnly` step needs `typescript` hoisted to root where tsup can find it).
+
 ## Do NOT add in-process rate limiting
 
 We deliberately have no rate limiter. Do not propose adding a per-IP

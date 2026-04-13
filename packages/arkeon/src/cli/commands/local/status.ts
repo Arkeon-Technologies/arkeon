@@ -24,6 +24,7 @@ import {
   removePidfile,
 } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
+import { loadRepoState } from "../../lib/repo-state.js";
 
 interface StatusOptions {
   port?: string;
@@ -62,6 +63,12 @@ async function runStatus(opts: StatusOptions): Promise<void> {
   const apiUrl = `http://localhost:${port}`;
   const pid = readPidfile();
 
+  // Repo binding state (independent of stack liveness)
+  const repoState = loadRepoState();
+  const repo = repoState
+    ? { initialized: true, space_id: repoState.space_id, space_name: repoState.space_name, api_url: repoState.api_url, actors: Object.keys(repoState.actors) }
+    : { initialized: false as const };
+
   // Not running — still show state_dir + admin key prefix so the user
   // has what they need to bring the stack back up and authenticate.
   if (!pid) {
@@ -71,6 +78,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
       state: "not_running",
       state_dir: arkeonDir(),
       admin_key_prefix: secrets ? `${secrets.adminBootstrapKey.slice(0, 8)}...` : null,
+      repo,
       hint: "Run `arkeon up` to start the stack.",
     });
     process.exit(2);
@@ -86,6 +94,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
       stale_pid: pid,
       state_dir: arkeonDir(),
       admin_key_prefix: secrets ? `${secrets.adminBootstrapKey.slice(0, 8)}...` : null,
+      repo,
     });
     process.exit(2);
   }
@@ -105,6 +114,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
       health: false,
       ready: false,
       state_dir: arkeonDir(),
+      repo,
       hint: "Process is alive but /health is not responding. Check `arkeon logs` for errors.",
     });
     process.exit(1);
@@ -124,6 +134,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
       health: true,
       ready,
       state_dir: arkeonDir(),
+      repo,
       hint: "No secrets.json in the state dir — cannot run authenticated probes. Run `arkeon init` to generate one.",
     });
     process.exit(ready ? 0 : 1);
@@ -156,6 +167,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
     llm_model: llmState.model,
     state_dir: arkeonDir(),
     admin_key_prefix: `${adminKey.slice(0, 8)}...`,
+    repo,
     instances: instances.length > 0 ? instances : undefined,
   });
   process.exit(ready ? 0 : 1);

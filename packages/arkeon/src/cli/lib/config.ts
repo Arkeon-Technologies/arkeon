@@ -3,6 +3,8 @@
 
 import Conf from "conf";
 
+import { loadRepoState } from "./repo-state.js";
+
 type ConfigSchema = {
   apiUrl: string;
   spaceId?: string;
@@ -26,6 +28,14 @@ export const config = {
     }
     if (key === "spaceId" && process.env.ARKE_SPACE_ID) {
       return process.env.ARKE_SPACE_ID as ConfigSchema[K];
+    }
+    // Repo-scoped URL and space_id take precedence over global config
+    if (key === "apiUrl" || key === "spaceId") {
+      const state = loadRepoState();
+      if (state) {
+        if (key === "apiUrl") return state.api_url as ConfigSchema[K];
+        if (key === "spaceId") return state.space_id as ConfigSchema[K];
+      }
     }
     const value = store.get(key);
     if (key === "apiUrl" && value === LEGACY_API_URL) {

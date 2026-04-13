@@ -29,7 +29,7 @@ import { homedir } from "node:os";
 
 import { config } from "../../lib/config.js";
 import { credentials } from "../../lib/credentials.js";
-import { listInstances, registerInstance, unregisterInstance } from "../../lib/instances.js";
+import { listInstances, registerInstance, saveInstanceActor, unregisterInstance } from "../../lib/instances.js";
 import {
   DEFAULT_API_PORT,
   DEFAULT_MEILI_PORT,
@@ -245,6 +245,22 @@ async function runUp(opts: UpOptions): Promise<void> {
     pid: child.pid,
     started_at: new Date().toISOString(),
   });
+
+  // Register admin actor in the instance actor registry so `arkeon auth use admin` works.
+  try {
+    const meResp = await fetch(`${apiUrl}/auth/me`, {
+      headers: { authorization: `ApiKey ${secrets.adminBootstrapKey}` },
+    });
+    if (meResp.ok) {
+      const meBody = (await meResp.json()) as { actor?: { id?: string } };
+      if (meBody.actor?.id) {
+        saveInstanceActor(apiUrl, "admin", meBody.actor.id);
+        credentials.saveActorKey(meBody.actor.id, secrets.adminBootstrapKey, "admin");
+      }
+    }
+  } catch {
+    // Non-fatal — admin profile just won't be available
+  }
 
   // Apply any pending LLM config staged by `arkeon init --llm-*`.
   let pushedLlm: PendingLlmConfig | null = null;
