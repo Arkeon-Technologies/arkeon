@@ -8,7 +8,7 @@
  * TODO(ops-migration): This file emits the legacy {entities, relationships}
  * format (plus a legacy {ops: [{op: "create_entity"}, ...]} variant handled
  * by normalizePlan below). The canonical ingestion format for the API is now
- * arke.ops/v1 — see packages/api/src/lib/ops-schema.ts and docs/INGEST_OPS.md.
+ * arke.ops/v1 — see packages/api/src/lib/ops-schema.ts and docs/dev/INGEST_OPS.md.
  *
  * When the knowledge pipeline migrates to calling executeOps() instead of its
  * own write.ts, rewrite this prompt to emit an OpsEnvelope directly:

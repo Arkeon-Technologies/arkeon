@@ -32,7 +32,7 @@
  *   6. writeSourceEntities (chunk materialization) can also move to executeOps
  *      but is lower priority; current behavior is fine.
  *
- * See docs/INGEST_OPS.md for the format contract.
+ * See docs/dev/INGEST_OPS.md for the format contract.
  */
 
 import {
