@@ -4,6 +4,10 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { platform } from "node:os";
+
+const IS_WIN = platform() === "win32";
+const PATH_SEP = IS_WIN ? ";" : ":";
 
 export interface SandboxConfig {
   /** Persistent workspace directory for this agent */
@@ -78,6 +82,20 @@ export class Sandbox {
   }
 
   private installHelpers(): void {
+    if (IS_WIN) {
+      // Windows equivalent: PowerShell script that touches the done-signal file.
+      const donePs1 = [
+        "if (-not $env:ARKE_DONE_SIGNAL_FILE) { throw 'ARKE_DONE_SIGNAL_FILE is not set' }",
+        "New-Item -ItemType File -Path $env:ARKE_DONE_SIGNAL_FILE -Force | Out-Null",
+        "Write-Output $env:ARKE_DONE_SIGNAL_FILE",
+      ].join("\r\n");
+
+      for (const name of ["arke-done.ps1", "done.ps1"]) {
+        writeFileSync(join(this.sandboxBinDir, name), donePs1, "utf-8");
+      }
+      return;
+    }
+
     const doneScript = [
       "#!/bin/sh",
       ": \"${ARKE_DONE_SIGNAL_FILE:?ARKE_DONE_SIGNAL_FILE is not set}\"",
@@ -87,11 +105,7 @@ export class Sandbox {
 
     for (const name of ["arke-done", "done"]) {
       const scriptPath = join(this.sandboxBinDir, name);
-      writeFileSync(
-        scriptPath,
-        doneScript,
-        "utf-8",
-      );
+      writeFileSync(scriptPath, doneScript, "utf-8");
       chmodSync(scriptPath, 0o755);
     }
   }
@@ -179,7 +193,7 @@ export class Sandbox {
       `${this.sandboxBinDir}:${this.config.env.PATH ?? process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
     );
 
-    // The command to run
+    // bwrap is Linux-only, so /bin/bash is always correct here
     args.push("--", "/bin/bash", "-c", command);
 
     return this.spawnAndCollect("bwrap", args, timeoutMs);
@@ -190,15 +204,24 @@ export class Sandbox {
    * Less isolated but still restricted to the workspace.
    */
   private execDirect(command: string, timeoutMs: number): Promise<ExecResult> {
+    const defaultPath = IS_WIN
+      ? (process.env.PATH ?? "")
+      : "/usr/local/bin:/usr/bin:/bin";
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       ...this.config.env,
       HOME: this.config.workspaceDir,
       PWD: this.config.workspaceDir,
-      PATH: `${this.sandboxBinDir}:${this.config.env.PATH ?? process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
+      PATH: `${this.sandboxBinDir}${PATH_SEP}${this.config.env.PATH ?? process.env.PATH ?? defaultPath}`,
     };
 
-    return this.spawnAndCollect("/bin/bash", ["-c", command], timeoutMs, {
+    // PowerShell handles pipes, redirects, and quoting far better than cmd.exe.
+    const shell = IS_WIN ? "powershell.exe" : "/bin/bash";
+    const shellArgs = IS_WIN
+      ? ["-NoProfile", "-NonInteractive", "-Command", command]
+      : ["-c", command];
+
+    return this.spawnAndCollect(shell, shellArgs, timeoutMs, {
       cwd: this.config.workspaceDir,
       env,
     });
@@ -249,7 +272,13 @@ export class Sandbox {
   kill(): void {
     this._killed = true;
     if (this.activeChild && !this.activeChild.killed) {
-      this.activeChild.kill("SIGKILL");
+      // On Windows, .kill() without a signal calls TerminateProcess.
+      // On POSIX, SIGKILL ensures immediate termination.
+      if (IS_WIN) {
+        this.activeChild.kill();
+      } else {
+        this.activeChild.kill("SIGKILL");
+      }
       this.activeChild = null;
     }
   }

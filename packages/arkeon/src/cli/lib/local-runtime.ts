@@ -405,7 +405,10 @@ export async function startEmbeddedPostgres(opts: {
 // =====================================================================
 
 export function checkWorkerToolchain(): void {
-  const tools = ["bash", "curl", "jq", "python3"];
+  // On Windows, execDirect() uses PowerShell — bash isn't needed.
+  const tools = platform() === "win32"
+    ? ["curl", "jq", "python3"]
+    : ["bash", "curl", "jq", "python3"];
   const missing: string[] = [];
   for (const tool of tools) {
     const r = spawnSync(tool, ["--version"], { stdio: "ignore" });
@@ -426,6 +429,8 @@ export function checkWorkerToolchain(): void {
     console.warn(`           brew install ${missing.join(" ")}`);
   } else if (platform() === "linux") {
     console.warn(`           sudo apt-get install ${missing.join(" ")}`);
+  } else if (platform() === "win32") {
+    console.warn(`           Windows: use WSL2 (https://aka.ms/wsl) or install via scoop/choco`);
   }
 }
 
