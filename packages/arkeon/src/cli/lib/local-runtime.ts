@@ -426,6 +426,8 @@ export function checkWorkerToolchain(): void {
     console.warn(`           brew install ${missing.join(" ")}`);
   } else if (platform() === "linux") {
     console.warn(`           sudo apt-get install ${missing.join(" ")}`);
+  } else if (platform() === "win32") {
+    console.warn(`           Windows: use WSL2 (https://aka.ms/wsl) or install via scoop/choco`);
   }
 }
 

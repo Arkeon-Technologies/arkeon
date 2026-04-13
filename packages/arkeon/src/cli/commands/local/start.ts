@@ -23,8 +23,11 @@
 import type { Command } from "commander";
 import { type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const IS_WIN = platform() === "win32";
 
 import {
   arkeonDir,
@@ -181,7 +184,7 @@ async function runStart(options: StartOptions): Promise<void> {
       await waitForMeilisearchReady(meiliPort, secrets.meiliMasterKey);
     } catch (err) {
       console.error("[arkeon] Meilisearch failed to start:", err);
-      child.kill("SIGTERM");
+      if (IS_WIN) { child.kill(); } else { child.kill("SIGTERM"); }
       if (pg) await pg.stop();
       process.exit(1);
     }
@@ -271,7 +274,7 @@ async function runStart(options: StartOptions): Promise<void> {
           };
           child.once("exit", done);
           try {
-            child.kill("SIGTERM");
+            if (IS_WIN) { child.kill(); } else { child.kill("SIGTERM"); }
           } catch {
             done();
             return;
@@ -297,6 +300,10 @@ async function runStart(options: StartOptions): Promise<void> {
 
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
+  // Windows sends SIGBREAK on Ctrl+Break; SIGINT already covers Ctrl+C.
+  if (IS_WIN) {
+    process.on("SIGBREAK", () => void shutdown("SIGBREAK"));
+  }
 }
 
 /**
