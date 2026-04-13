@@ -13,6 +13,7 @@ export interface UseMapDataResult {
   isLoading: boolean
   capReached: boolean
   entityCount: number
+  spawningIds: Set<string>
   fetchRelationships: (id: string) => Promise<void>
   resetView: () => void
 }
@@ -28,6 +29,7 @@ export function useMapData(
   const [isLoading, setIsLoading] = useState(true)
   const [capReached, setCapReached] = useState(false)
   const [entityCount, setEntityCount] = useState(0)
+  const [spawningIds, setSpawningIds] = useState<Set<string>>(new Set())
 
   const lastActivityTsRef = useRef<string>('')
   const fetchedRelsRef = useRef<Set<string>>(new Set())
@@ -171,13 +173,23 @@ export function useMapData(
           if (item.action === 'entity_created' || item.action === 'content_uploaded') {
             if (!entitiesRef.current.has(item.entity_id)) {
               try {
-                const entity = await poolRef.current!.execute(
-                  () => client.getEntity(item.entity_id),
-                  `entity:${item.entity_id}`
+                // Fetch entity AND relationships together so the layout
+                // has topology info when placing the new node
+                const [entity, rels] = await poolRef.current!.execute(
+                  () => Promise.all([
+                    client.getEntity(item.entity_id),
+                    client.getRelationships(item.entity_id),
+                  ]),
+                  `entity+rels:${item.entity_id}`
                 )
-                if (mountedRef.current && addEntity(entity)) {
-                  newEntityIds.push(entity.id)
-                }
+                if (!mountedRef.current) continue
+                if (entity.kind === 'relationship') continue
+                if (entitiesRef.current.size >= nodeCap) { setCapReached(true); continue }
+                const loaded = createLoadedEntity(entity, rels.relationships, rels.outCursor, rels.inCursor)
+                entitiesRef.current.set(entity.id, loaded)
+                fetchedRelsRef.current.add(entity.id)
+                setEntityCount(entitiesRef.current.size)
+                newEntityIds.push(entity.id)
               } catch {
                 // Entity may have been deleted between activity and fetch
               }
@@ -203,9 +215,23 @@ export function useMapData(
         }
 
         if (newEntityIds.length > 0) {
+          // Mark new entities as spawning for animation
+          setSpawningIds((prev) => {
+            const next = new Set(prev)
+            for (const id of newEntityIds) next.add(id)
+            return next
+          })
+          // Clear spawning after animation duration
+          setTimeout(() => {
+            if (!mountedRef.current) return
+            setSpawningIds((prev) => {
+              const next = new Set(prev)
+              for (const id of newEntityIds) next.delete(id)
+              return next
+            })
+          }, 3000)
+
           rerender()
-          // Fetch relationships for new entities
-          fetchRelsBatch(newEntityIds)
         }
       } catch (err) {
         console.error('Map polling error:', err)
@@ -213,7 +239,7 @@ export function useMapData(
     }, POLL_INTERVAL)
 
     return () => clearInterval(interval)
-  }, [isLoading, capReached, client, addEntity, rerender, fetchRelationships, fetchRelsBatch])
+  }, [isLoading, capReached, client, nodeCap, rerender, fetchRelationships])
 
   const resetView = useCallback(() => {
     entitiesRef.current.clear()
@@ -251,6 +277,7 @@ export function useMapData(
     isLoading,
     capReached,
     entityCount,
+    spawningIds,
     fetchRelationships,
     resetView,
   }

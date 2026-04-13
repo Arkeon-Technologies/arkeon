@@ -31,6 +31,16 @@ if (typeof document !== 'undefined' && !document.getElementById(PULSE_KEYFRAMES_
       0%, 100% { opacity: 0.7; transform: scale(1); }
       50% { opacity: 1; transform: scale(1.15); }
     }
+    @keyframes graph-node-spawn {
+      0% { opacity: 0; transform: scale(0.3); }
+      30% { opacity: 1; transform: scale(1.4); }
+      60% { transform: scale(0.95); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    @keyframes graph-node-spawn-glow {
+      0% { box-shadow: 0 0 30px 15px rgba(255, 255, 255, 0.6); }
+      100% { box-shadow: none; }
+    }
   `
   document.head.appendChild(style)
 }
@@ -48,12 +58,12 @@ function DotView({ color, isSelected, isSpawning }: { color: string; isSelected?
         boxShadow: isSelected
           ? `0 0 24px 8px ${color}88, 0 0 48px 16px ${color}44`
           : isSpawning
-          ? `0 0 20px 8px rgba(99, 102, 241, 0.6)`
+          ? `0 0 24px 10px rgba(255, 255, 255, 0.5), 0 0 40px 20px ${color}66`
           : `0 0 10px 4px ${color}66`,
         animation: isSpawning
-          ? 'graph-node-pulse 1.5s ease-in-out infinite'
+          ? 'graph-node-spawn 0.6s ease-out forwards, graph-node-spawn-glow 2s ease-out forwards'
           : isSelected ? 'none' : 'graph-node-twinkle 3s ease-in-out infinite',
-        animationDelay: isSelected ? undefined : `${Math.random() * 3}s`,
+        animationDelay: isSelected ? undefined : isSpawning ? undefined : `${Math.random() * 3}s`,
         transition: 'width 0.15s, height 0.15s',
       }}
     />
@@ -87,9 +97,9 @@ function CardView({
         boxShadow: isSelected
           ? `0 0 20px 4px ${color}44, 0 0 40px 8px ${color}22`
           : isSpawning
-          ? undefined
+          ? `0 0 16px 4px rgba(255, 255, 255, 0.3), 0 0 30px 8px ${color}44`
           : 'none',
-        animation: isSpawning ? 'graph-node-pulse 2s ease-in-out infinite' : undefined,
+        animation: isSpawning ? 'graph-node-spawn 0.6s ease-out forwards' : undefined,
       }}
     >
       {unloadedCount != null && unloadedCount > 0 && (

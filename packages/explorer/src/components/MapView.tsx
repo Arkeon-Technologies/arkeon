@@ -66,7 +66,7 @@ function isCrossSpace(sourceEntity?: LoadedEntity, targetEntity?: LoadedEntity):
 }
 
 function MapViewInner({ client, nodeCap = 500, initialSelectId, onEntitySelect }: MapViewProps) {
-  const { entities, isLoading, capReached, entityCount, fetchRelationships, resetView } = useMapData(client, nodeCap)
+  const { entities, isLoading, capReached, entityCount, spawningIds, fetchRelationships, resetView } = useMapData(client, nodeCap)
 
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectId ?? null)
   const [pinnedPositions, setPinnedPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
@@ -128,7 +128,7 @@ function MapViewInner({ client, nodeCap = 500, initialSelectId, onEntitySelect }
         isSelected: n.id === selectedId,
         isNeighbor: neighborIds.has(n.id),
         hasSelection: selectedId != null,
-        isSpawning: false,
+        isSpawning: spawningIds.has(n.id),
         unloadedCount,
         colorMode: 'space',
         spaceColor: getEntitySpaceColor(n.entity.entity.space_ids),
@@ -141,7 +141,7 @@ function MapViewInner({ client, nodeCap = 500, initialSelectId, onEntitySelect }
         data: nodeData,
       }
     })
-  }, [layout.nodes, selectedId, neighborIds, entities])
+  }, [layout.nodes, selectedId, neighborIds, entities, spawningIds])
 
   // Hide edge labels when zoomed out — they just add noise at low zoom
   const showEdgeLabels = zoom >= 0.5
