@@ -114,6 +114,7 @@ async function runStatus(opts: StatusOptions): Promise<void> {
       health: false,
       ready: false,
       state_dir: arkeonDir(),
+      repo,
       hint: "Process is alive but /health is not responding. Check `arkeon logs` for errors.",
     });
     process.exit(1);
