@@ -9,7 +9,7 @@ import { RequestPool } from '@/lib/request-pool'
 const POLL_INTERVAL = 3_000
 const CACHE_DB_NAME = 'arkeon-explorer'
 const CACHE_STORE = 'graph-cache'
-const CACHE_KEY = 'map-state-v2'
+const CACHE_KEY = 'map-state-v6'
 
 // ---------------------------------------------------------------------------
 // IndexedDB cache helpers
@@ -67,6 +67,8 @@ async function saveCache(state: CachedState): Promise<void> {
 export interface UseMapDataResult {
   entities: Map<string, LoadedEntity>
   isLoading: boolean
+  /** True once the full initial bulk load has finished (all pages fetched) */
+  bulkLoadComplete: boolean
   entityCount: number
   spawningIds: Set<string>
   fetchRelationships: (id: string) => Promise<void>
@@ -84,6 +86,7 @@ export function useMapData(
   const rerender = useCallback(() => setRenderCount((n) => n + 1), [])
 
   const [isLoading, setIsLoading] = useState(true)
+  const [bulkLoadComplete, setBulkLoadComplete] = useState(false)
   const [entityCount, setEntityCount] = useState(0)
   const [spawningIds, setSpawningIds] = useState<Set<string>>(new Set())
 
@@ -199,6 +202,7 @@ export function useMapData(
         }
         lastActivityTsRef.current = cached.lastActivityTs
         setEntityCount(entitiesRef.current.size)
+        setBulkLoadComplete(true)
         setIsLoading(false)
         rerender()
 
@@ -263,6 +267,7 @@ export function useMapData(
         } while (cursor && totalLoaded < nodeCap && mountedRef.current)
 
         lastActivityTsRef.current = startTs
+        setBulkLoadComplete(true)
         scheduleCacheSave()
       } catch (err) {
         console.error('Map initial load failed:', err)
@@ -376,6 +381,7 @@ export function useMapData(
     fetchedRelsRef.current.clear()
     lastActivityTsRef.current = ''
     setEntityCount(0)
+    setBulkLoadComplete(false)
     setIsLoading(true)
     initialLoadDone.current = false
     // Clear cache so reset actually re-fetches
@@ -404,6 +410,7 @@ export function useMapData(
   return {
     entities: snapshot,
     isLoading,
+    bulkLoadComplete,
     entityCount,
     spawningIds,
     fetchRelationships,

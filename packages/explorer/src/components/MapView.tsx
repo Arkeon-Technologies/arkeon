@@ -86,17 +86,18 @@ function GraphSyncAndEvents({
   const sigma = useSigma()
   const registerEvents = useRegisterEvents()
   const setSettings = useSetSettings()
-  const { entities, isLoading, fetchRelationships } = data
+  const { entities, isLoading, bulkLoadComplete, fetchRelationships } = data
+  const layoutDoneRef = useRef(false)
 
-  const initialLayoutDoneRef = useRef(false)
-
-  // Sync entity data into graphology graph
+  // Sync entities into graphology and run layout.
+  // During bulk load: add nodes/edges silently (no layout yet).
+  // Once bulk load completes: run full FA2 with component separation.
+  // After that: incremental layout for polling updates.
   useEffect(() => {
-    if (isLoading) return
     const graph = sigma.getGraph()
 
+    // Add any new nodes and edges
     let addedNodes = 0
-
     for (const [id, loaded] of entities) {
       if (!graph.hasNode(id)) {
         const angle = Math.random() * Math.PI * 2
@@ -104,7 +105,7 @@ function GraphSyncAndEvents({
         graph.addNode(id, {
           x: Math.cos(angle) * dist,
           y: Math.sin(angle) * dist,
-          size: 5,
+          size: 2,
           color: colorToHex(getEntitySpaceColor(loaded.entity.space_ids)),
           label: (loaded.entity.properties?.label as string) || loaded.entity.type,
           type: 'circle',
@@ -120,37 +121,74 @@ function GraphSyncAndEvents({
         if (graph.hasEdge(rel.id)) continue
         try {
           graph.addEdgeWithKey(rel.id, rel.source_id, rel.target_id, {
-            color: colorToHex(getEdgeColor(rel.predicate)),
-            size: 1,
+            color: '#222222',
+            size: 0.3,
             predicate: rel.predicate,
-            type: 'arrow',
+            type: 'line',
           })
-        } catch {
-          // Edge may already exist
-        }
+        } catch {}
       }
     }
 
-    if (addedNodes > 0) {
-      const inferred = forceAtlas2.inferSettings(graph)
-      // Low gravity lets clusters form naturally instead of one dense ball.
-      // Higher scalingRatio spreads nodes apart within clusters.
-      const settings = {
-        ...inferred,
-        gravity: 1,
-        scalingRatio: 10,
-        strongGravityMode: false,
-        barnesHutOptimize: graph.order > 500,
-      }
-      if (!initialLayoutDoneRef.current) {
-        initialLayoutDoneRef.current = true
-        const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 100 : 60
-        forceAtlas2.assign(graph, { iterations: iters, settings })
-      } else {
-        forceAtlas2.assign(graph, { iterations: 15, settings })
-      }
+    if (addedNodes === 0) return
+
+    // During bulk load, just accumulate data — don't layout yet
+    if (!bulkLoadComplete) return
+
+    const inferred = forceAtlas2.inferSettings(graph)
+    const settings = {
+      ...inferred,
+      gravity: 1,
+      scalingRatio: 10,
+      strongGravityMode: false,
+      barnesHutOptimize: graph.order > 500,
     }
-  }, [entities, isLoading, sigma])
+
+    if (!layoutDoneRef.current) {
+      layoutDoneRef.current = true
+
+      // Spread disconnected components apart before layout
+      const visited = new Set<string>()
+      const components: string[][] = []
+      graph.forEachNode((node) => {
+        if (visited.has(node)) return
+        const component: string[] = []
+        const queue = [node]
+        while (queue.length > 0) {
+          const n = queue.pop()!
+          if (visited.has(n)) continue
+          visited.add(n)
+          component.push(n)
+          graph.forEachNeighbor(n, (neighbor) => {
+            if (!visited.has(neighbor)) queue.push(neighbor)
+          })
+        }
+        components.push(component)
+      })
+
+      if (components.length > 1) {
+        const totalNodes = graph.order
+        let angleOffset = 0
+        for (const comp of components) {
+          const radius = Math.sqrt(totalNodes) * 50
+          const cx = Math.cos(angleOffset) * radius
+          const cy = Math.sin(angleOffset) * radius
+          for (const nodeId of comp) {
+            const attrs = graph.getNodeAttributes(nodeId)
+            graph.setNodeAttribute(nodeId, 'x', attrs.x + cx)
+            graph.setNodeAttribute(nodeId, 'y', attrs.y + cy)
+          }
+          angleOffset += (comp.length / totalNodes) * Math.PI * 2
+        }
+      }
+
+      const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 100 : 60
+      forceAtlas2.assign(graph, { iterations: iters, settings })
+    } else {
+      // Incremental: settle new nodes from polling
+      forceAtlas2.assign(graph, { iterations: 15, settings })
+    }
+  }, [entities, bulkLoadComplete, sigma])
 
   // Zoom to selected entity when selectId prop changes
   useEffect(() => {
@@ -204,20 +242,22 @@ function GraphSyncAndEvents({
         // Relationship selected — highlight both endpoints
         if (rel) {
           if (node === rel.sourceId || node === rel.targetId) {
-            return { ...attrs, size: 10, color: '#ffffff', zIndex: 2 }
+            return { ...attrs, size: 5, color: '#ffffff', zIndex: 2 }
           }
-          return { ...attrs, color: '#333333', size: 3, zIndex: 0 }
+          return { ...attrs, color: '#222222', size: 1.5, zIndex: 0 }
         }
+
+        // If selected ID isn't a graph node (e.g. detail entity), don't dim
+        if (!graph.hasNode(selectedId!)) return attrs
 
         // Node selected
         if (node === selectedId) {
-          return { ...attrs, size: 10, color: '#ffffff', zIndex: 2 }
+          return { ...attrs, size: 5, color: '#ffffff', zIndex: 2 }
         }
-        const isNeighbor = graph.hasNode(selectedId!) && graph.areNeighbors(node, selectedId!)
-        if (isNeighbor) {
-          return { ...attrs, size: 7, zIndex: 1 }
+        if (graph.areNeighbors(node, selectedId!)) {
+          return { ...attrs, size: 3.5, zIndex: 1 }
         }
-        return { ...attrs, color: '#333333', size: 3, zIndex: 0 }
+        return { ...attrs, color: '#222222', size: 1.5, zIndex: 0 }
       },
       edgeReducer: (edge, attrs) => {
         if (!selectedId && !rel) return attrs
@@ -225,18 +265,21 @@ function GraphSyncAndEvents({
         // Relationship selected — highlight the specific edge
         if (rel) {
           if (edge === rel.edgeId) {
-            return { ...attrs, size: 3, color: '#ffffff', zIndex: 2 }
+            return { ...attrs, size: 1.5, color: '#ffffff', zIndex: 2 }
           }
-          return { ...attrs, color: '#1a1a1a', size: 0.5, zIndex: 0 }
+          return { ...attrs, color: '#111111', size: 0.2, zIndex: 0 }
         }
+
+        // If selected ID isn't a graph node, don't dim
+        if (!graph.hasNode(selectedId!)) return attrs
 
         // Node selected — highlight connected edges
         const source = graph.source(edge)
         const target = graph.target(edge)
         if (source === selectedId || target === selectedId) {
-          return { ...attrs, size: 2, zIndex: 1 }
+          return { ...attrs, size: 1, color: attrs.color, zIndex: 1 }
         }
-        return { ...attrs, color: '#1a1a1a', size: 0.5, zIndex: 0 }
+        return { ...attrs, color: '#111111', size: 0.2, zIndex: 0 }
       },
     })
   }, [selectedId, selectedRelEndpoints, sigma, setSettings])
@@ -306,17 +349,17 @@ export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: M
         settings={{
           allowInvalidContainer: true,
           renderLabels: true,
-          labelRenderedSizeThreshold: 8,
+          labelRenderedSizeThreshold: 14,
           labelColor: { color: '#a1a1aa' },
           labelFont: 'Inter, system-ui, sans-serif',
-          labelSize: 12,
+          labelSize: 11,
           defaultNodeColor: '#52525b',
-          defaultEdgeColor: '#333333',
-          defaultEdgeType: 'arrow',
+          defaultEdgeColor: '#222222',
+          defaultEdgeType: 'line',
           enableEdgeEvents: true,
           zIndex: true,
-          minCameraRatio: 0.01,
-          maxCameraRatio: 10,
+          minCameraRatio: 0.005,
+          maxCameraRatio: 15,
         }}
       >
         <GraphSyncAndEvents
@@ -331,13 +374,13 @@ export function MapView({ client, nodeCap = 10000, selectId, onEntitySelect }: M
         />
       </SigmaContainer>
 
-      {isLoading && (
+      {!data.bulkLoadComplete && (
         <div className="absolute top-14 left-3 px-3 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-400 z-10">
-          Loading entities...
+          Loading {entityCount} entities...
         </div>
       )}
 
-      {!isLoading && (
+      {data.bulkLoadComplete && (
         <div className="absolute top-14 left-3 px-3 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-400 z-10">
           {entityCount} entities
         </div>
