@@ -23,7 +23,7 @@
 import type { Command } from "commander";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, openSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -38,6 +38,7 @@ import {
   clearPendingLlm,
   ensureArkeonDir,
   findCliEntry,
+  isPortInUse,
   isProcessAlive,
   loadOrCreateSecrets,
   logfile,
@@ -158,6 +159,14 @@ async function runUp(opts: UpOptions): Promise<void> {
   ensureArkeonDir();
   const secrets = loadOrCreateSecrets();
 
+  // If any of our ports are busy (e.g. orphaned services from a previous
+  // crash, or another dev server), auto-bump to the next available port
+  // rather than spawning a daemon that silently can't bind. Only
+  // auto-resolve ports the user didn't explicitly set.
+  apiPort = await resolvePort(apiPort, "API", !opts.port);
+  pgPort = await resolvePort(pgPort, "Postgres", !opts.pgPort);
+  meiliPort = await resolvePort(meiliPort, "Meilisearch", !opts.meiliPort);
+
   output.progress(`[arkeon] Starting stack in ${arkeonDir()}...`);
 
   // Append a boot marker so operators tailing the log can tell runs apart.
@@ -230,11 +239,32 @@ async function runUp(opts: UpOptions): Promise<void> {
     throw new Error("Failed to spawn arkeon start — no child PID. Check `arkeon logs` for errors.");
   }
 
+  // If the parent is interrupted (Ctrl+C) before the daemon is healthy,
+  // kill the detached child so it doesn't become an orphan holding ports.
+  const childPid = child.pid;
+  let healthyYet = false;
+  const cleanupOnExit = () => {
+    if (healthyYet) return;
+    try { process.kill(childPid, "SIGTERM"); } catch { /* already gone */ }
+    process.exit(1);
+  };
+  process.on("SIGINT", cleanupOnExit);
+  process.on("SIGTERM", cleanupOnExit);
+
   output.progress(`[arkeon] Daemon started (child pid ${child.pid}). Waiting for /health...`);
 
-  // Poll /health. We can't rely on the child's pidfile existing yet —
-  // start.ts writes it *after* the API is listening.
-  const healthOk = await pollHealth(`http://localhost:${apiPort}/health`, timeoutMs);
+  // Poll /health while tailing the daemon log so the user sees progress.
+  const healthOk = await pollHealthWithProgress(
+    `http://localhost:${apiPort}/health`,
+    timeoutMs,
+    logPath,
+    childPid,
+  );
+
+  healthyYet = true;
+  process.removeListener("SIGINT", cleanupOnExit);
+  process.removeListener("SIGTERM", cleanupOnExit);
+
   if (!healthOk) {
     const tail = safeTail(logPath, 50);
     throw new Error(
@@ -305,9 +335,97 @@ async function runUp(opts: UpOptions): Promise<void> {
   });
 }
 
-async function pollHealth(url: string, timeoutMs: number): Promise<boolean> {
+/**
+ * If the requested port is busy and the user didn't explicitly request it,
+ * scan upward for the next free port (up to 20 attempts). If the user did
+ * explicitly set the port, throw a clear error instead of silently changing it.
+ */
+async function resolvePort(port: number, label: string, autoResolve: boolean): Promise<number> {
+  if (!(await isPortInUse(port))) return port;
+
+  if (!autoResolve) {
+    throw new Error(
+      `${label} port ${port} is already in use (you requested it with --port/--pg-port/--meili-port).\n` +
+      `Free the port or pick a different one.`,
+    );
+  }
+
+  for (let candidate = port + 1; candidate < port + 20; candidate++) {
+    if (!(await isPortInUse(candidate))) {
+      output.progress(`[arkeon] ${label} port ${port} in use, using ${candidate} instead`);
+      return candidate;
+    }
+  }
+  throw new Error(`${label} port ${port} is in use and no free port found in range ${port + 1}–${port + 19}.`);
+}
+
+/**
+ * Poll /health while tailing the daemon log so the user sees progress
+ * instead of a silent wait. Filters for `[arkeon]` and `[meili]` prefixed
+ * lines to surface the daemon's startup milestones. If the daemon process
+ * exits before health succeeds, bail early rather than waiting the full
+ * timeout.
+ */
+async function pollHealthWithProgress(
+  url: string,
+  timeoutMs: number,
+  logPath: string,
+  daemonPid: number,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+
+  // Track where we are in the log file so we only print new lines.
+  let logOffset = 0;
+  try {
+    logOffset = statSync(logPath).size;
+  } catch {
+    // file may not exist yet
+  }
+
+  const drainLog = () => {
+    try {
+      const size = statSync(logPath).size;
+      if (size <= logOffset) return;
+      // Positional read: open, read only the new bytes, close.
+      // Avoids reading the entire log file every 500ms.
+      const bytesToRead = size - logOffset;
+      const buf = Buffer.alloc(bytesToRead);
+      const fd = openSync(logPath, "r");
+      try {
+        readSync(fd, buf, 0, bytesToRead, logOffset);
+      } finally {
+        closeSync(fd);
+      }
+      logOffset = size;
+
+      for (const line of buf.toString("utf-8").split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Surface daemon milestone lines to the user.
+        if (
+          trimmed.startsWith("[arkeon]") ||
+          trimmed.startsWith("[meili]") ||
+          trimmed.startsWith("[bootstrap]") ||
+          trimmed.startsWith("[knowledge")
+        ) {
+          output.progress(`  ${trimmed}`);
+        }
+      }
+    } catch {
+      // log not ready or read error — skip this cycle
+    }
+  };
+
   while (Date.now() < deadline) {
+    // Check if daemon is still alive — bail early if it crashed.
+    if (!isProcessAlive(daemonPid)) {
+      drainLog();
+      output.progress("[arkeon] Daemon process exited unexpectedly.");
+      return false;
+    }
+
+    drainLog();
+
     try {
       const res = await fetch(url);
       if (res.ok) return true;
