@@ -1,11 +1,3 @@
----
-name: arkeon-ingest
-description: Initialize a repo as an Arkeon knowledge base and build a knowledge graph from its documents.
-disable-model-invocation: true
-argument-hint: [space-name]
-allowed-tools: Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write
----
-
 # Arkeon Ingest
 
 Initialize this repository as an Arkeon knowledge base and build a knowledge graph from its documents. Combines setup (space creation, file registration) with extraction (entity and relationship creation from document content).

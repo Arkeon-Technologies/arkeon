@@ -1,0 +1,54 @@
+# Skill metadata and per-provider frontmatter.
+# Body content lives in body/<skill>.md — this file only defines metadata
+# and provider-specific frontmatter fields that get composed at build time.
+
+skills:
+  arkeon-ingest:
+    description: "Initialize a repo as an Arkeon knowledge base and build a knowledge graph from its documents."
+    argument-hint: "[space-name]"
+  arkeon-connect:
+    description: "Find and create relationships between entities across different spaces in the graph."
+    argument-hint: "[topic or entity name]"
+  arkeon-doctor:
+    description: "Build, test, version-bump, and publish the arkeon npm package from main."
+    argument-hint: "[patch|minor|major]"
+
+providers:
+  claude:
+    format: skill-dir
+    dir: "~/.claude/skills"
+    global: true
+    frontmatter:
+      common:
+        disable-model-invocation: true
+      per-skill:
+        arkeon-ingest:
+          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write"
+        arkeon-connect:
+          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write"
+        arkeon-doctor:
+          allowed-tools: "Bash(npm *, npx *, git *, gh *, node *, cat *, ls *, curl *), Read, Glob, Grep"
+
+  codex:
+    format: skill-dir
+    dir: "~/.codex/skills"
+    global: true
+    frontmatter:
+      common: {}
+      per-skill: {}
+
+  cursor:
+    format: cursor-commands
+    dir: ".cursor/commands"
+    global: false
+    frontmatter:
+      common: {}
+      per-skill: {}
+
+  gemini:
+    format: skill-dir
+    dir: "~/.gemini/skills"
+    global: true
+    frontmatter:
+      common: {}
+      per-skill: {}

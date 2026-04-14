@@ -15,6 +15,7 @@ import { basename, join } from "node:path";
 import { apiPost } from "../../lib/api-client.js";
 import { credentials } from "../../lib/credentials.js";
 import { findInstanceByName, listInstances, resolveAdminKeyForUrl, saveInstanceActor } from "../../lib/instances.js";
+import { installAgentsMd } from "../install/providers.js";
 import { isProcessAlive, readSecrets } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
 import { saveRepoState, stateFilePath } from "../../lib/repo-state.js";
@@ -172,6 +173,9 @@ export function registerInitCommand(program: Command): void {
 
         // Gitignore the state file (contains no secrets but keep it out of version control by default)
         ensureGitignore(cwd);
+
+        // Write AGENTS.md for universal AI coding tool support
+        installAgentsMd();
 
         output.result({
           operation: "init",
