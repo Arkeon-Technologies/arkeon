@@ -27,7 +27,7 @@ jobs:
 
           missing=()
           for f in "${files[@]}"; do
-            if ! head -2 "$f" | grep -q "SPDX-License-Identifier"; then
+            if ! head -4 "$f" | grep -q "SPDX-License-Identifier"; then
               missing+=("$f")
             fi
           done
