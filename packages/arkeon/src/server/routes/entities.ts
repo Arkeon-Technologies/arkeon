@@ -23,8 +23,8 @@ import {
   parseLimit,
 } from "../lib/http";
 import { generateUlid } from "../lib/ids";
-import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
-import { indexEntity, indexEntityById, removeEntity } from "../lib/meilisearch";
+import { buildEntityFilterWhere, buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
+import { indexEntity, indexEntityById, removeEntities, removeEntity } from "../lib/meilisearch";
 import { fetchRelationshipContext } from "../lib/relationship-context";
 import { createRouter } from "../lib/openapi";
 import {
@@ -234,6 +234,40 @@ const deleteEntityRoute = createRoute({
   responses: {
     204: { description: "Entity deleted" },
     ...errorResponses([401, 403, 404]),
+  },
+});
+
+const BULK_DELETE_LIMIT = 1000;
+
+const BulkDeleteQuery = z.object({
+  filter: queryParam("filter", z.string().optional(), "Column/property filters. See GET /help for filter syntax."),
+  space_id: queryParam("space_id", z.string().optional(), "Delete all entities in this space ULID"),
+});
+
+const bulkDeleteEntitiesRoute = createRoute({
+  method: "delete",
+  path: "/",
+  operationId: "bulkDeleteEntities",
+  tags: ["Entities"],
+  summary: "Bulk delete entities matching filter and/or space",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /entities", "DELETE /entities/{id}"],
+  "x-arke-rules": [
+    "Requires at least one of filter or space_id",
+    "Capped at 1000 entities per call — returns 400 if more match",
+    "RLS enforces per-entity permission checks — only entities you can delete are deleted",
+    "Relationships are excluded unless explicitly filtered by kind",
+  ],
+  request: { query: BulkDeleteQuery },
+  responses: {
+    200: {
+      description: "Bulk delete result",
+      content: jsonContent(z.object({
+        deleted: z.number().int(),
+        ids: z.array(z.string()),
+      })),
+    },
+    ...errorResponses([400, 401, 403]),
   },
 });
 
@@ -570,7 +604,7 @@ entitiesRouter.openapi(listEntitiesRoute, async (c) => {
   const sort = parseSort(c.req.query("sort"), ["updated_at", "created_at"], "updated_at");
 
   const userFilter = c.req.query("filter");
-  const hasKindFilter = userFilter?.split(",").some((expr) => expr.trim().startsWith("kind"));
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
   const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
   const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
 
@@ -825,6 +859,49 @@ entitiesRouter.openapi(deleteEntityRoute, async (c) => {
   backgroundTask(removeEntity(entityId));
 
   return new Response(null, { status: 204 });
+});
+
+entitiesRouter.openapi(bulkDeleteEntitiesRoute, async (c) => {
+  const actor = requireActor(c);
+  const sql = createSql();
+
+  const userFilter = c.req.query("filter");
+  const spaceId = c.req.query("space_id");
+
+  if (!userFilter && !spaceId) {
+    throw new ApiError(400, "invalid_query", "At least one of filter or space_id is required");
+  }
+
+  // Same implicit filter as GET /entities — exclude relationships unless explicitly filtered
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
+  const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
+  const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
+
+  const { whereSql, params } = buildEntityFilterWhere({ filter, spaceId });
+
+  // Guard against unbounded deletes — count first, reject if over limit
+  const countResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`SELECT count(*)::int AS n FROM entities ${whereSql}`, params),
+  ]);
+  const count = (countResults[countResults.length - 1] as Array<{ n: number }>)[0]?.n ?? 0;
+  if (count > BULK_DELETE_LIMIT) {
+    throw new ApiError(400, "too_many_entities", `Bulk delete is capped at ${BULK_DELETE_LIMIT} entities, but ${count} matched. Narrow your filter.`);
+  }
+
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`DELETE FROM entities ${whereSql} RETURNING id`, params),
+  ]);
+
+  const deleted = results[results.length - 1] as Array<{ id: string }>;
+  const ids = deleted.map((r) => r.id);
+
+  if (ids.length > 0) {
+    backgroundTask(removeEntities(ids));
+  }
+
+  return c.json({ deleted: ids.length, ids }, 200);
 });
 
 entitiesRouter.openapi(changeLevelRoute, async (c) => {
