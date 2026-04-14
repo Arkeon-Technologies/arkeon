@@ -2,8 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Content poller: watches entity_activity for 'content_uploaded' events
- * and auto-enqueues knowledge extraction jobs for new content.
+ * Content poller: watches entity_activity for content changes and
+ * auto-enqueues knowledge extraction jobs.
+ *
+ * Triggers on:
+ *   - content_uploaded: file uploaded via POST /entities/{id}/content
+ *   - entity_created:   entity created (e.g. via arkeon add / POST /ops)
+ *   - content_updated:  entity updated via upsert (e.g. arkeon add on modified file)
+ *
+ * For entity_created and content_updated, the entity must be a document
+ * with inline content (properties.content IS NOT NULL) to trigger extraction.
  *
  * Uses entity_activity.id (BIGSERIAL) as a monotonic cursor —
  * no gaps, no clock skew, catches everything.
@@ -34,10 +42,10 @@ async function pollForNewContent(): Promise<void> {
       sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
       sql`SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default'`,
       sql.query(
-        `SELECT ea.id AS activity_id, ea.entity_id
+        `SELECT ea.id AS activity_id, ea.entity_id, ea.action
          FROM entity_activity ea
          WHERE ea.id > (SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default')
-           AND ea.action = 'content_uploaded'
+           AND ea.action IN ('content_uploaded', 'entity_created', 'content_updated')
            AND ea.actor_id NOT IN (
              SELECT id FROM actors WHERE properties->>'label' = 'knowledge-service'
            )
@@ -58,20 +66,43 @@ async function pollForNewContent(): Promise<void> {
     for (const event of events) {
       const activityId = event.activity_id as number;
       const entityId = event.entity_id as string;
+      const action = event.action as string;
 
-      // Check entity exists and has content (run as admin to bypass RLS)
+      // Check entity exists and has content (run as admin to bypass RLS).
+      // For content_uploaded: check entity_content table (file-based content).
+      // For entity_created/content_updated: check inline properties.content (arkeon add).
       const entityResults = await sql.transaction([
         sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
         sql`SELECT set_config('app.actor_read_level', '4', true)`,
         sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
-        sql`SELECT id, ver, properties->'content' AS content
+        sql`SELECT id, ver, type,
+                   properties->>'content' AS content_text,
+                   properties->'content' AS content_value
             FROM entities
             WHERE id = ${entityId} AND kind = 'entity'`,
       ]);
       const [entity] = entityResults[entityResults.length - 1] as Array<Record<string, unknown>>;
 
-      if (!entity || !entity.content) {
-        // Intentional skip — entity doesn't exist or has no content, advance past it
+      if (!entity) {
+        lastSuccessActivityId = activityId;
+        continue;
+      }
+
+      // content_uploaded: entity has file content stored in properties.content (JSONB map with keys)
+      // entity_created/content_updated: entity has inline text content (string) in properties.content
+      const contentValue = entity.content_value;
+      const contentText = entity.content_text;
+
+      // properties.content is a JSONB map when files are uploaded (e.g. {"test.txt": {cid, content_type, size}})
+      // properties.content is a plain string when arkeon add stores inline text
+      const hasFileContent = contentValue != null && typeof contentValue === "object" && !Array.isArray(contentValue);
+      const hasInlineContent = typeof contentText === "string" && contentText.trim().length > 0;
+
+      const hasContent = action === "content_uploaded"
+        ? (hasFileContent || hasInlineContent)
+        : hasInlineContent;
+
+      if (!hasContent) {
         lastSuccessActivityId = activityId;
         continue;
       }
@@ -86,16 +117,17 @@ async function pollForNewContent(): Promise<void> {
       lastSuccessActivityId = activityId;
     }
 
-    // Update checkpoint only to last successfully processed event
+    // Update checkpoint only to last successfully processed event.
+    // Must run in admin context because knowledge_poller_state has RLS.
     if (lastSuccessActivityId > lastActivityId) {
-      await sql.query(
-        `UPDATE knowledge_poller_state SET last_activity_id = $1, updated_at = NOW() WHERE id = 'default'`,
-        [lastSuccessActivityId],
-      );
-    }
-
-    if (enqueued > 0) {
-      console.log(`[knowledge:poller] Processed ${events.length} events, enqueued ${enqueued} jobs`);
+      await sql.transaction([
+        sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+        sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+        sql.query(
+          `UPDATE knowledge_poller_state SET last_activity_id = $1, updated_at = NOW() WHERE id = 'default'`,
+          [lastSuccessActivityId],
+        ),
+      ]);
     }
   } catch (err) {
     console.error(`[knowledge:poller] Error:`, err);
