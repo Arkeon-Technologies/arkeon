@@ -717,10 +717,13 @@ export function MapView({
     [fetchRelationships, onEntitySelect, client],
   )
 
-  // Ensure deep-linked entity is in the graph
+  // When selectId changes externally (e.g. feed click), sync selection
   useEffect(() => {
-    if (selectId) ensureEntity(selectId)
-  }, [selectId, ensureEntity])
+    if (selectId) {
+      ensureEntity(selectId)
+      selectEntity(selectId)
+    }
+  }, [selectId, ensureEntity, selectEntity])
 
   const selectedRelEndpoints = useMemo(() => {
     if (!selectedEntity || selectedEntity.entity.kind !== 'relationship') return null
