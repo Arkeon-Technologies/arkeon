@@ -114,7 +114,9 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
     process.env.ENABLE_KNOWLEDGE_PIPELINE = String(config.knowledgeEnabled);
   }
 
-  const app = createApp();
+  const app = createApp({
+    adminKey: config.adminBootstrapKey || process.env.ADMIN_BOOTSTRAP_KEY,
+  });
 
   // Generate the full CLI reference once at startup for worker system prompts
   const spec = app.getOpenAPI31Document(openApiConfig) as unknown as OpenAPISpec;
