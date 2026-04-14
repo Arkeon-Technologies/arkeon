@@ -68,6 +68,27 @@ async function pollForNewContent(): Promise<void> {
 
       if (events.length === 0) break;
 
+      // Batch-fetch all referenced entities in a single query instead of
+      // one transaction per event. This is critical for performance when
+      // the poller has a backlog (e.g. hundreds of entity_created events
+      // from a test suite).
+      const entityIds = [...new Set(events.map((e) => e.entity_id as string))];
+      const entityResults = await sql.transaction([
+        sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+        sql`SELECT set_config('app.actor_read_level', '4', true)`,
+        sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+        sql.query(
+          `SELECT id, ver, type,
+                  properties->>'content' AS content_text,
+                  properties->'content' AS content_value
+           FROM entities
+           WHERE id = ANY($1) AND kind = 'entity'`,
+          [entityIds],
+        ),
+      ]);
+      const entityRows = entityResults[entityResults.length - 1] as Array<Record<string, unknown>>;
+      const entityMap = new Map(entityRows.map((e) => [e.id as string, e]));
+
       let enqueued = 0;
       let lastSuccessActivityId = lastActivityId;
 
@@ -76,21 +97,7 @@ async function pollForNewContent(): Promise<void> {
         const entityId = event.entity_id as string;
         const action = event.action as string;
 
-        // Check entity exists and has content (run as admin to bypass RLS).
-        // For content_uploaded: check entity_content table (file-based content).
-        // For entity_created/content_updated: check inline properties.content (arkeon add).
-        const entityResults = await sql.transaction([
-          sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
-          sql`SELECT set_config('app.actor_read_level', '4', true)`,
-          sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
-          sql`SELECT id, ver, type,
-                     properties->>'content' AS content_text,
-                     properties->'content' AS content_value
-              FROM entities
-              WHERE id = ${entityId} AND kind = 'entity'`,
-        ]);
-        const [entity] = entityResults[entityResults.length - 1] as Array<Record<string, unknown>>;
-
+        const entity = entityMap.get(entityId);
         if (!entity) {
           lastSuccessActivityId = activityId;
           continue;
