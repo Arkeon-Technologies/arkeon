@@ -40,35 +40,41 @@ async function pollForNewContent(): Promise<void> {
     let batchesProcessed = 0;
     const MAX_BATCHES_PER_POLL = 20; // Safety cap to avoid runaway loops
 
+    // Read the initial checkpoint once, then track in memory across batches.
+    // This avoids re-reading from the DB each iteration (which was failing
+    // to see the updated value despite READ COMMITTED isolation).
+    const initState = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+      sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+      sql`SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default'`,
+    ]);
+    let cursor = ((initState[2] as Array<Record<string, unknown>>)[0]?.last_activity_id as number) ?? 0;
+
     while (batchesProcessed < MAX_BATCHES_PER_POLL) {
-      // Run all poller reads in a single transaction with admin context
-      // (set_config with true = local to transaction only)
+      // Fetch next batch of events using the in-memory cursor.
       const pollerResults = await sql.transaction([
         sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
         sql`SELECT set_config('app.actor_read_level', '4', true)`,
         sql`SELECT set_config('app.actor_write_level', '4', true)`,
         sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
-        sql`SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default'`,
         sql.query(
           `SELECT ea.id AS activity_id, ea.entity_id, ea.action
            FROM entity_activity ea
-           WHERE ea.id > (SELECT last_activity_id FROM knowledge_poller_state WHERE id = 'default')
+           WHERE ea.id > $1
              AND ea.action IN ('content_uploaded', 'entity_created', 'content_updated')
              AND ea.actor_id NOT IN (
                SELECT id FROM actors WHERE properties->>'label' = 'knowledge-service'
              )
            ORDER BY ea.id ASC
            LIMIT ${BATCH_SIZE}`,
-          [],
+          [cursor],
         ),
       ]);
-      const stateRows = pollerResults[4] as Array<Record<string, unknown>>;
-      const lastActivityId = (stateRows[0]?.last_activity_id as number) ?? 0;
-      const events = pollerResults[5] as Array<Record<string, unknown>>;
+      const events = pollerResults[4] as Array<Record<string, unknown>>;
 
       if (events.length === 0) break;
 
-      console.log(`[knowledge:poller] Processing batch ${batchesProcessed + 1}: ${events.length} events, checkpoint=${lastActivityId}, range=${events[0]!.activity_id}..${events[events.length - 1]!.activity_id}`);
+      console.log(`[knowledge:poller] Processing batch ${batchesProcessed + 1}: ${events.length} events, cursor=${cursor}, range=${events[0]!.activity_id}..${events[events.length - 1]!.activity_id}`);
 
       // Batch-fetch all referenced entities in a single query instead of
       // one transaction per event. This is critical for performance when
@@ -155,17 +161,16 @@ async function pollForNewContent(): Promise<void> {
         }
       }
 
-      // Advance checkpoint to last event in this batch.
-      if (lastEventId > lastActivityId) {
-        await sql.transaction([
-          sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
-          sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
-          sql.query(
-            `UPDATE knowledge_poller_state SET last_activity_id = $1, updated_at = NOW() WHERE id = 'default'`,
-            [lastEventId],
-          ),
-        ]);
-      }
+      // Advance cursor in memory and persist to DB.
+      cursor = lastEventId;
+      await sql.transaction([
+        sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+        sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+        sql.query(
+          `UPDATE knowledge_poller_state SET last_activity_id = $1, updated_at = NOW() WHERE id = 'default'`,
+          [cursor],
+        ),
+      ]);
 
       batchesProcessed++;
 
