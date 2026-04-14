@@ -68,15 +68,21 @@ export async function executeOps(
     await assertGlobalRefsVisible(plan, actor, sql);
   }
 
+  // ---- Upsert: resolve existing entities by (type, label) within space -----
+  if (plan.upsert_active) {
+    await resolveUpsertTargets(plan, actor, sql);
+  }
+
   if (opts.dryRun) {
     return {
       format: "arke.ops/v1",
       committed: false,
-      created: plan.entities.map((e) => ({
+      entities: plan.entities.map((e) => ({
         ref: e.local_ref,
         id: e.id,
         type: e.type,
         label: e.label,
+        action: (e.is_upsert ? "updated" : "created") as "created" | "updated",
       })),
       edges: plan.edges.map((edge) => ({
         id: edge.id,
@@ -106,9 +112,15 @@ export async function executeOps(
 
   for (const entity of plan.entities) {
     entityQueryIdx.push(queries.length);
-    queries.push(buildEntityInsert(sql, entity, actor.id, now));
-    queries.push(buildEntityVersionInsert(sql, entity, actor.id, now));
-    queries.push(buildEntityActivityInsert(sql, entity, actor.id, now));
+    if (entity.is_upsert) {
+      queries.push(buildEntityUpsertUpdate(sql, entity, actor.id, now));
+      queries.push(buildEntityVersionInsertAtVer(sql, entity.id, entity.existing_ver! + 1, entity.properties, actor.id, now));
+      queries.push(buildEntityUpsertActivityInsert(sql, entity, actor.id, now));
+    } else {
+      queries.push(buildEntityInsert(sql, entity, actor.id, now));
+      queries.push(buildEntityVersionInsert(sql, entity, actor.id, now));
+      queries.push(buildEntityActivityInsert(sql, entity, actor.id, now));
+    }
     if (entity.space_id) {
       queries.push(addEntityToSpaceQuery(sql, entity.space_id, entity.id, actor.id, now));
     }
@@ -205,12 +217,27 @@ export async function executeOps(
 
   // ---- Verify every expected INSERT returned a row (RLS may silently drop) -
 
-  const createdEntities: CreatedEntityResult[] = [];
+  const resultEntities: CreatedEntityResult[] = [];
   for (let i = 0; i < plan.entities.length; i++) {
     const entity = plan.entities[i];
     const queryIdx = entityQueryIdx[i];
     const rows = txResults[queryIdx] as Array<Record<string, unknown>>;
     if (!rows || rows.length === 0) {
+      if (entity.is_upsert) {
+        // CAS conflict — another writer bumped ver between pre-flight and UPDATE
+        throw new ApiError(
+          409,
+          "cas_conflict",
+          `Op #${entity.op_index} (entity ${entity.local_ref}) — upsert UPDATE returned zero rows. The entity was modified by another writer between lookup and write.`,
+          {
+            op_index: entity.op_index,
+            ref: entity.local_ref,
+            entity_id: entity.id,
+            expected_ver: entity.existing_ver,
+            fix: "Retry the batch — the upsert will pick up the latest version on the next attempt.",
+          },
+        );
+      }
       throw new ApiError(
         403,
         "forbidden",
@@ -222,11 +249,12 @@ export async function executeOps(
         },
       );
     }
-    createdEntities.push({
+    resultEntities.push({
       ref: entity.local_ref,
       id: entity.id,
       type: entity.type,
       label: entity.label,
+      action: entity.is_upsert ? "updated" : "created",
     });
   }
 
@@ -318,9 +346,9 @@ export async function executeOps(
   return {
     format: "arke.ops/v1",
     committed: true,
-    created: createdEntities,
+    entities: resultEntities,
     edges: createdEdges,
-    stats: { entities: createdEntities.length, edges: createdEdges.length },
+    stats: { entities: resultEntities.length, edges: createdEdges.length },
   };
 }
 
@@ -453,6 +481,98 @@ async function assertGlobalRefsVisible(plan: OpsPlan, actor: Actor, sql: SqlClie
 }
 
 // ---------------------------------------------------------------------------
+// Upsert: resolve existing entities by (type, label) within space
+// ---------------------------------------------------------------------------
+
+/**
+ * For each entity in the plan that has an upsert_key, look up existing entities
+ * with matching (type, lower(label)) within the same space. When a match is
+ * found, overwrite the entity's preallocated ULID with the existing entity's ID,
+ * mark it as an upsert, and store the existing ver for CAS.
+ *
+ * This mutates plan.entities in place — downstream code sees the correct IDs
+ * so @local refs that were mapped during parsing still resolve correctly
+ * (the localRefs Map in the parser used the preallocated ULID, but edges
+ * already captured that ULID as source_id/target_id — we need to patch those too).
+ */
+async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient): Promise<void> {
+  // Collect entities that can be upserted, grouped by space
+  const bySpace = new Map<string, PlannedEntity[]>();
+  for (const entity of plan.entities) {
+    if (entity.upsert_key && entity.space_id) {
+      let list = bySpace.get(entity.space_id);
+      if (!list) {
+        list = [];
+        bySpace.set(entity.space_id, list);
+      }
+      list.push(entity);
+    }
+  }
+
+  if (bySpace.size === 0) return;
+
+  // For each space, batch-query existing entities
+  // Build a map from old preallocated ULID → existing ULID for edge patching
+  const idRemap = new Map<string, string>();
+
+  for (const [spaceId, entities] of bySpace) {
+    // Build parameter arrays for the query
+    const types: string[] = [];
+    const labelsLower: string[] = [];
+    for (const entity of entities) {
+      types.push(entity.type);
+      labelsLower.push(entity.upsert_key!.split("|")[1]);
+    }
+
+    // Query existing entities matching any (type, lower(label)) in this space
+    const txResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT e.id, e.type, lower(e.properties->>'label') AS label_lower, e.ver
+         FROM entities e
+         JOIN space_entities se ON se.entity_id = e.id
+         WHERE se.space_id = $1
+           AND e.kind = 'entity'
+           AND e.type = ANY($2::text[])
+           AND lower(e.properties->>'label') = ANY($3::text[])`,
+        [spaceId, types, labelsLower],
+      ),
+    ]);
+
+    const rows = txResults.at(-1) as Array<{ id: string; type: string; label_lower: string; ver: number }>;
+    if (!rows || rows.length === 0) continue;
+
+    // Build lookup map: "type|label_lower" → { id, ver }
+    const existing = new Map<string, { id: string; ver: number }>();
+    for (const row of rows) {
+      existing.set(`${row.type}|${row.label_lower}`, { id: row.id, ver: row.ver });
+    }
+
+    // Patch matching entities
+    for (const entity of entities) {
+      const match = existing.get(entity.upsert_key!);
+      if (match) {
+        const oldId = entity.id;
+        entity.id = match.id;
+        entity.is_upsert = true;
+        entity.existing_ver = match.ver;
+        idRemap.set(oldId, match.id);
+      }
+    }
+  }
+
+  // Patch edge source_id / target_id that referenced preallocated ULIDs
+  if (idRemap.size > 0) {
+    for (const edge of plan.edges) {
+      const remappedSource = idRemap.get(edge.source_id);
+      if (remappedSource) edge.source_id = remappedSource;
+      const remappedTarget = idRemap.get(edge.target_id);
+      if (remappedTarget) edge.target_id = remappedTarget;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // INSERT query builders
 // ---------------------------------------------------------------------------
 
@@ -499,6 +619,52 @@ function buildEntityActivityInsert(
     `INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
      VALUES ($1, $2, 'entity_created', $3::jsonb, $4::timestamptz)`,
     [entity.id, actorId, JSON.stringify({ kind: "entity", type: entity.type, via: "ops" }), now],
+  );
+}
+
+function buildEntityUpsertUpdate(
+  sql: SqlClient,
+  entity: PlannedEntity,
+  actorId: string,
+  now: string,
+) {
+  return sql.query(
+    `UPDATE entities
+     SET properties = properties || $1::jsonb,
+         ver = ver + 1,
+         edited_by = $2,
+         updated_at = $3::timestamptz
+     WHERE id = $4 AND ver = $5
+     RETURNING *`,
+    [JSON.stringify(entity.properties), actorId, now, entity.id, entity.existing_ver],
+  );
+}
+
+function buildEntityVersionInsertAtVer(
+  sql: SqlClient,
+  entityId: string,
+  ver: number,
+  properties: Record<string, unknown>,
+  actorId: string,
+  now: string,
+) {
+  return sql.query(
+    `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
+     VALUES ($1, $2, $3::jsonb, $4, NULL, $5::timestamptz)`,
+    [entityId, ver, JSON.stringify(properties), actorId, now],
+  );
+}
+
+function buildEntityUpsertActivityInsert(
+  sql: SqlClient,
+  entity: PlannedEntity,
+  actorId: string,
+  now: string,
+) {
+  return sql.query(
+    `INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+     VALUES ($1, $2, 'content_updated', $3::jsonb, $4::timestamptz)`,
+    [entity.id, actorId, JSON.stringify({ kind: "entity", type: entity.type, via: "ops_upsert" }), now],
   );
 }
 

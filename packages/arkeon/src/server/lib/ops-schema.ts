@@ -146,12 +146,24 @@ export const OpSchema = z
 
 export const MAX_OPS_PER_REQUEST = 2000;
 
+export const UpsertOnSchema = z
+  .array(z.enum(["label", "type"]))
+  .min(2, "upsert_on must include both 'label' and 'type'")
+  .max(2, "upsert_on must include both 'label' and 'type'")
+  .refine((arr) => arr.includes("label") && arr.includes("type"), {
+    message: "upsert_on must contain exactly ['label', 'type']",
+  })
+  .describe(
+    "When set to ['label', 'type'], entity ops with matching (label, type) within the same space will update the existing entity instead of creating a duplicate. Requires space_id on the op or in defaults. Entities without a label or space are always created fresh.",
+  );
+
 export const OpsDefaultsSchema = z
   .object({
     space_id: UlidSchema.optional(),
     read_level: ClassificationLevel.optional(),
     write_level: ClassificationLevel.optional(),
     permissions: z.array(InlinePermissionGrant).optional(),
+    upsert_on: UpsertOnSchema.optional(),
   })
   .describe(
     "Defaults applied to every op that does not set them individually. Per-op values override.",
@@ -195,9 +207,10 @@ export const OpsEnvelopeSchema = z
 export const CreatedEntityResultSchema = z
   .object({
     ref: LocalRefSchema.describe("The @local ref from the request — maps back to the original op."),
-    id: UlidSchema.describe("The created entity's ULID — use this in subsequent requests."),
+    id: UlidSchema.describe("The entity's ULID — use this in subsequent requests. For upserts, this is the existing entity's ID."),
     type: z.string(),
     label: z.string().nullable().describe("Echoed label if provided in the op, otherwise null."),
+    action: z.enum(["created", "updated"]).describe("Whether this entity was newly created or updated via upsert."),
   })
   .openapi("CreatedEntityResult");
 
@@ -214,10 +227,10 @@ export const OpsResultSchema = z
   .object({
     format: z.literal("arke.ops/v1"),
     committed: z.boolean().describe("True if writes were persisted, false for dry_run."),
-    created: z
+    entities: z
       .array(CreatedEntityResultSchema)
       .describe(
-        "Ordered list of entities created in this batch. Each entry maps a @local ref to its new ULID — read this to know what IDs to use in follow-up requests.",
+        "Ordered list of entities touched by this batch. Each entry maps a @local ref to a ULID (new or existing for upserts). Check the 'action' field to distinguish creates from updates.",
       ),
     edges: z
       .array(CreatedEdgeResultSchema)

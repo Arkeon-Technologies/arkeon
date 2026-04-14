@@ -27,7 +27,7 @@ import { output } from "../../lib/output.js";
 interface OpsResponse {
   format: "arke.ops/v1";
   committed: boolean;
-  created: Array<{ ref: string; id: string }>;
+  entities: Array<{ ref: string; id: string; action?: "created" | "updated" }>;
   edges: Array<{ ref: string; id: string }>;
   stats: { entities: number; edges: number };
   errors?: unknown[];
@@ -112,7 +112,7 @@ async function runSeed(opts: SeedOptions): Promise<void> {
   // The ops handler returns `stats.entities` + `stats.edges` — use those
   // directly. PR #16's `result.entities?.length ?? ...` chain was
   // looking for a field that doesn't exist and reported 0 for both.
-  const entitiesCreated = result.stats?.entities ?? result.created?.length ?? 0;
+  const entitiesCreated = result.stats?.entities ?? result.entities?.length ?? 0;
   const edgesCreated = result.stats?.edges ?? result.edges?.length ?? 0;
 
   output.result({

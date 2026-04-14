@@ -113,7 +113,7 @@ const createEntityRoute = createRoute({
   path: "/",
   operationId: "createEntity",
   tags: ["Entities"],
-  summary: "Create a new entity, optionally adding it to a space and granting permissions",
+  summary: "Create a new entity, optionally adding it to a space and granting permissions. With upsert=true, matches on (label, type) within the space and updates instead of duplicating.",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "PUT /entities/{id}", "POST /spaces/{id}/entities", "POST /entities/{id}/permissions"],
   "x-arke-rules": [
@@ -121,6 +121,7 @@ const createEntityRoute = createRoute({
     "Requires read_level clearance >= entity's read_level",
     "If space_id is provided, requires contributor role or above on that space",
     "All operations (create, space add, permission grants) are atomic",
+    "upsert=true requires both space_id and a label property; without either, creates normally",
   ],
   request: {
     body: {
@@ -133,16 +134,21 @@ const createEntityRoute = createRoute({
           write_level: ClassificationLevel.optional(),
           space_id: EntityIdParam.optional().describe("Space ULID — if provided, the entity is added to this space atomically"),
           permissions: z.array(InlinePermissionGrant).optional().describe("Permission grants to apply to the new entity atomically"),
+          upsert: z.boolean().optional().describe("When true, match existing entity by (label, type) within the space and update instead of creating a duplicate. Requires space_id and a label in properties."),
         }),
       ),
     },
   },
   responses: {
+    200: {
+      description: "Entity updated via upsert",
+      content: jsonContent(EntityResponse),
+    },
     201: {
       description: "Entity created",
       content: jsonContent(EntityResponse),
     },
-    ...errorResponses([400, 401, 403]),
+    ...errorResponses([400, 401, 403, 409]),
   },
 });
 
@@ -600,11 +606,11 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   }
 
   const properties = assertBodyObject(body.properties, "properties");
-  const id = generateUlid();
   const now = new Date().toISOString();
   const readLevel = typeof body.read_level === "number" ? body.read_level : 1;
   const writeLevel = typeof body.write_level === "number" ? body.write_level : 1;
   const spaceId = typeof body.space_id === "string" ? body.space_id : null;
+  const wantUpsert = body.upsert === true;
   const permissionGrants = Array.isArray(body.permissions)
     ? (body.permissions as Array<Record<string, unknown>>).map((g, i) => validatePermissionGrant(g, i))
     : [];
@@ -615,7 +621,88 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     await requireSpaceRole(sql, actor, spaceId, "contributor");
   }
 
-  // Build transaction: core entity insert + optional space/permission queries
+  // Upsert path: match existing entity by (type, lower(label)) within the space
+  const label = typeof properties.label === "string" ? properties.label : null;
+  if (wantUpsert && spaceId && label) {
+    const lookupResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT e.id, e.ver
+         FROM entities e
+         JOIN space_entities se ON se.entity_id = e.id
+         WHERE se.space_id = $1
+           AND e.kind = 'entity'
+           AND e.type = $2
+           AND lower(e.properties->>'label') = $3`,
+        [spaceId, body.type, label.toLowerCase()],
+      ),
+    ]);
+    const existing = (lookupResults.at(-1) as Array<{ id: string; ver: number }>)?.[0];
+
+    if (existing) {
+      // Shallow-merge update (same as PATCH /entities/{id})
+      const updateResults = await sql.transaction([
+        ...setActorContext(sql, actor),
+        sql.query(
+          `UPDATE entities
+           SET properties = properties || $1::jsonb,
+               ver = ver + 1,
+               edited_by = $2,
+               updated_at = $3::timestamptz
+           WHERE id = $4 AND ver = $5
+           RETURNING *`,
+          [JSON.stringify(properties), actor.id, now, existing.id, existing.ver],
+        ),
+      ]);
+
+      const updated = (updateResults.at(-1) as EntityRecord[])?.[0];
+      if (!updated) {
+        throw new ApiError(409, "cas_conflict", "Entity was modified between lookup and update — retry the request", {
+          entity_id: existing.id,
+          expected_ver: existing.ver,
+        });
+      }
+
+      // Version snapshot + activity (background, like PATCH)
+      backgroundTask(
+        sql.transaction([
+          ...setActorContext(sql, actor),
+          sql.query(
+            `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
+             VALUES ($1, $2, $3::jsonb, $4, NULL, $5::timestamptz)`,
+            [existing.id, updated.ver, JSON.stringify(updated.properties), actor.id, now],
+          ),
+          sql.query(
+            `INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+             VALUES ($1, $2, 'content_updated', $3::jsonb, $4::timestamptz)`,
+            [existing.id, actor.id, JSON.stringify({ kind: "entity", type: body.type, via: "upsert" }), now],
+          ),
+        ]).then(() => undefined).catch(console.error),
+      );
+      backgroundTask(indexEntity(updated));
+
+      // Space add + permission grants still run (idempotent)
+      if (spaceId) {
+        backgroundTask(sql.transaction([
+          ...setActorContext(sql, actor),
+          addEntityToSpaceQuery(sql, spaceId, existing.id, actor.id, now),
+        ]).then(() => undefined).catch(console.error));
+      }
+      for (const grant of permissionGrants) {
+        backgroundTask(sql.transaction([
+          ...setActorContext(sql, actor),
+          grantEntityPermissionQuery(sql, existing.id, grant.grantee_type, grant.grantee_id, grant.role, actor.id),
+        ]).then(() => undefined).catch(console.error));
+      }
+
+      return c.json({ entity: updated }, 200);
+    }
+    // No match — fall through to normal INSERT
+  }
+
+  // Normal INSERT path
+  const id = generateUlid();
+
   const queries = [
     ...setActorContext(sql, actor),
     sql.query(

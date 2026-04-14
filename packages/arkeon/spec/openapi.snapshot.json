@@ -110,8 +110,16 @@
       },
       "CreatedEntityResult": {
         "properties": {
+          "action": {
+            "description": "Whether this entity was newly created or updated via upsert.",
+            "enum": [
+              "created",
+              "updated"
+            ],
+            "type": "string"
+          },
           "id": {
-            "description": "The created entity's ULID — use this in subsequent requests.",
+            "description": "The entity's ULID — use this in subsequent requests. For upserts, this is the existing entity's ID.",
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
@@ -137,7 +145,8 @@
           "ref",
           "id",
           "type",
-          "label"
+          "label",
+          "action"
         ],
         "type": "object"
       },
@@ -388,6 +397,19 @@
                 "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                 "type": "string"
               },
+              "upsert_on": {
+                "description": "When set to ['label', 'type'], entity ops with matching (label, type) within the same space will update the existing entity instead of creating a duplicate. Requires space_id on the op or in defaults. Entities without a label or space are always created fresh.",
+                "items": {
+                  "enum": [
+                    "label",
+                    "type"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
               "write_level": {
                 "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
                 "maximum": 4,
@@ -634,17 +656,17 @@
             "description": "True if writes were persisted, false for dry_run.",
             "type": "boolean"
           },
-          "created": {
-            "description": "Ordered list of entities created in this batch. Each entry maps a @local ref to its new ULID — read this to know what IDs to use in follow-up requests.",
-            "items": {
-              "$ref": "#/components/schemas/CreatedEntityResult"
-            },
-            "type": "array"
-          },
           "edges": {
             "description": "Created relationships, with all refs resolved to ULIDs.",
             "items": {
               "$ref": "#/components/schemas/CreatedEdgeResult"
+            },
+            "type": "array"
+          },
+          "entities": {
+            "description": "Ordered list of entities touched by this batch. Each entry maps a @local ref to a ULID (new or existing for upserts). Check the 'action' field to distinguish creates from updates.",
+            "items": {
+              "$ref": "#/components/schemas/CreatedEntityResult"
             },
             "type": "array"
           },
@@ -675,7 +697,7 @@
         "required": [
           "format",
           "committed",
-          "created",
+          "entities",
           "edges",
           "stats"
         ],
@@ -3440,6 +3462,10 @@
                     "description": "Entity type",
                     "type": "string"
                   },
+                  "upsert": {
+                    "description": "When true, match existing entity by (label, type) within the space and update instead of creating a duplicate. Requires space_id and a label in properties.",
+                    "type": "boolean"
+                  },
                   "write_level": {
                     "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
                     "maximum": 4,
@@ -3458,6 +3484,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResponse"
+                }
+              }
+            },
+            "description": "Entity updated via upsert"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -3497,9 +3533,19 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           }
         },
-        "summary": "Create a new entity, optionally adding it to a space and granting permissions",
+        "summary": "Create a new entity, optionally adding it to a space and granting permissions. With upsert=true, matches on (label, type) within the space and updates instead of duplicating.",
         "tags": [
           "Entities"
         ],
@@ -3514,7 +3560,8 @@
           "Requires write_level clearance >= entity's write_level",
           "Requires read_level clearance >= entity's read_level",
           "If space_id is provided, requires contributor role or above on that space",
-          "All operations (create, space add, permission grants) are atomic"
+          "All operations (create, space add, permission grants) are atomic",
+          "upsert=true requires both space_id and a label property; without either, creates normally"
         ]
       }
     },
