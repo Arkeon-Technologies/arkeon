@@ -7,6 +7,9 @@
  * Any fan-out job type (text.chunk_extract, pdf.page_group, etc.) stores an
  * ExtractPlan in its result. The last sibling to complete claims finalization
  * via an atomic gate, merges all sibling plans, and runs the shared pipeline.
+ *
+ * Source provenance (extracted_from edges) is now handled automatically by
+ * POST /ops via source.entity_id — no separate writeSourceProvenance step.
  */
 
 import type { SqlClient } from "../../lib/sql";
@@ -17,7 +20,6 @@ import { setJobStatus, tryFinalizeParent } from "../queue";
 
 import { mergeGroupPlans } from "./merge";
 import { runExtractionPipeline, type PipelineOpts } from "./run-pipeline";
-import { writeSourceProvenance } from "./write";
 
 /**
  * Atomic gate: claim finalization only if all siblings are done.
@@ -91,14 +93,12 @@ async function _runGroupFinalization(
 
   // Merge (skip if single group)
   let mergedPlan: ExtractPlan;
-  let refToSourceOrdinal: Map<string, number> | undefined;
 
   if (groupResults.length === 1) {
     mergedPlan = groupResults[0].data;
   } else {
     const mergeResult = mergeGroupPlans(groupResults);
     mergedPlan = mergeResult.plan;
-    refToSourceOrdinal = mergeResult.refToSourceOrdinal;
   }
 
   appendLog(parentJobId, "info", `Merged: ${mergedPlan.entities.length} entities, ${mergedPlan.relationships.length} relationships`);
@@ -115,18 +115,6 @@ async function _runGroupFinalization(
     ...opts,
     jobId: parentJobId,
   });
-
-  // Write source provenance (link extracted entities → source entities)
-  const [parentMeta] = await sql.query(
-    `SELECT metadata FROM knowledge_jobs WHERE id = $1`,
-    [parentJobId],
-  );
-  const sourceEntityIds = ((parentMeta?.metadata as any)?.source_entity_ids ?? []) as string[];
-
-  if (refToSourceOrdinal && sourceEntityIds.length > 0) {
-    appendLog(parentJobId, "info", "Writing source provenance");
-    await writeSourceProvenance(pipelineResult.refToId, refToSourceOrdinal, sourceEntityIds, opts.spaceId);
-  }
 
   // Aggregate token usage from all siblings + finalization
   const tokenAgg = await sql.query(

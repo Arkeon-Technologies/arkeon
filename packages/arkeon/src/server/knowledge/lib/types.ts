@@ -85,8 +85,19 @@ export interface CanonicalRelationship {
 
 export interface WriteResult {
   createdEntityIds: string[];
+  updatedEntityIds: string[];
   createdRelationshipIds: string[];
   refToId: Record<string, string>;
+}
+
+// --- Space extraction config ---
+
+/** Per-space extraction schema stored in space.properties.extraction */
+export interface SpaceExtractionConfig {
+  entity_types?: string[];
+  predicates?: string[];
+  label_instructions?: string;
+  context?: string;
 }
 
 // --- Content routing ---

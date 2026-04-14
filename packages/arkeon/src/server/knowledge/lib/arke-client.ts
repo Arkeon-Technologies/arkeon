@@ -157,6 +157,55 @@ export async function getEntityPermissions(
  * Upload binary content to an entity via the API.
  * Uses the SDK's configured auth and proxy — no env var reads.
  */
+export async function getSpace(id: string): Promise<any> {
+  const data = (await get(`/spaces/${id}`)) as any;
+  return data?.space ?? data;
+}
+
+export interface OpsEnvelopeInput {
+  format: "arke.ops/v1";
+  defaults?: {
+    space_id?: string;
+    read_level?: number;
+    write_level?: number;
+    upsert_on?: string[];
+    permissions?: Array<{ grantee_type: string; grantee_id: string; role: string }>;
+  };
+  source?: {
+    entity_id?: string;
+    extracted_by?: Record<string, unknown>;
+  };
+  ops: Array<Record<string, unknown>>;
+}
+
+export interface OpsResultEntity {
+  ref: string;
+  id: string;
+  type: string;
+  label?: string;
+  action: "created" | "updated";
+}
+
+export interface OpsResultEdge {
+  id: string;
+  source: string;
+  predicate: string;
+  target: string;
+}
+
+export interface OpsResult {
+  format: string;
+  committed: boolean;
+  entities: OpsResultEntity[];
+  edges: OpsResultEdge[];
+  stats: { entities: number; edges: number };
+}
+
+export async function submitOpsEnvelope(envelope: OpsEnvelopeInput): Promise<OpsResult> {
+  const data = (await post("/ops", envelope)) as any;
+  return data as OpsResult;
+}
+
 export async function uploadEntityContent(
   entityId: string,
   key: string,

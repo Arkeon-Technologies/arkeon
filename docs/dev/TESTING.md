@@ -17,6 +17,29 @@ Three levels: schema tests in Postgres, end-to-end API tests with Vitest, and op
 | `spaces.test.ts` | Space management |
 | `workers.test.ts` | Worker/agent functionality |
 
+## Manual Tests (LLM-dependent)
+
+`packages/arkeon/test/manual/` — tests that require a running stack and a real LLM API key. Not run in CI.
+
+| File | Coverage |
+|------|----------|
+| `knowledge-llm.test.ts` | Knowledge extraction permission inheritance (read_level, write_level, owner_id, grants) |
+
+```bash
+# Requires: running stack with --knowledge, OPENAI_API_KEY
+ADMIN_BOOTSTRAP_KEY="..." OPENAI_API_KEY="sk-..." \
+  npx vitest run --config vitest.manual.config.ts
+```
+
+**From a worktree**, use the main repo's vitest binary to avoid workspace path resolution issues:
+
+```bash
+ADMIN_BOOTSTRAP_KEY="..." OPENAI_API_KEY="sk-..." \
+  /path/to/main/repo/node_modules/.bin/vitest run --config vitest.manual.config.ts
+```
+
+See [KNOWLEDGE_PIPELINE.md](./KNOWLEDGE_PIPELINE.md) for ad-hoc testing instructions.
+
 ## Stress Scripts
 
 `packages/arkeon/test/stress/` — manual operational checks, not part of Vitest:

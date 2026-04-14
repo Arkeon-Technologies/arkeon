@@ -2,44 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Write resolved entities and relationships to the graph via the Arkeon API.
- * Also handles creating chunk entities for large-document extraction.
+ * Write extracted entities and relationships to the graph via POST /ops.
+ * Uses upsert_on: ["label", "type"] for deterministic deduplication.
+ * source.entity_id auto-creates extracted_from edges for provenance.
  *
- * All entity operations go through the SDK (HTTP API), not direct SQL.
- * This ensures activity logging, permission validation, and consistency
- * with the rest of the platform.
- *
- * TODO(ops-migration): Replace the per-entity createEntity/createRelationship
- * loops below with a single in-process call to executeOps() from
- * packages/api/src/lib/ops-execute.ts. That function is the canonical atomic
- * multi-entity writer — it handles the same entity+version+activity+space+
- * permissions inserts in one Postgres transaction, with better error
- * diagnostics and without the N+M HTTP round-trips this file currently makes.
- *
- * Migration steps when we get to it:
- *   1. Build an OpsEnvelope from canonicalEntities + canonicalRelationships.
- *      Entities with a canonical_id already set become bare-ULID references on
- *      their outgoing relationships (not entity ops).
- *   2. Set envelope.source.entity_id = documentId so the executor auto-emits
- *      extracted_from edges — deletes the "Link to source document" block
- *      around lines 77-81 and writeSourceProvenance() entirely.
- *   3. Import executeOps from ../../lib/ops-execute and call it with a sql
- *      handle (NOT via HTTP — direct function call, same process).
- *   4. Map the OpsResult back to the WriteResult shape. Nothing downstream
- *      should change.
- *   5. transferOwnership (lines 97-105) stays as a separate post-step — it's
- *      rarely used and not an op type.
- *   6. writeSourceEntities (chunk materialization) can also move to executeOps
- *      but is lower priority; current behavior is fine.
- *
- * See docs/dev/INGEST_OPS.md for the format contract.
+ * Also handles creating chunk entities for large-document extraction
+ * (writeSourceEntities) which still uses individual API calls.
  */
 
 import {
   createEntity,
   createRelationship,
   transferOwnership,
+  submitOpsEnvelope,
+  ArkeError,
+  type OpsEnvelopeInput,
+  type OpsResult,
 } from "../lib/arke-client";
+import { LlmClient } from "../lib/llm";
+import type { ExtractPlan, WriteResult } from "../lib/types";
 
 const WRITE_CONCURRENCY = 10;
 
@@ -52,11 +33,6 @@ async function parallelLimit<T, R>(items: T[], fn: (item: T) => Promise<R>, limi
   }
   return results;
 }
-import type {
-  CanonicalEntity,
-  CanonicalRelationship,
-  WriteResult,
-} from "../lib/types";
 
 export interface WriteOpts {
   spaceId?: string;
@@ -66,103 +42,217 @@ export interface WriteOpts {
   permissions?: Array<{ grantee_type: string; grantee_id: string; role: string }>;
 }
 
-export async function writeSubgraph(
-  entities: CanonicalEntity[],
-  relationships: CanonicalRelationship[],
+// ---------------------------------------------------------------------------
+// Build ops envelope from ExtractPlan
+// ---------------------------------------------------------------------------
+
+export function buildOpsFromPlan(
+  plan: ExtractPlan,
   documentId: string,
   opts?: WriteOpts,
-): Promise<WriteResult> {
+): OpsEnvelopeInput {
+  const ops: Array<Record<string, unknown>> = [];
+
+  for (const entity of plan.entities) {
+    ops.push({
+      op: "entity",
+      ref: `@${entity.ref}`,
+      type: entity.type,
+      label: entity.label,
+      description: entity.description,
+      source_document_id: documentId,
+    });
+  }
+
+  for (const rel of plan.relationships) {
+    ops.push({
+      op: "relate",
+      source: `@${rel.source_ref}`,
+      target: `@${rel.target_ref}`,
+      predicate: rel.predicate,
+      ...(rel.source_span ? { span: rel.source_span } : {}),
+      ...(rel.detail ? { detail: rel.detail } : {}),
+      source_document_id: documentId,
+    });
+  }
+
+  return {
+    format: "arke.ops/v1",
+    defaults: {
+      space_id: opts?.spaceId,
+      upsert_on: ["label", "type"],
+      read_level: opts?.readLevel,
+      write_level: opts?.writeLevel,
+      permissions: opts?.permissions,
+    },
+    source: { entity_id: documentId },
+    ops,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Map OpsResult back to WriteResult
+// ---------------------------------------------------------------------------
+
+function mapOpsResult(result: OpsResult): WriteResult {
   const refToId: Record<string, string> = {};
   const createdEntityIds: string[] = [];
+  const updatedEntityIds: string[] = [];
   const createdRelationshipIds: string[] = [];
 
-  const entityResults = await parallelLimit(
-    entities, async (entity) => {
-      if (entity.canonical_id && /^[0-9A-Z]{26}$/i.test(entity.canonical_id)) {
-        return { ref: entity.ref, id: entity.canonical_id, created: false };
-      }
-
-      try {
-        // Create entity with permissions inline (atomic — entity + grants in one call)
-        const id = await createEntity({
-          type: entity.type,
-          properties: {
-            label: entity.label,
-            description: entity.description,
-            source_document_id: documentId,
-          },
-          space_id: opts?.spaceId,
-          read_level: opts?.readLevel,
-          write_level: opts?.writeLevel,
-          permissions: opts?.permissions,
-        });
-
-        if (!id) return null;
-
-        // Link to source document
-        await createRelationship(id, {
-          predicate: "derived_from",
-          target_id: documentId,
-          space_id: opts?.spaceId,
-        }).catch(() => {});
-
-        return { ref: entity.ref, id, created: true };
-      } catch (err) {
-        console.warn(`[knowledge:write] Failed to create entity "${entity.label}":`, err instanceof Error ? err.message : err);
-        return null;
-      }
-    }, WRITE_CONCURRENCY);
-
-  for (const result of entityResults) {
-    if (!result) continue;
-    refToId[result.ref] = result.id;
-    if (result.created) createdEntityIds.push(result.id);
+  for (const entity of result.entities) {
+    const ref = entity.ref.startsWith("@") ? entity.ref.slice(1) : entity.ref;
+    refToId[ref] = entity.id;
+    if (entity.action === "created") {
+      createdEntityIds.push(entity.id);
+    } else {
+      updatedEntityIds.push(entity.id);
+    }
   }
 
-  // Transfer ownership from service actor to source document's owner.
-  // Uses PUT /entities/{id}/owner which handles activity logging automatically.
-  if (opts?.ownerId) {
-    await parallelLimit(
-      createdEntityIds, (id) =>
-        transferOwnership(id, opts.ownerId!).catch((err) => {
-          console.warn(`[knowledge:write] Failed to transfer ownership for ${id}:`, err instanceof Error ? err.message : err);
-        }),
-      WRITE_CONCURRENCY,
-    );
+  for (const edge of result.edges) {
+    createdRelationshipIds.push(edge.id);
   }
 
-  const relResults = await parallelLimit(
-    relationships, async (rel) => {
-      const sourceId = rel.source_id ?? refToId[rel.source_ref];
-      const targetId = rel.target_id ?? refToId[rel.target_ref];
-      if (!sourceId || !targetId) return null;
-      if (!/^[0-9A-Z]{26}$/i.test(sourceId) || !/^[0-9A-Z]{26}$/i.test(targetId)) return null;
-
-      try {
-        const relId = await createRelationship(sourceId, {
-          predicate: rel.predicate,
-          target_id: targetId,
-          properties: {
-            source_spans: rel.source_span ? [{ text: rel.source_span }] : [],
-            detail: rel.detail,
-            source_document_id: documentId,
-          },
-          space_id: opts?.spaceId,
-        });
-
-        return relId;
-      } catch (err) {
-        console.warn(`[knowledge:write] Failed to create relationship ${sourceId} --[${rel.predicate}]--> ${targetId}:`, err instanceof Error ? err.message : err);
-        return null;
-      }
-    }, WRITE_CONCURRENCY);
-
-  for (const relId of relResults) {
-    if (relId) createdRelationshipIds.push(relId);
-  }
-
-  return { createdEntityIds, createdRelationshipIds, refToId };
+  return { createdEntityIds, updatedEntityIds, createdRelationshipIds, refToId };
 }
+
+// ---------------------------------------------------------------------------
+// Error classification for retry
+// ---------------------------------------------------------------------------
+
+interface OpsError {
+  code: string;
+  status: number;
+  message: string;
+  details: any;
+}
+
+function parseOpsError(err: unknown): OpsError {
+  if (err instanceof ArkeError) {
+    return {
+      code: err.code ?? "unknown",
+      status: err.status,
+      message: err.message,
+      details: err.details ?? {},
+    };
+  }
+  return {
+    code: "unknown",
+    status: 500,
+    message: err instanceof Error ? err.message : String(err),
+    details: {},
+  };
+}
+
+const NON_RETRYABLE_CODES = new Set(["forbidden", "invalid_classification"]);
+
+// ---------------------------------------------------------------------------
+// LLM-assisted ops fix
+// ---------------------------------------------------------------------------
+
+const FIX_OPS_PROMPT = `You are fixing a failed ops batch for a knowledge graph.
+
+The following ops batch was submitted but failed. Fix the errors and return only the corrected ops array.
+
+Rules:
+- Fix only the specific errors listed
+- Do not add new entities or relationships unless an error requires it
+- For target_not_found: remove the relate op that references the missing entity
+- For unresolved_ref: ensure the referenced entity op exists before the relate op, or remove the dangling relate op
+- For duplicate_ref: rename the duplicate ref to be unique
+- Return JSON: { "ops": [...corrected ops...] }`;
+
+async function llmFixOps(
+  llm: LlmClient,
+  ops: Array<Record<string, unknown>>,
+  errorDetails: any,
+): Promise<Array<Record<string, unknown>>> {
+  const result = await llm.chatJson<{ ops: Array<Record<string, unknown>> }>(
+    FIX_OPS_PROMPT,
+    JSON.stringify({ errors: errorDetails, ops }, null, 2),
+    { maxTokens: 16_384 },
+  );
+
+  if (!Array.isArray(result.data?.ops)) {
+    throw new Error("LLM fix did not return a valid ops array");
+  }
+  return result.data.ops;
+}
+
+// ---------------------------------------------------------------------------
+// Submit ops with retry loop
+// ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 2;
+
+export async function submitOpsWithRetry(
+  plan: ExtractPlan,
+  documentId: string,
+  opts: WriteOpts | undefined,
+  llm: LlmClient,
+): Promise<WriteResult> {
+  let envelope = buildOpsFromPlan(plan, documentId, opts);
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await submitOpsEnvelope(envelope);
+      const writeResult = mapOpsResult(result);
+
+      // Transfer ownership from service actor to source document's owner
+      if (opts?.ownerId && writeResult.createdEntityIds.length > 0) {
+        await parallelLimit(
+          writeResult.createdEntityIds,
+          (id) => transferOwnership(id, opts.ownerId!).catch((err) => {
+            console.warn(`[knowledge:write] Failed to transfer ownership for ${id}:`, err instanceof Error ? err.message : err);
+          }),
+          WRITE_CONCURRENCY,
+        );
+      }
+
+      return writeResult;
+    } catch (err) {
+      lastError = err;
+      const parsed = parseOpsError(err);
+
+      // Non-retryable
+      if (NON_RETRYABLE_CODES.has(parsed.code)) {
+        throw err;
+      }
+
+      if (attempt >= MAX_RETRIES) break;
+
+      // Simple retry (no LLM needed)
+      if (parsed.code === "cas_conflict" || parsed.status >= 500) {
+        const backoff = parsed.status >= 500 ? 1000 * (attempt + 1) : 100;
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+
+      // LLM-assisted fix
+      if (parsed.code === "ops_validation_failed" || parsed.code === "target_not_found") {
+        try {
+          const fixedOps = await llmFixOps(llm, envelope.ops, parsed.details);
+          envelope = { ...envelope, ops: fixedOps };
+          continue;
+        } catch (fixErr) {
+          console.warn(`[knowledge:write] LLM fix failed:`, fixErr instanceof Error ? fixErr.message : fixErr);
+          throw err;
+        }
+      }
+
+      // Unknown error — don't retry
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
+
+// ---------------------------------------------------------------------------
+// Source entity creation (for chunks — unchanged)
+// ---------------------------------------------------------------------------
 
 export interface SourceEntityDef {
   label: string;
@@ -214,34 +304,4 @@ export async function writeSourceEntities(
   }
 
   return { sourceEntityIds: results.filter((id): id is string => !!id) };
-}
-
-export async function writeSourceProvenance(
-  refToId: Record<string, string>,
-  refToSourceOrdinal: Map<string, number>,
-  sourceEntityIds: string[],
-  spaceId?: string,
-): Promise<void> {
-  const entries = [...refToSourceOrdinal.entries()].filter(([ref, ord]) => {
-    const eid = refToId[ref];
-    const sid = sourceEntityIds[ord];
-    return eid && sid && /^[0-9A-Z]{26}$/i.test(eid) && /^[0-9A-Z]{26}$/i.test(sid);
-  });
-
-  await parallelLimit(
-    entries, async ([ref, ordinal]) => {
-      const entityId = refToId[ref];
-      const sourceId = sourceEntityIds[ordinal];
-
-      try {
-        await createRelationship(entityId, {
-          predicate: "extracted_from",
-          target_id: sourceId,
-          space_id: spaceId,
-        });
-      } catch (err) {
-        console.warn(`[knowledge:write] Failed to create provenance ${entityId} -> source ${sourceId}:`, err instanceof Error ? err.message : err);
-      }
-    }, WRITE_CONCURRENCY,
-  );
 }

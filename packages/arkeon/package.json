@@ -27,6 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:manual": "vitest run --config vitest.manual.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

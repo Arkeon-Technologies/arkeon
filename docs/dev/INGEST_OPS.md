@@ -120,15 +120,32 @@ The caller must have read access on `source.entity_id`. If the document isn't vi
 
 This is how extraction pipelines close the loop: every extracted entity is traceable back to the document it came from, and the document is traceable back to the batch via the `extracted_by` metadata. Deleting the source document cleans up the provenance edges without touching the extracted entities themselves (they may be cited from multiple sources).
 
-## Dedup is not in scope
+## Upsert
 
-The ops format deliberately does not merge duplicates. Running the same extraction twice creates two copies of every entity, each with its own `extracted_from` edge. This is intentional:
+Setting `defaults.upsert_on: ["label", "type"]` activates deterministic dedup within `/ops`. When an entity op matches an existing entity by `(type, lower(label), space_id)`, the existing entity is **updated** (shallow property merge) instead of duplicated:
 
-1. Merging is a separate, explicit concern handled by the entity merge API
-2. Silent dedup entangles documents in ways that are hard to audit later
-3. The `extracted_from` back-edges give you everything you need to run an offline dedupe pass that knows which entities came from which source
+```json
+{
+  "format": "arke.ops/v1",
+  "defaults": {
+    "space_id": "01SPACE...",
+    "upsert_on": ["label", "type"]
+  },
+  "ops": [
+    { "op": "entity", "ref": "@jane", "type": "person", "label": "Jane Smith", "description": "Updated bio" }
+  ]
+}
+```
 
-If you want idempotent ingestion (ingesting the same document twice produces the same graph), do dedup as a second step, not inside `/ops`.
+If "Jane Smith" (person) already exists in that space, her properties are shallow-merged. If not, a new entity is created. The response's `action` field distinguishes: `"created"` or `"updated"`.
+
+**Within-batch dedup** is automatic: two entity ops with the same `(type, lower(label), space_id)` in one request are merged into a single entity. The second op's `@ref` becomes an alias for the first.
+
+**Cross-batch dedup** queries the graph during the transaction and uses optimistic locking (`ver` field). If another writer modified the entity between lookup and write, the transaction fails with `cas_conflict` (409) — retry to pick up the latest version.
+
+Upsert requires `space_id` for matching. Without a space, entities are always created fresh.
+
+The knowledge extraction pipeline uses upsert by default. See [KNOWLEDGE_PIPELINE.md](./KNOWLEDGE_PIPELINE.md) for details.
 
 ## Atomicity
 
@@ -180,7 +197,6 @@ The inline-properties contract is what makes this cheap: anything the LLM wants 
 
 The current version ships two op types: `entity` and `relate`. The parser uses a discriminated union on `op`, so adding new types is additive. Candidates reserved conceptually but not implemented:
 
-- `upsert` — create or merge by (type, natural_key); would make ingestion idempotent
 - `update` — modify an existing entity referenced by ULID
 - `content` — attach text/markdown body to an entity created in this batch
 - `merge` — merge two entities (reuses the existing merge machinery)

@@ -114,6 +114,7 @@ export async function handlePdfExtract(
     | Array<{ grantee_type: string; grantee_id: string; role: string }>
     | undefined;
   const spaceId = metadata.space_id as string | undefined;
+  const spaceExtractionConfig = metadata.space_extraction_config;
 
   if (!contentKey) throw new Error("No content_key in pdf.extract metadata");
 
@@ -124,6 +125,7 @@ export async function handlePdfExtract(
     owner_id: ownerId,
     permissions,
     space_id: spaceId,
+    space_extraction_config: spaceExtractionConfig,
   };
 
   // 1. Fetch PDF bytes
