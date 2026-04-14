@@ -6,13 +6,14 @@ How the platform communicates its capabilities to users, LLMs, and automated wor
 
 An API with 75+ operations across 12 resource groups is useless if the caller doesn't know what's available. Human users can browse docs. LLM workers can't — they need the right context injected upfront, or they'll waste iterations guessing and failing.
 
-Three audiences need to understand the same API, but through different lenses:
+Four audiences need to understand the same API, but through different lenses:
 
 | Audience | Interface | Needs |
 |----------|-----------|-------|
 | Human via HTTP | API endpoints, curl, SDKs | Route index, parameter docs, guides |
 | Human via CLI | `arkeon` commands | Command help, getting-started guide |
 | LLM worker | Shell + tools in sandbox | Complete reference — every command, parameter, response shape, and rule |
+| Claude Code agent | Skills + CLI + HTTP | Skill instructions, `arkeon docs`, `arkeon guide` |
 
 ## Architecture
 
@@ -71,6 +72,41 @@ arkeon guide                          # getting-started guide with CLI examples
 
 **Auto-generated commands** (~78 operations, 12 groups) are created by `scripts/generate-commands.ts`, which imports `parseOperations` from `src/shared/cli-operations.ts` and produces `src/generated/index.ts`.
 
+**`arkeon docs` — offline complete reference:**
+
+```
+arkeon docs                # all formats combined (CLI + API + SDK)
+arkeon docs --format cli   # CLI commands only (walks Commander tree)
+arkeon docs --format api   # API reference (same content as /llms.txt, offline)
+arkeon docs --format sdk   # SDK quick-reference
+```
+
+Built from the checked-in `spec/openapi.snapshot.json`, so it works without a running server. This is how Claude Code agents (and any offline tooling) get the full API reference without starting the stack.
+
+The visual graph explorer is a separate surface at `GET /explore` (see Explorer section below) — it's not part of `arkeon docs` since it's a browser SPA, not text output.
+
+### Skills (`packages/arkeon/assets/skills/`)
+
+Claude Code skills are the primary AX surface for agents working *on* a knowledge graph (as opposed to workers running *inside* the sandbox).
+
+**Source files:**
+- `assets/skills/meta.yaml` — skill definitions with provider frontmatter (allowed tools, model settings)
+- `assets/skills/body/*.md` — skill body content (arkeon-ingest, arkeon-connect, arkeon-doctor)
+- `assets/skills/agents.md` — agent-facing quick reference bundled in Genesis seed
+
+**Build pipeline:** `scripts/bundle-assets.ts` composes meta.yaml + body + provider frontmatter into complete skill files. Output lands in `src/generated/assets.ts`.
+
+**Distribution:** `arkeon claude install` writes composed skills to `~/.claude/skills/`. An `arkeon:managed` comment lets the installer detect and update stale skills on version change.
+
+**Key skills:**
+- `arkeon-ingest` — initialize a repo and build a knowledge graph (4-phase protocol with parallel sub-agents)
+- `arkeon-connect` — find and create relationships between entities across spaces
+- `arkeon-doctor` — build, test, and publish the arkeon npm package
+
+### Explorer (`packages/explorer/`)
+
+Browser SPA for visual graph exploration, served at `GET /explore`. Built with Vite, bundled into `dist/explorer/` as part of the `arkeon` build, ships inside the npm tarball. Not a separate package — just a build artifact.
+
 ### Worker System Prompt (`packages/arkeon/src/server/lib/worker-prompt.ts`)
 
 The most critical context surface. Workers are LLMs running in sandboxes — their effectiveness is entirely determined by the quality of their starting context.
@@ -128,6 +164,7 @@ Route definitions (createRoute + Zod)
         +---> /help/:method/:path (renderRouteHelpFromSpec — per-route)
         +---> CLI commands (parseOperations at build time)
         +---> Worker CLI reference (renderFullReferenceFromSpec at startup)
+        +---> arkeon docs --format api (offline, from snapshot)
 
 Shared concepts (packages/arkeon/src/shared/concepts.ts)
         |
@@ -140,6 +177,17 @@ Shared operations (packages/arkeon/src/shared/cli-operations.ts)
         +---> CLI codegen (generate-commands.ts)
         +---> Worker prompt (renderFullReferenceFromSpec)
         +---> /llms.txt (renderFullApiReferenceFromSpec)
+
+Skill sources (assets/skills/meta.yaml + body/*.md)
+        |
+        +---> bundle-assets.ts
+        +---> src/generated/assets.ts
+        +---> arkeon claude install → ~/.claude/skills/
+
+Explorer SPA (packages/explorer/)
+        |
+        +---> Vite build
+        +---> dist/explorer/ → GET /explore
 ```
 
 ## Maintaining This System
@@ -151,6 +199,29 @@ Shared operations (packages/arkeon/src/shared/cli-operations.ts)
 **Changing SDK examples:** Edit `packages/arkeon/src/server/lib/worker-prompt.ts` (worker) and the `FILTER_SYNTAX_BLOCK` preamble in `packages/arkeon/src/server/lib/openapi-help.ts` (`/llms.txt`).
 
 **Updating the route index for workers:** Happens automatically at server startup. No manual step required.
+
+**Changing a skill:** Edit `assets/skills/meta.yaml` (metadata/frontmatter) or `assets/skills/body/*.md` (content). Rebuild (`npm run build -w packages/arkeon`) to regenerate `src/generated/assets.ts`. Users pick up changes on next `arkeon claude install` or automatically on version change.
+
+**Adding a new skill:** Add the skill definition to `meta.yaml` and its body to `body/<name>.md`. The build pipeline handles composition and distribution.
+
+**Updating `arkeon docs` output:** Happens automatically when the OpenAPI snapshot is regenerated. No separate step.
+
+## Complete Surface Map
+
+Quick reference for where each audience gets context:
+
+| Surface | Audience | Auto-generated? | Source of truth |
+|---------|----------|-----------------|-----------------|
+| `GET /llms.txt` | External LLMs, SDK users | Yes (runtime) | Route definitions + Zod schemas |
+| `GET /help` | HTTP users | Yes (runtime) | Route definitions |
+| `GET /help/guide` | HTTP users | Partial (concepts auto, examples manual) | `concepts.ts` + `help.ts` |
+| `GET /openapi.json` | Tool builders | Yes (runtime) | Route definitions |
+| `arkeon docs` | CLI users, offline agents | Yes (build-time) | OpenAPI snapshot |
+| `arkeon guide` | CLI users | Partial | `concepts.ts` + `guide/index.ts` |
+| `arkeon <cmd> --help` | CLI users | Yes (build-time) | OpenAPI snapshot |
+| Worker system prompt | Sandbox LLM workers | Yes (startup) | OpenAPI + `concepts.ts` + `worker-prompt.ts` |
+| Skills | Claude Code agents | Yes (build-time) | `assets/skills/meta.yaml` + `body/*.md` |
+| Explorer | Browser users | Yes (build-time) | `packages/explorer/` |
 
 ## Why This Matters
 

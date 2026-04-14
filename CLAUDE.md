@@ -160,16 +160,34 @@ Rules:
 
 The migration runner itself lives at `packages/arkeon/src/schema/migrate.ts`. It exports `runMigrations({ databaseUrl, arkeAppPassword })` and is imported directly by `arkeon start` — no child process, no spawn, no top-level-await script.
 
-## API: LLM Help System
+## Agent Experience (AX) Surfaces
 
-The API has a layered, self-documenting help system served at `/llms.txt` and `/help`. It is the primary way LLMs discover and understand the API.
+Arkeon has multiple self-documenting surfaces that agents and users rely on to discover and use the API. Every feature an agent might use **must be discoverable** via at least one of: `/llms.txt`, `arkeon docs`, the worker system prompt, or a skill body. If you ship a feature and no AX surface knows about it, it doesn't exist to agents.
+
+Full architecture and data flow: `docs/dev/CONTEXT_MANAGEMENT.md`.
+
+### Quick surface map
+
+| What changed | AX surfaces affected | Action needed |
+|---|---|---|
+| **Route added/modified/removed** | `/llms.txt`, `/help`, `/openapi.json`, CLI commands, worker prompt, `arkeon docs` | Update `createRoute()` + Zod schemas, then rebuild (see checklist below) |
+| **Concept changed** (core definitions, classification, best practices) | API guide, CLI guide, worker prompt | Edit `src/shared/concepts.ts` — propagates automatically |
+| **Skill changed** (ingest, connect, doctor protocols) | Claude Code skills | Edit `assets/skills/meta.yaml` or `body/*.md`, rebuild to regenerate `src/generated/assets.ts` |
+| **SDK examples or response patterns** | Worker prompt, `/llms.txt` | Edit `worker-prompt.ts` and/or `openapi-help.ts`, then rebuild |
+| **Guide content** (getting-started, admin) | `/help/guide`, `arkeon guide` | Edit `help.ts` (API) or `guide/index.ts` (CLI) |
+| **Explorer** | `/explore` browser SPA | Edit `packages/explorer/`, rebuild |
+
+### Checklist for route changes
 
 **When adding, modifying, or removing routes, you MUST update the route's `createRoute()` definition and Zod schemas.** OpenAPI is generated at runtime from the route definitions and powers all of:
 - `/openapi.json`
 - `/llms.txt`
 - `/help/:method/:path`
+- `arkeon docs --format api`
+- Worker system prompt (CLI reference)
+- Auto-generated CLI commands
 
-Checklist for route changes:
+Steps:
 - Define or update the route with `createRoute()` in the route file
 - Reuse shared schemas from `packages/arkeon/src/server/lib/schemas.ts` when possible
 - Include `operationId`, `tags`, `summary`, `x-arke-auth`, `x-arke-related`, and `x-arke-rules`
@@ -182,3 +200,12 @@ Checklist for route changes:
 - Keep summaries concise; put detail in parameter descriptions and schema descriptions
 - Make request and response schemas accurate enough for CLI codegen and `/help` rendering
 - **Regenerate CLI commands**: after any route change, run `npm run build -w packages/sdk-ts && npm run build -w packages/arkeon` and commit the updated `spec/openapi.snapshot.json`, `src/generated/index.ts`, and `src/generated/assets.ts`. This works offline — `fetch-spec` imports `app.ts` directly, no running server needed. CI (`check-cli-spec-drift`) will fail if these files are stale.
+
+### AX review habit
+
+After any feature work, ask: "Can an agent discover and use this?" Specifically:
+1. If it's an API operation — is it in the OpenAPI spec with good descriptions and `x-arke-rules`?
+2. If it's a workflow — is it in a skill body or guide?
+3. If it's a concept — is it in `concepts.ts`?
+4. If it's a CLI-only feature — does `arkeon docs --format cli` show it?
+5. Rebuild and verify: `npm run build -w packages/sdk-ts && npm run build -w packages/arkeon`
