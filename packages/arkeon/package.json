@@ -21,6 +21,7 @@
     "bundle-assets": "tsx scripts/bundle-assets.ts",
     "bundle-explorer": "npm run build -w @arkeon-technologies/explorer && tsx scripts/copy-explorer.ts",
     "bundle-schema": "tsx scripts/copy-schema.ts",
+    "prepack": "npm run build",
     "build": "npm run fetch-spec && npm run generate && npm run bundle-assets && tsup && npm run bundle-explorer && npm run bundle-schema",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
