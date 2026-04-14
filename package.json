@@ -7,8 +7,5 @@
     "packages/arkeon",
     "packages/sdk-ts",
     "packages/explorer"
-  ],
-  "devDependencies": {
-    "playwright": "^1.59.1"
-  }
+  ]
 }

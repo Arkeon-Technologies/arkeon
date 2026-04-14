@@ -57,9 +57,8 @@ function GraphSyncAndEvents({
   const setSettings = useSetSettings()
   const { entities, isLoading, bulkLoadComplete, fetchRelationships } = data
   const layoutDoneRef = useRef(false)
-  const [layoutDone, setLayoutDone] = useState(false)
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
-  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
+  const hoveredNodeRef = useRef<string | null>(null)
+  const hoveredEdgeRef = useRef<string | null>(null)
 
   // Sync entities into graphology and run layout.
   // During bulk load: add nodes/edges silently (no layout yet).
@@ -158,17 +157,15 @@ function GraphSyncAndEvents({
       // (FA2 runs synchronously on main thread)
       const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 80 : graph.order <= 3000 ? 50 : 30
       forceAtlas2.assign(graph, { iterations: iters, settings })
-      setLayoutDone(true)
     } else {
       // Incremental: settle new nodes from polling
       forceAtlas2.assign(graph, { iterations: 15, settings })
     }
   }, [entities, bulkLoadComplete, sigma])
 
-  // Zoom to selected entity after layout is done
+  // Zoom to selected entity after layout completes
   useEffect(() => {
-    if (!selectId) return
-    if (!layoutDone) return
+    if (!selectId || !layoutDoneRef.current) return
     const graph = sigma.getGraph()
     if (!graph.hasNode(selectId)) return
 
@@ -187,7 +184,8 @@ function GraphSyncAndEvents({
     sigma.on('afterRender', handler)
     onSelect(selectId)
     fetchRelationships(selectId)
-  }, [selectId, layoutDone, sigma, onSelect, fetchRelationships])
+    return () => { sigma.off('afterRender', handler) }
+  }, [selectId, bulkLoadComplete, sigma, onSelect, fetchRelationships])
 
   // Register click and hover events
   useEffect(() => {
@@ -205,41 +203,49 @@ function GraphSyncAndEvents({
         onDeselect()
       },
       enterNode: ({ node }) => {
-        setHoveredNode(node)
+        hoveredNodeRef.current = node
+        sigma.refresh()
         const container = sigma.getContainer()
         if (container) container.style.cursor = 'pointer'
       },
       leaveNode: () => {
-        setHoveredNode(null)
+        hoveredNodeRef.current = null
+        sigma.refresh()
         const container = sigma.getContainer()
         if (container) container.style.cursor = 'default'
       },
       enterEdge: ({ edge }) => {
-        setHoveredEdge(edge)
+        hoveredEdgeRef.current = edge
+        sigma.refresh()
         const container = sigma.getContainer()
         if (container) container.style.cursor = 'pointer'
       },
       leaveEdge: () => {
-        setHoveredEdge(null)
+        hoveredEdgeRef.current = null
+        sigma.refresh()
         const container = sigma.getContainer()
         if (container) container.style.cursor = 'default'
       },
     })
   }, [registerEvents, onSelect, onDeselect, onEntitySelect, fetchRelationships, sigma])
 
-  // Node/edge reducers for selection and hover highlighting
+  // Node/edge reducers for selection and hover highlighting.
+  // Hover state lives in refs (not React state) to avoid re-renders on every
+  // mouse move — sigma.refresh() in the event handlers triggers a redraw that
+  // re-evaluates the reducers, reading the current ref values.
   useEffect(() => {
     const graph = sigma.getGraph()
     const rel = selectedRelEndpoints
 
     setSettings({
       nodeReducer: (node, attrs) => {
+        const hNode = hoveredNodeRef.current
         // Hover feedback (when nothing selected)
         if (!selectedId && !rel) {
-          if (hoveredNode === node) {
+          if (hNode === node) {
             return { ...attrs, size: attrs.size + 1.5, forceLabel: true }
           }
-          if (hoveredNode && graph.areNeighbors(node, hoveredNode)) {
+          if (hNode && graph.areNeighbors(node, hNode)) {
             return { ...attrs, forceLabel: true }
           }
           return attrs
@@ -266,9 +272,10 @@ function GraphSyncAndEvents({
         return { ...attrs, color: '#222222', size: 1.5, zIndex: 0, label: null }
       },
       edgeReducer: (edge, attrs) => {
+        const hEdge = hoveredEdgeRef.current
         // Hover feedback (when nothing selected)
         if (!selectedId && !rel) {
-          if (hoveredEdge === edge) {
+          if (hEdge === edge) {
             return { ...attrs, size: 1.5, color: '#666666', zIndex: 1 }
           }
           return attrs
@@ -294,7 +301,7 @@ function GraphSyncAndEvents({
         return { ...attrs, color: '#111111', size: 0.2, zIndex: 0 }
       },
     })
-  }, [selectedId, selectedRelEndpoints, hoveredNode, hoveredEdge, sigma, setSettings])
+  }, [selectedId, selectedRelEndpoints, sigma, setSettings])
 
   return null
 }
