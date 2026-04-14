@@ -88,6 +88,18 @@ interface MetaFile {
   providers: Record<string, ProviderConfig>;
 }
 
+const YAML_NEEDS_QUOTING = /^[{[\]>|*&!%#@`'",?:=-]|[:{}\[\],] |: |#/;
+
+function formatYamlValue(v: unknown): string {
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return String(v);
+  const s = String(v);
+  if (YAML_NEEDS_QUOTING.test(s) || s === "" || s === "true" || s === "false" || s === "null") {
+    return JSON.stringify(s); // double-quote escaping
+  }
+  return s;
+}
+
 const skillsDir = join(cliRoot, "assets", "skills");
 const metaPath = join(skillsDir, "meta.yaml");
 const skills: Record<string, Record<string, string>> = {};
@@ -150,11 +162,6 @@ if (existsSync(metaPath)) {
   console.warn("bundle-assets: no meta.yaml found — no skills to bundle");
 }
 
-function formatYamlValue(v: unknown): string {
-  if (typeof v === "boolean") return v ? "true" : "false";
-  if (typeof v === "number") return String(v);
-  return String(v);
-}
 
 // ---------------------------------------------------------------------------
 // AGENTS.md template

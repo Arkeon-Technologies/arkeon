@@ -189,10 +189,14 @@ const cursor: Provider = {
 
 const AGENTS_MD_MARKER = "<!-- arkeon:managed";
 
-/** Write AGENTS.md to the current project root. */
+/** Write AGENTS.md to the current project root. Skips if a non-arkeon AGENTS.md already exists. */
 export function installAgentsMd(): boolean {
   if (!AGENTS_MD) return false;
   const dest = join(process.cwd(), "AGENTS.md");
+  if (existsSync(dest)) {
+    const existing = readFileSync(dest, "utf-8");
+    if (!existing.includes(AGENTS_MD_MARKER)) return false; // user-written, don't clobber
+  }
   writeFileSync(dest, AGENTS_MD);
   return true;
 }
