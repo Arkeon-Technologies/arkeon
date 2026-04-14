@@ -16,7 +16,7 @@
  *   arkeon docs --format sdk SDK quick reference
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -52,10 +52,29 @@ interface CommandInfo {
 // Commander tree walker
 // ---------------------------------------------------------------------------
 
+/**
+ * Locate and load the OpenAPI snapshot. Two layouts:
+ *
+ *   - dev (tsx): __dirname is packages/arkeon/src/cli/commands/docs,
+ *     so we go up 4 levels to packages/arkeon/spec/.
+ *   - published tarball: __dirname is packages/arkeon/dist (bundled),
+ *     so we look for dist/spec/ (copied by scripts/copy-spec.ts).
+ */
 function loadSpec(): OpenAPISpec {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const specPath = join(__dirname, "..", "..", "..", "..", "spec", "openapi.snapshot.json");
-  return JSON.parse(readFileSync(specPath, "utf-8")) as OpenAPISpec;
+  const candidates = [
+    join(__dirname, "..", "..", "..", "..", "spec", "openapi.snapshot.json"), // dev
+    join(__dirname, "spec", "openapi.snapshot.json"), // bundled dist
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, "utf-8")) as OpenAPISpec;
+    }
+  }
+  throw new Error(
+    `OpenAPI snapshot not found. Searched:\n${candidates.map((c) => `  ${c}`).join("\n")}\n` +
+    `Run \`npm run build -w packages/arkeon\` to generate it.`,
+  );
 }
 
 /**
