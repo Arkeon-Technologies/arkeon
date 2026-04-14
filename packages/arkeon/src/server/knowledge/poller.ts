@@ -18,7 +18,7 @@
  */
 
 import { createSql } from "../lib/sql";
-import { createJob } from "./queue";
+import { generateUlid } from "../lib/ids";
 
 const POLL_INTERVAL_MS = Number(process.env.KNOWLEDGE_POLLER_INTERVAL_MS) || 10_000;
 const BATCH_SIZE = 50;
@@ -89,58 +89,78 @@ async function pollForNewContent(): Promise<void> {
       const entityRows = entityResults[entityResults.length - 1] as Array<Record<string, unknown>>;
       const entityMap = new Map(entityRows.map((e) => [e.id as string, e]));
 
-      let enqueued = 0;
-      let lastSuccessActivityId = lastActivityId;
-
+      // Filter events to those whose entities have content worth extracting.
+      const jobCandidates: Array<{ entityId: string; entityVer: number }> = [];
       for (const event of events) {
-        const activityId = event.activity_id as number;
         const entityId = event.entity_id as string;
         const action = event.action as string;
-
         const entity = entityMap.get(entityId);
-        if (!entity) {
-          lastSuccessActivityId = activityId;
-          continue;
-        }
+        if (!entity) continue;
 
-        // content_uploaded: entity has file content stored in properties.content (JSONB map with keys)
-        // entity_created/content_updated: entity has inline text content (string) in properties.content
         const contentValue = entity.content_value;
         const contentText = entity.content_text;
-
         // properties.content is a JSONB map when files are uploaded (e.g. {"test.txt": {cid, content_type, size}})
         // properties.content is a plain string when arkeon add stores inline text
         const hasFileContent = contentValue != null && typeof contentValue === "object" && !Array.isArray(contentValue);
         const hasInlineContent = typeof contentText === "string" && contentText.trim().length > 0;
-
         const hasContent = action === "content_uploaded"
           ? (hasFileContent || hasInlineContent)
           : hasInlineContent;
 
-        if (!hasContent) {
-          lastSuccessActivityId = activityId;
-          continue;
+        if (hasContent) {
+          jobCandidates.push({ entityId, entityVer: entity.ver as number });
         }
-
-        // Try to create a job (will be skipped if duplicate entity+ver)
-        const jobId = await createJob({ entityId, entityVer: entity.ver as number, trigger: "poller" });
-        if (jobId) {
-          enqueued++;
-          console.log(`[knowledge:poller] Enqueued job ${jobId} for entity ${entityId} (ver ${entity.ver})`);
-        }
-        // Advance checkpoint — job was either created or deduped (intentional skip)
-        lastSuccessActivityId = activityId;
       }
 
-      // Update checkpoint only to last successfully processed event.
-      // Must run in admin context because knowledge_poller_state has RLS.
-      if (lastSuccessActivityId > lastActivityId) {
+      // Bulk-insert all jobs in a single transaction with ON CONFLICT DO NOTHING.
+      // This replaces the previous loop of individual createJob() calls, each of
+      // which opened its own BEGIN/set_config/INSERT/COMMIT round trip.
+      const lastEventId = events[events.length - 1]!.activity_id as number;
+
+      if (jobCandidates.length > 0) {
+        // Deduplicate: only one job per (entity_id, entity_ver) in this batch
+        const seen = new Set<string>();
+        const unique = jobCandidates.filter((c) => {
+          const key = `${c.entityId}:${c.entityVer}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        // Build a bulk VALUES clause: ($1,$2,$3,'pending','poller',NULL,'ingest',NULL,NULL,NOW()), ...
+        const params: unknown[] = [];
+        const rows: string[] = [];
+        for (const c of unique) {
+          const offset = params.length;
+          params.push(generateUlid(), c.entityId, c.entityVer);
+          rows.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, 'pending', 'poller', NULL, 'ingest', NULL, NULL, NOW())`);
+        }
+
+        await sql.transaction([
+          sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+          sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+          sql.query(
+            `INSERT INTO knowledge_jobs (id, entity_id, entity_ver, status, trigger, triggered_by, job_type, parent_job_id, metadata, created_at)
+             VALUES ${rows.join(", ")}
+             ON CONFLICT DO NOTHING`,
+            params,
+          ),
+        ]);
+
+        const enqueued = unique.length;
+        if (enqueued > 0) {
+          console.log(`[knowledge:poller] Enqueued ${enqueued} job(s) from batch of ${events.length} events`);
+        }
+      }
+
+      // Advance checkpoint to last event in this batch.
+      if (lastEventId > lastActivityId) {
         await sql.transaction([
           sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
           sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
           sql.query(
             `UPDATE knowledge_poller_state SET last_activity_id = $1, updated_at = NOW() WHERE id = 'default'`,
-            [lastSuccessActivityId],
+            [lastEventId],
           ),
         ]);
       }
