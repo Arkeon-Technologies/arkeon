@@ -1,128 +1,98 @@
 # Arkeon Doctor
 
-Build, verify, and publish the `arkeon` npm package. Handles the full release flow: typecheck, build, smoke test, version bump, and GitHub Release (which triggers the publish workflow).
+Diagnose the health of the user's local Arkeon installation. Check that all components are running, up to date, and correctly configured.
 
-## 1. Pre-flight checks
+Run each section in order. Report results as you go using clear pass/fail indicators.
 
-Verify you're on the `main` branch and it's clean:
+## 1. Version check
 
-```bash
-git status --porcelain
-git branch --show-current
-```
-
-If not on main or working tree is dirty, stop and tell the user.
-
-Pull latest:
+Check the installed version and whether an update is available:
 
 ```bash
-git pull
-```
-
-## 2. Check what's unreleased
-
-Compare the current npm version against HEAD:
-
-```bash
+arkeon --version
 npm view arkeon version
-git log $(git describe --tags --match 'arkeon-v*' --abbrev=0 2>/dev/null || echo HEAD~20)..HEAD --oneline
 ```
 
-Report the published version and the commits that will be included. If there are no new commits since the last tag, tell the user there's nothing to release and stop.
+Compare the two. If the installed version is older, note it but continue — do not auto-update.
 
-## 3. Build
-
-Build in the correct order:
+## 2. Stack liveness
 
 ```bash
-npm run build -w packages/sdk-ts
-npm run build -w packages/arkeon
+arkeon status
 ```
 
-Both must succeed. If either fails, report the error and stop.
+Interpret the JSON output:
+- `state: "running"` + `health: true` + `ready: true` — stack is healthy
+- `state: "running"` + `health: true` + `ready: false` — API is up but database is unreachable
+- `state: "running_unhealthy"` — process alive but API not responding. Suggest `arkeon logs`
+- `state: "not_running"` — stack is down. Note it and continue checks
 
-## 4. Typecheck
+If the stack is not running, skip sections 3–5 (they require a live API).
+
+## 3. API health
+
+Probe the health and readiness endpoints directly:
 
 ```bash
-npm run typecheck -w packages/arkeon
+curl -sf http://localhost:8000/health
+curl -sf http://localhost:8000/ready
 ```
 
-Must pass cleanly. If it fails, report the errors and stop.
+Report whether each responds with `status: "ok"` / `status: "ready"`.
 
-## 5. Unit tests
+## 4. Seed state
+
+From the `arkeon status` output, check:
+- `seed_loaded` — whether the Genesis reference data is loaded
+- If not loaded, suggest: `arkeon seed`
+
+## 5. LLM configuration
+
+From the `arkeon status` output, check:
+- `llm_configured` — whether a knowledge pipeline LLM provider is set up
+- `llm_provider` / `llm_model` — which provider and model are configured
+- If not configured and the user wants knowledge extraction, suggest: `arkeon config set-llm`
+
+## 6. State directory
+
+Check the state directory exists and has the expected structure:
 
 ```bash
-npm test -w packages/arkeon
-```
-
-Must pass. Report failures and stop if any.
-
-## 6. Verify build health
-
-Check the dist output matches expected structure:
-
-```bash
-ls -la packages/arkeon/dist/
-du -sh packages/arkeon/dist/
+ls -la ~/.arkeon/
 ```
 
 Verify:
-- `dist/index.js` exists (~200KB)
-- `dist/server-*.js` exists (~500KB)
-- `dist/explorer/` exists
-- `dist/schema/` exists with .sql files
-- Total size is under 4MB
+- `secrets.json` exists (admin key)
+- `data/postgres/` exists (embedded Postgres data)
+- `bin/` exists (Meilisearch binary)
 
-If any check fails, report and stop.
+If `ARKEON_HOME` is set, check that directory instead.
 
-## 7. Determine version
+## 7. Repo binding (if applicable)
 
-The `$ARGUMENTS` parameter controls the bump type:
-- `patch` (default if no argument): `0.3.2` -> `0.3.3`
-- `minor`: `0.3.2` -> `0.4.0`
-- `major`: `0.3.2` -> `1.0.0`
-
-Read the current version from `packages/arkeon/package.json` and compute the next version. Report:
-
-> **Ready to publish `arkeon@{next_version}`**
-> - {N} commits since {last_tag}
-> - Build: OK ({size} dist)
-> - Typecheck: OK
-> - Tests: OK
-
-Ask the user to confirm before proceeding.
-
-## 8. Create GitHub Release
-
-Create the release which triggers the publish workflow:
+Check whether the current working directory is bound to an Arkeon instance:
 
 ```bash
-gh release create arkeon-v{next_version} --generate-notes --target main
+cat .arkeon/state.json 2>/dev/null
 ```
 
-## 9. Monitor publish
+If the file exists, report the bound space name, API URL, and actors. If not, note that this directory is not initialized as an Arkeon knowledge base (not an error — just informational).
 
-Check that the GitHub Actions workflow started:
+## 8. Report
 
-```bash
-gh run list --workflow=publish.yml --limit 1
+Summarize all findings in a single diagnostic report:
+
+```
+Arkeon Doctor Report
+====================
+Version:    {installed} (latest: {latest}) {OK or UPDATE AVAILABLE}
+Stack:      {running/not running}
+Health:     {ok/unhealthy/n/a}
+Database:   {ready/unreachable/n/a}
+Seed:       {loaded/not loaded/n/a}
+LLM:        {configured (provider/model)/not configured/n/a}
+State dir:  {path} {OK/MISSING}
+Repo:       {bound to space "X"/not initialized}
 ```
 
-Report the run URL so the user can monitor it. Then poll until it completes:
-
-```bash
-gh run watch {run_id}
-```
-
-## 10. Verify published version
-
-After the workflow succeeds, confirm the new version is live on npm:
-
-```bash
-npm view arkeon version
-```
-
-Report:
-
-> **Published `arkeon@{next_version}` to npm.**
-> Users can update with: `arkeon update` (stops running instances, installs, restarts)
+If any issues were found, list recommended actions at the bottom. If everything is healthy, say so.

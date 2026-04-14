@@ -10,8 +10,8 @@ skills:
     description: "Find and create relationships between entities across different spaces in the graph."
     argument-hint: "[topic or entity name]"
   arkeon-doctor:
-    description: "Build, test, version-bump, and publish the arkeon npm package from main."
-    argument-hint: "[patch|minor|major]"
+    description: "Diagnose the health of a local Arkeon installation: version, stack, database, config."
+    argument-hint: ""
 
 providers:
   claude:
@@ -27,7 +27,7 @@ providers:
         arkeon-connect:
           allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent"
         arkeon-doctor:
-          allowed-tools: "Bash(npm *, npx *, git *, gh *, node *, cat *, ls *, curl *), Read, Glob, Grep"
+          allowed-tools: "Bash(arkeon *, npx arkeon *, npm view arkeon *, curl *, ls *, cat *), Read, Glob, Grep"
 
   codex:
     format: skill-dir
