@@ -511,7 +511,7 @@ const OPERATIONS: GeneratedOperation[] = [
     auth: "required",
     pathParams: [{ name: "id", description: "Entity ULID", required: true, type: "string" }],
     queryParams: [],
-    bodyFields: [{ name: "note", description: "", required: false, type: "string" }, { name: "properties", description: "", required: false, type: "object" }, { name: "ver", description: "Expected current version (CAS token). Server increments ver on success.", required: true, type: "integer" }],
+    bodyFields: [{ name: "note", description: "", required: false, type: "string" }, { name: "properties", description: "", required: false, type: "object" }, { name: "remove_properties", description: "Property keys to delete from the entity. Applied after the properties merge, so removals take precedence.", required: false, type: "array" }, { name: "ver", description: "Expected current version (CAS token). Server increments ver on success.", required: true, type: "integer" }],
   },
   {
     operationId: "getEntityVersion",

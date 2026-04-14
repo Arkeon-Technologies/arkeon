@@ -3879,6 +3879,13 @@
                     "additionalProperties": {},
                     "type": "object"
                   },
+                  "remove_properties": {
+                    "description": "Property keys to delete from the entity. Applied after the properties merge, so removals take precedence.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "ver": {
                     "description": "Expected current version (CAS token)",
                     "type": "integer"
@@ -3968,7 +3975,8 @@
           "Only the owner, an entity editor, or an entity admin may update",
           "Requires write_level clearance >= entity's write_level",
           "Optimistic concurrency: must pass current ver to update",
-          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"
+          "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved",
+          "remove_properties deletes keys by name after the merge, so removals take precedence over additions"
         ]
       }
     },
