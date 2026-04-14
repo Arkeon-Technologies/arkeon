@@ -167,28 +167,12 @@ async function runUp(opts: UpOptions): Promise<void> {
   await killOrphanedPostgres();
   await killOrphanedMeilisearch();
 
-  // Verify our ports are actually free. If an orphan cleanup didn't help
-  // (e.g. a non-arkeon process is on the port), fail with a clear message
-  // instead of spawning a daemon that silently can't bind.
-  const portChecks: Array<{ port: number; label: string }> = [
-    { port: apiPort, label: "API" },
-    { port: pgPort, label: "Postgres" },
-    { port: meiliPort, label: "Meilisearch" },
-  ];
-  const busy: string[] = [];
-  for (const { port, label } of portChecks) {
-    if (await isPortInUse(port)) {
-      busy.push(`  ${label} port ${port} is already in use`);
-    }
-  }
-  if (busy.length > 0) {
-    throw new Error(
-      `Cannot start — port conflict:\n${busy.join("\n")}\n\n` +
-      `This usually means a previous arkeon instance wasn't fully stopped.\n` +
-      `Try: arkeon down   (or kill the process holding the port)\n` +
-      `Or use different ports: arkeon up --port 8001 --pg-port 5434 --meili-port 7701`,
-    );
-  }
+  // If any of our ports are still busy after orphan cleanup (e.g. another
+  // dev server on 8000), auto-bump to the next available port rather than
+  // erroring out. Only auto-resolve ports the user didn't explicitly set.
+  apiPort = await resolvePort(apiPort, "API", !opts.port);
+  pgPort = await resolvePort(pgPort, "Postgres", !opts.pgPort);
+  meiliPort = await resolvePort(meiliPort, "Meilisearch", !opts.meiliPort);
 
   output.progress(`[arkeon] Starting stack in ${arkeonDir()}...`);
 
@@ -355,6 +339,30 @@ async function runUp(opts: UpOptions): Promise<void> {
     logs_hint: "arkeon logs",
     next: "arkeon seed",
   });
+}
+
+/**
+ * If the requested port is busy and the user didn't explicitly request it,
+ * scan upward for the next free port (up to 20 attempts). If the user did
+ * explicitly set the port, throw a clear error instead of silently changing it.
+ */
+async function resolvePort(port: number, label: string, autoResolve: boolean): Promise<number> {
+  if (!(await isPortInUse(port))) return port;
+
+  if (!autoResolve) {
+    throw new Error(
+      `${label} port ${port} is already in use (you requested it with --port/--pg-port/--meili-port).\n` +
+      `Free the port or pick a different one.`,
+    );
+  }
+
+  for (let candidate = port + 1; candidate < port + 20; candidate++) {
+    if (!(await isPortInUse(candidate))) {
+      output.progress(`[arkeon] ${label} port ${port} in use, using ${candidate} instead`);
+      return candidate;
+    }
+  }
+  throw new Error(`${label} port ${port} is in use and no free port found in range ${port + 1}–${port + 19}.`);
 }
 
 /**
