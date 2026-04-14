@@ -93,6 +93,7 @@ export function useMapData(
   const lastActivityTsRef = useRef<string>('')
   const fetchedRelsRef = useRef<Set<string>>(new Set())
   const mountedRef = useRef(true)
+  const [resetCounter, setResetCounter] = useState(0)
 
   const poolRef = useRef<RequestPool | null>(null)
   if (poolRef.current === null) poolRef.current = new RequestPool(8)
@@ -188,6 +189,8 @@ export function useMapData(
     initialLoadDone.current = true
 
     async function load() {
+      entitiesRef.current.clear()
+      fetchedRelsRef.current.clear()
       setIsLoading(true)
 
       // 1. Try to restore from cache
@@ -279,7 +282,7 @@ export function useMapData(
       }
     }
     load()
-  }, [client, nodeCap, selectId, addEntity, rerender, fetchRelsBatch, scheduleCacheSave])
+  }, [client, nodeCap, selectId, addEntity, rerender, fetchRelsBatch, scheduleCacheSave, resetCounter])
 
   // Polling for new entities
   useEffect(() => {
@@ -392,9 +395,8 @@ export function useMapData(
       tx.objectStore(CACHE_STORE).delete(CACHE_KEY)
     } catch {}
     rerender()
-    setTimeout(() => {
-      if (mountedRef.current) setRenderCount((n) => n + 1)
-    }, 0)
+    // Bump counter to re-trigger the initial load effect
+    setResetCounter((n) => n + 1)
   }, [rerender])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -24,6 +24,7 @@ interface MapViewProps {
   nodeCap?: number
   selectId?: string
   onEntitySelect?: (entityId: string) => void
+  onEntityDeselect?: () => void
 }
 
 function getPeerId(rel: ArkeRelationship, entityId: string): string {
@@ -59,6 +60,18 @@ function GraphSyncAndEvents({
   const layoutDoneRef = useRef(false)
   const hoveredNodeRef = useRef<string | null>(null)
   const hoveredEdgeRef = useRef<string | null>(null)
+  const prevBulkCompleteRef = useRef(false)
+
+  // Clear the graphology graph when resetView triggers (bulkLoadComplete goes false)
+  useEffect(() => {
+    if (prevBulkCompleteRef.current && !bulkLoadComplete) {
+      const graph = sigma.getGraph()
+      graph.clear()
+      layoutDoneRef.current = false
+      sigma.getCamera().setState({ x: 0.5, y: 0.5, angle: 0, ratio: 1 })
+    }
+    prevBulkCompleteRef.current = bulkLoadComplete
+  }, [bulkLoadComplete, sigma])
 
   // Sync entities into graphology and run layout.
   // During bulk load: add nodes/edges silently (no layout yet).
@@ -101,10 +114,12 @@ function GraphSyncAndEvents({
       }
     }
 
-    if (addedNodes === 0) return
-
     // During bulk load, just accumulate data — don't layout yet
     if (!bulkLoadComplete) return
+
+    // Skip if no nodes in the graph, or if layout already ran and no new nodes arrived
+    if (graph.order === 0) return
+    if (addedNodes === 0 && layoutDoneRef.current) return
 
     const inferred = forceAtlas2.inferSettings(graph)
     const settings = {
@@ -306,7 +321,7 @@ function GraphSyncAndEvents({
   return null
 }
 
-export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: MapViewProps) {
+export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect, onEntityDeselect }: MapViewProps) {
   const data = useMapData(client, nodeCap, selectId)
   const { entities, isLoading, entityCount, fetchRelationships, ensureEntity, resetView } = data
 
@@ -388,7 +403,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: Ma
           selectedId={selectedId}
           selectedRelEndpoints={selectedRelEndpoints}
           onSelect={selectEntity}
-          onDeselect={() => setSelectedId(null)}
+          onDeselect={() => { setSelectedId(null); onEntityDeselect?.() }}
           onEntitySelect={onEntitySelect}
         />
       </SigmaContainer>
@@ -400,8 +415,21 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: Ma
       )}
 
       {data.bulkLoadComplete && (
-        <div className="absolute top-14 left-3 px-3 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-400 z-10">
-          {entityCount} entities
+        <div className="absolute top-14 left-3 flex items-center gap-2 z-10">
+          <div className="px-3 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-400">
+            {entityCount} entities
+          </div>
+          <button
+            onClick={() => {
+              setSelectedId(null)
+              onEntityDeselect?.()
+              resetView()
+            }}
+            className="px-2.5 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            title="Clear cached graph and reload all data"
+          >
+            Reset
+          </button>
         </div>
       )}
 
@@ -412,7 +440,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: Ma
           client={client}
           onNavigate={selectEntity}
           onLoadMore={() => {}}
-          onClose={() => setSelectedId(null)}
+          onClose={() => { setSelectedId(null); onEntityDeselect?.() }}
         />
       )}
     </div>

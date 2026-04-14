@@ -74,6 +74,12 @@ export function App() {
     window.history.pushState({}, '', url.toString())
   }, [])
 
+  const handleEntityDeselect = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('select')
+    window.history.pushState({}, '', url.toString())
+  }, [])
+
   const handleFeedEntityClick = useCallback((entityId: string) => {
     setMode('graph')
     const url = new URL(window.location.href)
@@ -130,6 +136,7 @@ export function App() {
         nodeCap={nodeCap}
         selectId={selectParam}
         onEntitySelect={handleEntitySelect}
+        onEntityDeselect={handleEntityDeselect}
       />
     </div>
   )
