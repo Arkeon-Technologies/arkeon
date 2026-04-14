@@ -34,7 +34,6 @@ import {
   EntityIdParam,
   EntityResponse,
   EntitySchema,
-  FilterQuery,
   ProjectionQuery,
   UlidSchema,
   cursorResponseSchema,
@@ -238,9 +237,12 @@ const deleteEntityRoute = createRoute({
   },
 });
 
-const BulkDeleteQuery = FilterQuery.merge(z.object({
+const BULK_DELETE_LIMIT = 1000;
+
+const BulkDeleteQuery = z.object({
+  filter: queryParam("filter", z.string().optional(), "Column/property filters. See GET /help for filter syntax."),
   space_id: queryParam("space_id", z.string().optional(), "Delete all entities in this space ULID"),
-}));
+});
 
 const bulkDeleteEntitiesRoute = createRoute({
   method: "delete",
@@ -252,6 +254,7 @@ const bulkDeleteEntitiesRoute = createRoute({
   "x-arke-related": ["GET /entities", "DELETE /entities/{id}"],
   "x-arke-rules": [
     "Requires at least one of filter or space_id",
+    "Capped at 1000 entities per call — returns 400 if more match",
     "RLS enforces per-entity permission checks — only entities you can delete are deleted",
     "Relationships are excluded unless explicitly filtered by kind",
   ],
@@ -601,7 +604,7 @@ entitiesRouter.openapi(listEntitiesRoute, async (c) => {
   const sort = parseSort(c.req.query("sort"), ["updated_at", "created_at"], "updated_at");
 
   const userFilter = c.req.query("filter");
-  const hasKindFilter = userFilter?.split(",").some((expr) => expr.trim().startsWith("kind"));
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
   const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
   const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
 
@@ -870,11 +873,21 @@ entitiesRouter.openapi(bulkDeleteEntitiesRoute, async (c) => {
   }
 
   // Same implicit filter as GET /entities — exclude relationships unless explicitly filtered
-  const hasKindFilter = userFilter?.split(",").some((expr) => expr.trim().startsWith("kind"));
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
   const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
   const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
 
   const { whereSql, params } = buildEntityFilterWhere({ filter, spaceId });
+
+  // Guard against unbounded deletes — count first, reject if over limit
+  const countResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`SELECT count(*)::int AS n FROM entities ${whereSql}`, params),
+  ]);
+  const count = (countResults[countResults.length - 1] as Array<{ n: number }>)[0]?.n ?? 0;
+  if (count > BULK_DELETE_LIMIT) {
+    throw new ApiError(400, "too_many_entities", `Bulk delete is capped at ${BULK_DELETE_LIMIT} entities, but ${count} matched. Narrow your filter.`);
+  }
 
   const results = await sql.transaction([
     ...setActorContext(sql, actor),

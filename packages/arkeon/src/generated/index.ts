@@ -380,7 +380,7 @@ const OPERATIONS: GeneratedOperation[] = [
     description: "Bulk delete entities matching filter and/or space",
     auth: "required",
     pathParams: [],
-    queryParams: [{ name: "filter", description: "Column/property filters. See GET /help for filter syntax.", required: false, type: "string" }, { name: "sort", description: "Sort field", required: false, type: "string" }, { name: "order", description: "asc | desc", required: false, type: "string", enumValues: ["asc","desc"] }, { name: "space_id", description: "Delete all entities in this space ULID", required: false, type: "string" }],
+    queryParams: [{ name: "filter", description: "Column/property filters. See GET /help for filter syntax.", required: false, type: "string" }, { name: "space_id", description: "Delete all entities in this space ULID", required: false, type: "string" }],
     bodyFields: [],
   },
   {

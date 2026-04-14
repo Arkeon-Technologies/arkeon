@@ -3227,30 +3227,6 @@
             }
           },
           {
-            "description": "Sort field",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "description": "Sort field",
-              "type": "string"
-            }
-          },
-          {
-            "description": "asc | desc",
-            "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "description": "asc | desc",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
             "description": "Delete all entities in this space ULID",
             "in": "query",
             "name": "space_id",
@@ -3329,6 +3305,7 @@
         ],
         "x-arke-rules": [
           "Requires at least one of filter or space_id",
+          "Capped at 1000 entities per call — returns 400 if more match",
           "RLS enforces per-entity permission checks — only entities you can delete are deleted",
           "Relationships are excluded unless explicitly filtered by kind"
         ]
