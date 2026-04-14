@@ -122,13 +122,13 @@ function collectExtra(obj: any, knownKeys: Set<string>): Record<string, unknown>
  * Normalize LLM response into { entities, relationships }.
  * Handles: { entities, relationships }, { ops: [...] }, or mixed formats.
  */
+// Known keys to exclude from custom properties
+const ENTITY_KNOWN_KEYS = new Set(["op", "ref", "label", "type", "description"]);
+const REL_KNOWN_KEYS = new Set(["op", "source_ref", "predicate", "target_ref", "source_span", "detail", "source_shell", "target_shell"]);
+
 function normalizePlan(raw: any): ExtractPlan {
   const entities: ExtractOpEntity[] = [];
   const relationships: ExtractOpRelationship[] = [];
-
-  // Known keys to exclude from custom properties
-  const ENTITY_KNOWN_KEYS = new Set(["op", "ref", "label", "type", "description"]);
-  const REL_KNOWN_KEYS = new Set(["op", "source_ref", "predicate", "target_ref", "source_span", "detail", "source_shell", "target_shell"]);
 
   // Preferred format: { entities: [...], relationships: [...] }
   if (Array.isArray(raw.entities)) {

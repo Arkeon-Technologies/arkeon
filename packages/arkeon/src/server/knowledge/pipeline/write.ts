@@ -57,24 +57,24 @@ export function buildOpsFromPlan(
     ops.push({
       op: "entity",
       ref: `@${entity.ref}`,
+      ...entity.properties,
       type: entity.type,
       label: entity.label,
       description: entity.description,
       source_document_id: documentId,
-      ...entity.properties,
     });
   }
 
   for (const rel of plan.relationships) {
     ops.push({
       op: "relate",
+      ...rel.properties,
       source: `@${rel.source_ref}`,
       target: `@${rel.target_ref}`,
       predicate: rel.predicate,
       ...(rel.source_span ? { span: rel.source_span } : {}),
       ...(rel.detail ? { detail: rel.detail } : {}),
       source_document_id: documentId,
-      ...rel.properties,
     });
   }
 
@@ -278,11 +278,11 @@ export async function writeSourceEntities(
         write_level: opts?.writeLevel,
         permissions: opts?.permissions,
         properties: {
+          ...source.properties,
           label: source.label,
           ...(source.text != null ? { text: source.text } : {}),
           ordinal: source.ordinal,
           source_document_id: parentEntityId,
-          ...source.properties,
         },
       });
 
