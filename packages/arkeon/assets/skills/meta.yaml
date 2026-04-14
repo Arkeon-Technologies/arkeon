@@ -25,7 +25,7 @@ providers:
         arkeon-ingest:
           allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write"
         arkeon-connect:
-          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write"
+          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent"
         arkeon-doctor:
           allowed-tools: "Bash(npm *, npx *, git *, gh *, node *, cat *, ls *, curl *), Read, Glob, Grep"
 
