@@ -49,6 +49,7 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
   const ownerId = metadata.owner_id as string | undefined;
   const permissions = metadata.permissions as Array<{ grantee_type: string; grantee_id: string; role: string }> | undefined;
   const spaceId = metadata.space_id as string | undefined;
+  const spaceExtractionConfig = metadata.space_extraction_config;
 
   if (!contentKey) throw new Error("No content_key in job metadata");
 
@@ -59,6 +60,7 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
     owner_id: ownerId,
     permissions,
     space_id: spaceId,
+    space_extraction_config: spaceExtractionConfig,
   };
 
   // --- Step 1: Fetch and parse DOCX ---

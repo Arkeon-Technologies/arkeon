@@ -125,6 +125,7 @@ export async function handlePptxExtract(
     | Array<{ grantee_type: string; grantee_id: string; role: string }>
     | undefined;
   const spaceId = metadata.space_id as string | undefined;
+  const spaceExtractionConfig = metadata.space_extraction_config;
 
   if (!contentKey) throw new Error("No content_key in pptx.extract metadata");
 
@@ -135,6 +136,7 @@ export async function handlePptxExtract(
     owner_id: ownerId,
     permissions,
     space_id: spaceId,
+    space_extraction_config: spaceExtractionConfig,
   };
 
   // 1. Fetch PPTX bytes

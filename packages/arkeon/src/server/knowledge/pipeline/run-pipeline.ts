@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared extraction pipeline tail: materialize → resolve → write → dedupe.
+ * Shared extraction pipeline tail: materialize → ops submit (with retry) → dedupe.
  * Every job type prepares an ExtractPlan and hands off here.
+ *
+ * The resolve and rewrite steps have been replaced by deterministic upsert
+ * via POST /ops with upsert_on: ["label", "type"]. Post-write LLM dedupe
+ * remains for fuzzy matching.
  */
 
 import { LlmClient, type LlmUsage } from "../lib/llm";
@@ -12,11 +16,8 @@ import { appendLog } from "../lib/logger";
 import type { ExtractPlan } from "../lib/types";
 
 import { materializeShellEntities } from "./materialize";
-import { resolveEntities } from "./resolve";
-import { rewritePlanToCanonical } from "./rewrite";
-import { writeSubgraph } from "./write";
+import { submitOpsWithRetry } from "./write";
 import { dedupeEntities } from "./dedupe";
-import { withResolveWriteLock } from "./lock";
 
 export interface PipelineOpts {
   jobId: string;
@@ -32,6 +33,7 @@ export interface PipelineResult {
   extractedEntities: number;
   extractedRelationships: number;
   createdEntities: number;
+  updatedEntities: number;
   createdRelationships: number;
   potentialDuplicates: number;
   createdEntityIds: string[];
@@ -43,6 +45,7 @@ const ZERO_RESULT: PipelineResult = {
   extractedEntities: 0,
   extractedRelationships: 0,
   createdEntities: 0,
+  updatedEntities: 0,
   createdRelationships: 0,
   potentialDuplicates: 0,
   createdEntityIds: [],
@@ -77,36 +80,25 @@ export async function runExtractionPipeline(
     llmCalls++;
   }
 
-  // Materialize
+  // Materialize shell entities
   const materializedPlan = materializeShellEntities(plan);
   appendLog(jobId, "info", `After materialize: ${materializedPlan.entities.length} entities, ${materializedPlan.relationships.length} relationships`);
 
-  // Resolve (outside lock)
+  // Submit ops with upsert + retry
   const resolverConfig = await resolveLlmConfig("resolver");
   const resolverLlm = new LlmClient(resolverConfig);
 
-  appendLog(jobId, "info", "Resolving against existing graph");
-  const resolveResult = await resolveEntities(resolverLlm, materializedPlan, spaceId);
-  for (const u of resolveResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "resolve" }, u); }
-  const matched = resolveResult.decisions.filter((d) => d.same_as_ids?.length > 0).length;
-  appendLog(jobId, "info", `Resolved: ${matched} matched, ${materializedPlan.entities.length - matched} new`);
-  const { entities, relationships } = rewritePlanToCanonical(materializedPlan, resolveResult.decisions);
+  appendLog(jobId, "info", "Writing to graph via ops upsert");
+  const writeResult = await submitOpsWithRetry(materializedPlan, documentId, {
+    spaceId: opts.spaceId,
+    readLevel: opts.readLevel,
+    writeLevel: opts.writeLevel,
+    ownerId: opts.ownerId,
+    permissions: opts.permissions,
+  }, resolverLlm);
+  appendLog(jobId, "info", `Written: ${writeResult.createdEntityIds.length} created, ${writeResult.updatedEntityIds.length} updated, ${writeResult.createdRelationshipIds.length} relationships`);
 
-  // Write (inside lock)
-  const writeResult = await withResolveWriteLock(async () => {
-    appendLog(jobId, "info", "Writing to graph");
-    const wr = await writeSubgraph(entities, relationships, documentId, {
-      spaceId: opts.spaceId,
-      readLevel: opts.readLevel,
-      writeLevel: opts.writeLevel,
-      ownerId: opts.ownerId,
-      permissions: opts.permissions,
-    });
-    appendLog(jobId, "info", `Written: ${wr.createdEntityIds.length} entities, ${wr.createdRelationshipIds.length} relationships`);
-    return wr;
-  });
-
-  // Dedupe (outside lock)
+  // Dedupe (post-write LLM fuzzy matching)
   const extractionConfig = await getExtractionConfig();
   let mergedCount = 0;
   if (writeResult.createdEntityIds.length > 0) {
@@ -123,6 +115,7 @@ export async function runExtractionPipeline(
     extractedEntities: materializedPlan.entities.length,
     extractedRelationships: materializedPlan.relationships.length,
     createdEntities: writeResult.createdEntityIds.length,
+    updatedEntities: writeResult.updatedEntityIds.length,
     createdRelationships: writeResult.createdRelationshipIds.length,
     potentialDuplicates: mergedCount,
     createdEntityIds: writeResult.createdEntityIds,

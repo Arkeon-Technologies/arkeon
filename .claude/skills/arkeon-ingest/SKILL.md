@@ -159,6 +159,14 @@ Report your extraction plan to the user before proceeding:
 > - Estimated entities per document: {range}
 > - Documents to process: {N}
 
+**Persist the extraction schema to the space** so the server-side pipeline and future runs use the same config:
+
+```bash
+npx arkeon spaces update {space_id} --properties '{"extraction":{"entity_types":[...your types...],"predicates":[...your predicates...],"label_instructions":"Use full formal names without titles or honorifics. Use official organization names.","context":"Brief description of this document collection."}}'
+```
+
+This is stored in `space.properties.extraction` and used by both the CLI skill and server-side knowledge pipeline for consistent extraction.
+
 ### 8. Get document list
 
 Retrieve all document entities in the space:

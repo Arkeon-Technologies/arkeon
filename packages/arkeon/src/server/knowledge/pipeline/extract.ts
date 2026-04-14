@@ -5,29 +5,28 @@
  * Entity/relationship extraction from document text via LLM.
  * Single LLM call with JSON mode -> structured ExtractPlan.
  *
- * TODO(ops-migration): This file emits the legacy {entities, relationships}
- * format (plus a legacy {ops: [{op: "create_entity"}, ...]} variant handled
- * by normalizePlan below). The canonical ingestion format for the API is now
- * arke.ops/v1 — see packages/api/src/lib/ops-schema.ts and docs/dev/INGEST_OPS.md.
- *
- * When the knowledge pipeline migrates to calling executeOps() instead of its
- * own write.ts, rewrite this prompt to emit an OpsEnvelope directly:
- *   - @local refs (e.g. "@person_jane") instead of bare "ref"
- *   - op: "entity" / op: "relate" (not "create_entity" / "create_relationship")
- *   - source/target (single field) instead of source_ref/target_ref
- *   - Inline properties top-level (span, detail, description) rather than
- *     wrapped in a properties object
- *   - Add "IMPORTANT: Output ONLY the JSON envelope, no preamble or thinking"
- *     to suppress thinking-model preamble leakage (Flash-Lite etc.)
- * normalizePlan can then be deleted.
+ * Supports per-space extraction config (entity_types, predicates,
+ * label_instructions, context) stored in space.properties.extraction.
+ * Space config overrides global config when present.
  */
 
 import { LlmClient, type ChatJsonResult } from "../lib/llm";
-import type { ExtractPlan, ExtractOpEntity, ExtractOpRelationship, DocumentSurvey, TextChunk } from "../lib/types";
+import type { ExtractPlan, ExtractOpEntity, ExtractOpRelationship, DocumentSurvey, TextChunk, SpaceExtractionConfig } from "../lib/types";
 import type { ExtractionConfig } from "../lib/config";
 
-function buildSystemPrompt(config: ExtractionConfig, surveyTypes?: string[]): string {
-  let prompt = `You are building a detailed knowledge graph from a document.
+function buildSystemPrompt(
+  config: ExtractionConfig,
+  surveyTypes?: string[],
+  spaceConfig?: SpaceExtractionConfig,
+): string {
+  let prompt = "";
+
+  // Space context — prepended first so the LLM has domain context
+  if (spaceConfig?.context) {
+    prompt += `Context about this document collection:\n${spaceConfig.context}\n\n`;
+  }
+
+  prompt += `You are building a detailed knowledge graph from a document.
 
 Extract ALL meaningful entities and the relationships between them. Be thorough — capture not just the main subjects but also events, actions, places, concepts, and supporting details.
 
@@ -68,8 +67,10 @@ Rules:
 - Use specific predicates (e.g. "founded", "betrayed", "traveled_to") not generic ones ("relates_to")
 - source_ref and target_ref MUST match a ref from entities`;
 
-  // Entity types: strict global config > survey-inferred > suggestions
-  if (config.strict_entity_types && config.entity_types.length > 0) {
+  // Entity types: space config (always strict) > strict global > survey-inferred > suggestions
+  if (spaceConfig?.entity_types && spaceConfig.entity_types.length > 0) {
+    prompt += `\n\nEntity types (use ONLY these): ${spaceConfig.entity_types.join(", ")}`;
+  } else if (config.strict_entity_types && config.entity_types.length > 0) {
     prompt += `\n\nEntity types (use ONLY these): ${config.entity_types.join(", ")}`;
   } else if (surveyTypes && surveyTypes.length > 0) {
     prompt += `\n\nEntity types for this document (use these types): ${surveyTypes.join(", ")}`;
@@ -77,8 +78,10 @@ Rules:
     prompt += `\n\nSuggested entity types (use others if they fit better): ${config.entity_types.join(", ")}`;
   }
 
-  // Optional: configured predicates
-  if (config.predicates.length > 0) {
+  // Predicates: space config (always strict) > strict global > suggestions
+  if (spaceConfig?.predicates && spaceConfig.predicates.length > 0) {
+    prompt += `\nRelationship predicates (use ONLY these): ${spaceConfig.predicates.join(", ")}`;
+  } else if (config.predicates.length > 0) {
     const predList = config.predicates.join(", ");
     if (config.strict_predicates) {
       prompt += `\nRelationship predicates (use ONLY these): ${predList}`;
@@ -87,6 +90,12 @@ Rules:
     }
   }
 
+  // Label instructions from space
+  if (spaceConfig?.label_instructions) {
+    prompt += `\n\nLabel conventions:\n${spaceConfig.label_instructions}`;
+  }
+
+  // Global custom instructions still apply
   if (config.custom_instructions) {
     prompt += `\n\nAdditional instructions:\n${config.custom_instructions}`;
   }
@@ -141,8 +150,9 @@ export async function extractFromDocument(
   llm: LlmClient,
   documentText: string,
   config: ExtractionConfig,
+  spaceConfig?: SpaceExtractionConfig,
 ): Promise<ChatJsonResult<ExtractPlan>> {
-  const systemPrompt = buildSystemPrompt(config);
+  const systemPrompt = buildSystemPrompt(config, undefined, spaceConfig);
 
   const result = await llm.chatJson<any>(systemPrompt, documentText, {
     maxTokens: 16_384,
@@ -160,8 +170,9 @@ function buildChunkSystemPrompt(
   survey: DocumentSurvey,
   chunkOrdinal: number,
   totalChunks: number,
+  spaceConfig?: SpaceExtractionConfig,
 ): string {
-  const basePrompt = buildSystemPrompt(config, survey.entity_types);
+  const basePrompt = buildSystemPrompt(config, survey.entity_types, spaceConfig);
 
   const contextBlock = `Document context:
 You are extracting chunk ${chunkOrdinal + 1} of ${totalChunks} from a ${survey.document_type} titled "${survey.title}".
@@ -183,12 +194,14 @@ export async function extractFromChunk(
     totalChunks: number;
   },
   config: ExtractionConfig,
+  spaceConfig?: SpaceExtractionConfig,
 ): Promise<ChatJsonResult<ExtractPlan>> {
   const systemPrompt = buildChunkSystemPrompt(
     config,
     context.survey,
     context.chunkOrdinal,
     context.totalChunks,
+    spaceConfig,
   );
 
   const result = await llm.chatJson<any>(systemPrompt, chunkText, {
@@ -247,6 +260,7 @@ export async function extractAllChunks(
   chunks: TextChunk[],
   survey: DocumentSurvey,
   config: ExtractionConfig,
+  spaceConfig?: SpaceExtractionConfig,
 ): Promise<ChatJsonResult<ExtractPlan>[]> {
   const concurrency = Number(process.env.CHUNK_EXTRACT_CONCURRENCY) || DEFAULT_CHUNK_CONCURRENCY;
 
@@ -255,7 +269,7 @@ export async function extractAllChunks(
       survey,
       chunkOrdinal: chunk.ordinal,
       totalChunks: chunks.length,
-    }, config),
+    }, config, spaceConfig),
   );
 
   return limitConcurrency(tasks, concurrency);

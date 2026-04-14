@@ -20,7 +20,7 @@ import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
 import { setJobStatus } from "../queue";
 import type { SqlClient } from "../../lib/sql";
-import type { DocumentSurvey } from "../lib/types";
+import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 
 import { extractFromChunk } from "./extract";
 import { describePageImage } from "./visual-describe";
@@ -46,6 +46,7 @@ export async function handlePdfPageGroup(
     | Array<{ grantee_type: string; grantee_id: string; role: string }>
     | undefined;
   const spaceId = metadata.space_id as string | undefined;
+  const spaceExtractionConfig = metadata.space_extraction_config as SpaceExtractionConfig | undefined;
   const sourceEntityIds = metadata.source_entity_ids as string[];
 
   if (!pageEntityIds?.length) throw new Error("No page_entity_ids in pdf.page_group metadata");
@@ -168,6 +169,7 @@ export async function handlePdfPageGroup(
         totalChunks: totalGroups,
       },
       extractionConfig,
+      spaceExtractionConfig,
     );
 
     appendLog(jobId, "llm_response", {

@@ -7,15 +7,19 @@
  *
  * Small doc → creates one text.extract child job
  * Large doc → surveys, chunks, creates N text.chunk_extract child jobs
+ *
+ * If the source entity is in a space with properties.extraction,
+ * that config overrides the global extraction settings.
  */
 
 import { LlmClient } from "../lib/llm";
 import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
-import { getEntity, updateEntity, getEntityPermissions } from "../lib/arke-client";
+import { getEntity, getSpace, updateEntity, getEntityPermissions } from "../lib/arke-client";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
 import { createJob, setJobStatus } from "../queue";
 import type { SqlClient } from "../../lib/sql";
+import type { SpaceExtractionConfig } from "../lib/types";
 
 import { routeContent } from "./route";
 import { estimateTokens, chunkText, CHUNK_THRESHOLD_TOKENS } from "./chunk";
@@ -54,6 +58,20 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     }
   }
 
+  // Read space-level extraction config if in a space
+  let spaceExtractionConfig: SpaceExtractionConfig | undefined;
+  if (spaceId) {
+    try {
+      const space = await getSpace(spaceId);
+      if (space?.properties?.extraction) {
+        spaceExtractionConfig = space.properties.extraction as SpaceExtractionConfig;
+        appendLog(jobId, "info", `Using space extraction config from space ${spaceId}`);
+      }
+    } catch (err) {
+      console.warn(`[knowledge:ingest] Failed to read space ${spaceId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
   // Common metadata inherited by all child jobs
   const inheritedMeta = {
     read_level: readLevel,
@@ -61,6 +79,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     owner_id: ownerId,
     permissions,
     space_id: spaceId,
+    space_extraction_config: spaceExtractionConfig,
   };
 
   // Route content

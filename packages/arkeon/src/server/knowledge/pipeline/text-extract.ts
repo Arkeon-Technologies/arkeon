@@ -3,7 +3,7 @@
 
 /**
  * text.extract handler: extraction for small documents.
- * extract → runExtractionPipeline (materialize → resolve → write → dedupe)
+ * extract → runExtractionPipeline (materialize → ops upsert → dedupe)
  */
 
 import { LlmClient, type LlmUsage } from "../lib/llm";
@@ -12,6 +12,7 @@ import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
 import { setJobStatus, tryFinalizeParent } from "../queue";
 import type { SqlClient } from "../../lib/sql";
+import type { SpaceExtractionConfig } from "../lib/types";
 
 import { extractFromDocument } from "./extract";
 import { runExtractionPipeline } from "./run-pipeline";
@@ -27,6 +28,7 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   const ownerId = metadata.owner_id as string | undefined;
   const permissions = metadata.permissions as Array<{ grantee_type: string; grantee_id: string; role: string }> | undefined;
   const spaceId = metadata.space_id as string | undefined;
+  const spaceExtractionConfig = metadata.space_extraction_config as SpaceExtractionConfig | undefined;
 
   if (!text) throw new Error("No text in job metadata");
 
@@ -36,7 +38,7 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   const extractionConfig = await getExtractionConfig();
 
   appendLog(jobId, "info", `Extracting from ${text.length} chars`);
-  const extractResult = await extractFromDocument(extractorLlm, text, extractionConfig);
+  const extractResult = await extractFromDocument(extractorLlm, text, extractionConfig, spaceExtractionConfig);
   appendLog(jobId, "llm_response", {
     stage: "extract",
     entities: extractResult.data.entities.length,
