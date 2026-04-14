@@ -31,11 +31,11 @@ If the stack is not running, skip sections 3–5 (they require a live API).
 
 ## 3. API health
 
-Probe the health and readiness endpoints directly:
+Use the `api_url` from the `arkeon status` output (e.g. `http://localhost:8000`) to probe endpoints directly:
 
 ```bash
-curl -sf http://localhost:8000/health
-curl -sf http://localhost:8000/ready
+curl -sf {api_url}/health
+curl -sf {api_url}/ready
 ```
 
 Report whether each responds with `status: "ok"` / `status: "ready"`.
