@@ -14,7 +14,7 @@ A knowledge base that runs on your machine. Arkeon builds a structured knowledge
 npm install -g arkeon
 ```
 
-Requires Node.js 18.17+. No Docker, no external services.
+Requires Node.js 18.17+.
 
 **2. Ingest a repo**
 
@@ -28,9 +28,9 @@ This starts Arkeon (if not already running), analyzes the codebase, and
 builds a knowledge graph for it in its own space. The first run downloads
 embedded Postgres and Meilisearch — cached after that.
 
-Arkeon ships skills for [Claude Code](https://claude.ai/download) today,
-with Cursor and Codex support coming soon. Skills are installed
-automatically on first run.
+Arkeon ships skills for [Claude Code](https://claude.ai/download),
+[Cursor](https://cursor.com), and [Codex](https://openai.com/index/introducing-codex/).
+Skills are installed automatically on first run.
 
 **3. Ingest more repos**
 
