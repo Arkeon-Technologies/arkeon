@@ -61,6 +61,7 @@ export function buildOpsFromPlan(
       label: entity.label,
       description: entity.description,
       source_document_id: documentId,
+      ...entity.properties,
     });
   }
 
@@ -73,6 +74,7 @@ export function buildOpsFromPlan(
       ...(rel.source_span ? { span: rel.source_span } : {}),
       ...(rel.detail ? { detail: rel.detail } : {}),
       source_document_id: documentId,
+      ...rel.properties,
     });
   }
 
