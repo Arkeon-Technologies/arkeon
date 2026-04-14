@@ -286,7 +286,7 @@ Write to `/tmp/arkeon-ops-{batch}-{doc}.json`:
 ```json
 {
   "format": "arke.ops/v1",
-  "defaults": {},
+  "defaults": {"upsert_on": ["label", "type"]},
   "source": {"entity_id": "{doc_entity_id}"},
   "ops": [
     {"op": "entity", "ref": "@smith", "type": "person", "label": "John Smith", "description": "Lead architect at Acme Corp who designed the distributed caching layer that reduced p99 latency by 40%"},
@@ -303,12 +303,14 @@ npx arkeon ingest post-ops --data @/tmp/arkeon-ops-{batch}-{doc}.json
 ```
 
 Key rules:
+- **`upsert_on: ["label", "type"]` prevents duplicates automatically.** If an entity with the same label and type already exists in the space, its properties are shallow-merged (new values win) instead of creating a duplicate. This means you do NOT need to search for an entity before creating it — just create it and upsert handles the rest. You still use bare ULIDs when you specifically want to create a relationship to a known existing entity.
 - `source.entity_id` on the envelope creates `extracted_from` edges automatically — never create these manually.
 - `defaults.space_id` is auto-injected by the CLI if configured — you don't need to set it.
 - Use `@local_ref` for new entities defined in this batch.
-- Use bare ULIDs for entities that already exist in the graph (found in step 10b).
+- Use bare ULIDs for entities that already exist in the graph (found in step 10b) as relationship targets.
 - Stay under 2000 ops per request. One document at a time is fine.
 - Do NOT set `read_level` or `write_level` — defaults are applied automatically.
+- The response includes `action: "created"` or `action: "updated"` for each entity so you can track what happened.
 
 ##### 10e. Enrich existing entities
 
@@ -334,17 +336,19 @@ After the entire batch is done, report a batch summary.
 
 ### 11. Consolidation sweep
 
-After ALL sub-agents have completed, run a consolidation pass over the full graph. This catches cross-batch duplicates and connections that individual sub-agents couldn't see.
+After ALL sub-agents have completed, run a consolidation pass over the full graph. This catches cross-type duplicates and connections that individual sub-agents couldn't see.
+
+Note: same-label+type duplicates within the space are already prevented by `upsert_on` during extraction. This step only catches **cross-type** duplicates (e.g., "Atlas" created as both "deity" and "titan") or **near-duplicates** with slightly different labels.
 
 #### 11a. Deduplicate entities
 
-Search for entities with similar or identical labels:
+Search for entities with similar or identical labels across different types:
 
 ```bash
 npx arkeon search query --q "{entity_label}" --space-id {space_id} --limit 20
 ```
 
-For each high-connectivity entity type (people, organizations, places), search for potential duplicates. When found:
+Look for cross-type duplicates (same entity created under different types by different sub-agents). When found:
 
 ```bash
 npx arkeon entities merge {keep_id} {duplicate_id}
