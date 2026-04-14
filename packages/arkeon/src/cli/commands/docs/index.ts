@@ -320,6 +320,62 @@ function renderApiReference(): string {
 // SDK reference renderer
 // ---------------------------------------------------------------------------
 
+function renderExplorerReference(): string {
+  return [
+    "# Explorer & Screenshot Server",
+    "",
+    "## Graph Explorer",
+    "",
+    "The Explorer is a browser-based graph visualization served at GET /explore.",
+    "It renders entities as a force-directed graph using Sigma.js (WebGL).",
+    "",
+    "  Open: http://localhost:8000/explore",
+    "",
+    "URL parameters:",
+    "  select=<entity-id>   Pre-select and zoom to an entity",
+    "  mode=graph|feed      Graph view or activity feed",
+    "  cap=N                Max entities to load (default 3000)",
+    "  mock                 Use built-in fixture data (dev only)",
+    "",
+    "Interaction:",
+    "  - Click node: select it, show detail panel with properties/relationships",
+    "  - Click edge: select relationship, show triplet view (source -> pred -> target)",
+    "  - Hover: pointer cursor, visual highlight, neighbor labels appear",
+    "  - Scroll: zoom, drag: pan, click background: deselect",
+    "",
+    "## Screenshot Server (for LLM agents)",
+    "",
+    "Renders the explorer in headless Chromium and returns a PNG via HTTP.",
+    "",
+    "  Start:  node packages/explorer/scripts/screenshot-server.mjs",
+    "  Server: http://127.0.0.1:3200/screenshot",
+    "",
+    "Examples:",
+    "  curl http://localhost:3200/screenshot -o /tmp/graph.png",
+    "  curl \"http://localhost:3200/screenshot?select=<entity-id>\" -o /tmp/selected.png",
+    "  curl \"http://localhost:3200/screenshot?mock\" -o /tmp/mock.png",
+    "",
+    "Parameters:",
+    "  select=<id>   Entity to select and zoom to",
+    "  mock          Use mock fixture data (no running instance needed)",
+    "  width=N       Viewport width (default 1400, max 3840)",
+    "  height=N      Viewport height (default 900, max 2160)",
+    "  wait=N        Ms to wait for layout (default 3000, max 10000)",
+    "",
+    "Environment variables:",
+    "  EXPLORER_URL      Explorer base URL (default http://localhost:8000/explore/)",
+    "  SCREENSHOT_PORT   Server port (default 3200)",
+    "",
+    "Agent workflow:",
+    "  1. curl http://localhost:3200/screenshot -o /tmp/graph.png",
+    "  2. Read /tmp/graph.png (multimodal image inspection)",
+    "  3. Assess the visual state of the graph",
+    "",
+    "Also available at: GET /help/guide/explorer (when instance is running)",
+    "",
+  ].join("\n");
+}
+
 function renderSdkReference(): string {
   return [
     "# SDK Reference — @arkeon-technologies/sdk",
@@ -388,12 +444,12 @@ export function registerDocsCommand(program: Command): void {
   program
     .command("docs")
     .description("Auto-generated reference for the CLI, API, and SDK")
-    .option("--format <format>", "Output section: cli, api, sdk (default: all)")
+    .option("--format <format>", "Output section: cli, api, sdk, explorer (default: all)")
     .action((options: { format?: string }) => {
       const format = options.format?.toLowerCase();
 
-      if (format && !["cli", "api", "sdk"].includes(format)) {
-        process.stderr.write(`Unknown format "${format}". Use: cli, api, sdk\n`);
+      if (format && !["cli", "api", "sdk", "explorer"].includes(format)) {
+        process.stderr.write(`Unknown format "${format}". Use: cli, api, sdk, explorer\n`);
         process.exitCode = 1;
         return;
       }
@@ -421,6 +477,10 @@ export function registerDocsCommand(program: Command): void {
 
       if (!format || format === "sdk") {
         parts.push(renderSdkReference());
+      }
+
+      if (!format || format === "explorer") {
+        parts.push(renderExplorerReference());
       }
 
       process.stdout.write(parts.join("\n"));
