@@ -193,11 +193,16 @@ export function buildWorkerSystemPrompt(
 
   sections.push(
     "",
-    "## Returning Results",
-    "Your final structured result must be written as a JSON object to $ARKE_DONE_FILE.",
+    "## Returning Results (CRITICAL)",
+    "Your final structured result MUST be written as a JSON object to $ARKE_DONE_FILE.",
+    "Then you MUST run the `arke-done` shell command to signal completion.",
+    "",
+    "Do NOT return JSON as a text response or in a markdown code block.",
     "Do NOT print or echo done(...). Do NOT put the final result only in stdout.",
+    "The ONLY way to complete a task is: write $ARKE_DONE_FILE, then run arke-done.",
+    "If you skip this, your work is lost and the invocation is marked as failed.",
+    "",
     "You may use shell, Python, or Node to write the file.",
-    "After writing $ARKE_DONE_FILE, run the `arke-done` shell command.",
     "Examples:",
     "  jq -n '{\"message\":\"done\"}' > \"$ARKE_DONE_FILE\" && arke-done",
     "  python3 - <<'PY'",
@@ -206,6 +211,10 @@ export function buildWorkerSystemPrompt(
     "      json.dump({\"message\": \"done\"}, f)",
     "  PY",
     "  arke-done",
+    "",
+    "When your result includes entity or relationship IDs from the graph,",
+    "make sure to capture relationship IDs (from list-relationships output)",
+    "in addition to entity IDs. Both are needed for downstream analysis.",
   );
 
   return sections.join("\n");
