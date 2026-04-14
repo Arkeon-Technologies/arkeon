@@ -175,6 +175,10 @@ async function runStart(options: StartOptions): Promise<void> {
     console.log(`[arkeon] Using external Postgres (DATABASE_URL set)`);
     dbAppUrl = externalDatabaseUrl;
     migrationUrl = externalMigrationUrl ?? externalDatabaseUrl;
+    // In external mode the DBA has already created the arke_app role
+    // with whatever password they chose. We must NOT let migrate.js
+    // re-ALTER it to our generated password. Pull ARKE_APP_PASSWORD
+    // from the env — the operator supplies it alongside DATABASE_URL.
     if (!process.env.ARKE_APP_PASSWORD && !process.env.ARKEON_ARKE_APP_PASSWORD) {
       console.error(
         "[arkeon] ARKE_APP_PASSWORD must be set when using an external database — " +
@@ -193,6 +197,8 @@ async function runStart(options: StartOptions): Promise<void> {
     });
     dbAppUrl = pg.appUrl;
     migrationUrl = pg.superUrl;
+    // ARKE_APP_PASSWORD has to match what migrate.js wrote to the
+    // arke_app role — migrations applied it later in this same run.
     process.env.ARKE_APP_PASSWORD = secrets.pgPassword;
   }
 
@@ -210,6 +216,8 @@ async function runStart(options: StartOptions): Promise<void> {
   }
 
   // --- Meilisearch ---
+  // Same escape hatch: if MEILI_URL is set we skip downloading and
+  // spawning the binary and just pass the URL through to the API.
   let meiliUrlForApi: string;
   let meiliKeyForApi: string;
 
@@ -240,8 +248,15 @@ async function runStart(options: StartOptions): Promise<void> {
 
   // --- API ---
   console.log(`[arkeon] Starting API on port ${apiPort}`);
+  // Lazy import: loading the API eagerly would pull in every route,
+  // schema, etc. on every CLI command (including `arkeon stop`), which
+  // is pointless. Doing it here keeps `arkeon --help` and the unrelated
+  // commands cheap.
   const { startApi } = await import("../../../server/server.js");
   const storageDir = filesDataDir();
+  // Thread storage location via env so src/server/lib/storage.ts
+  // writes uploaded files into the ~/.arkeon state dir rather than the
+  // process cwd.
   process.env.STORAGE_BACKEND = process.env.STORAGE_BACKEND ?? "local";
   process.env.STORAGE_DIR = process.env.STORAGE_DIR ?? storageDir;
   process.env.ARKEON_LOCAL = "true";
@@ -256,6 +271,9 @@ async function runStart(options: StartOptions): Promise<void> {
     );
   }
 
+  // Admin bootstrap key: env wins over generated secret so operators
+  // can pin a fixed key (e.g. injected from Kubernetes Secrets) instead
+  // of chasing a randomly-generated one each deploy.
   const adminBootstrapKey =
     process.env.ARKEON_ADMIN_BOOTSTRAP_KEY ??
     process.env.ADMIN_BOOTSTRAP_KEY ??

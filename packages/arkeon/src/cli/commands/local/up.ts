@@ -23,7 +23,7 @@
 import type { Command } from "commander";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, openSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 
@@ -40,8 +40,6 @@ import {
   findCliEntry,
   isPortInUse,
   isProcessAlive,
-  killOrphanedMeilisearch,
-  killOrphanedPostgres,
   loadOrCreateSecrets,
   logfile,
   readPendingLlm,
@@ -161,15 +159,10 @@ async function runUp(opts: UpOptions): Promise<void> {
   ensureArkeonDir();
   const secrets = loadOrCreateSecrets();
 
-  // Clean up orphaned services from previous crashes before spawning a
-  // new daemon. Without this, a Ctrl+C'd `arkeon up` can leave Meilisearch
-  // or Postgres holding our ports, causing the next daemon to fail silently.
-  await killOrphanedPostgres();
-  await killOrphanedMeilisearch();
-
-  // If any of our ports are still busy after orphan cleanup (e.g. another
-  // dev server on 8000), auto-bump to the next available port rather than
-  // erroring out. Only auto-resolve ports the user didn't explicitly set.
+  // If any of our ports are busy (e.g. orphaned services from a previous
+  // crash, or another dev server), auto-bump to the next available port
+  // rather than spawning a daemon that silently can't bind. Only
+  // auto-resolve ports the user didn't explicitly set.
   apiPort = await resolvePort(apiPort, "API", !opts.port);
   pgPort = await resolvePort(pgPort, "Postgres", !opts.pgPort);
   meiliPort = await resolvePort(meiliPort, "Meilisearch", !opts.meiliPort);
@@ -253,6 +246,7 @@ async function runUp(opts: UpOptions): Promise<void> {
   const cleanupOnExit = () => {
     if (healthyYet) return;
     try { process.kill(childPid, "SIGTERM"); } catch { /* already gone */ }
+    process.exit(1);
   };
   process.on("SIGINT", cleanupOnExit);
   process.on("SIGTERM", cleanupOnExit);
@@ -392,13 +386,19 @@ async function pollHealthWithProgress(
     try {
       const size = statSync(logPath).size;
       if (size <= logOffset) return;
-      // Read the raw bytes and slice to new content. We track by byte
-      // offset (stat.size) so we must slice the buffer, not a string.
-      const buf = readFileSync(logPath);
-      const newContent = buf.slice(logOffset).toString("utf-8");
+      // Positional read: open, read only the new bytes, close.
+      // Avoids reading the entire log file every 500ms.
+      const bytesToRead = size - logOffset;
+      const buf = Buffer.alloc(bytesToRead);
+      const fd = openSync(logPath, "r");
+      try {
+        readSync(fd, buf, 0, bytesToRead, logOffset);
+      } finally {
+        closeSync(fd);
+      }
       logOffset = size;
 
-      for (const line of newContent.split("\n")) {
+      for (const line of buf.toString("utf-8").split("\n")) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         // Surface daemon milestone lines to the user.
