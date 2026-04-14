@@ -211,11 +211,10 @@ describe("CLI integration — init / diff / add / rm", () => {
 
   test("rm deletes document entity", () => {
     const result = arkeon("rm texts/doc-b.md", testDir);
-    // Debug: surface raw output on failure
-    expect(result.ok, `rm failed: ${result.stdout}`).toBe(true);
+    expect(result.ok).toBe(true);
 
     const json = parseJson(result.stdout);
-    expect(json?.removed, `rm output: ${result.stdout}\nparsed: ${JSON.stringify(json)}`).toBe(1);
+    expect(json?.removed).toBe(1);
     expect(json?.dry_run).toBe(false);
   });
 
