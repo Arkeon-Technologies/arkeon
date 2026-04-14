@@ -2,6 +2,8 @@
 
 Discover and create relationships between entities across different spaces. While `/arkeon-ingest` builds knowledge within a single repo/space, `/arkeon-connect` weaves connections between spaces — linking the same person, concept, or work that appears in different corpora.
 
+**Philosophy: be comprehensive.** It's better to over-connect than under-connect. Create all plausible connections, not just the obvious ones. Thin connections can always be pruned later, but missing connections are invisible.
+
 ## Prerequisites
 
 This skill requires **admin** access to see all spaces. Before starting:
@@ -33,54 +35,75 @@ Note the space names and IDs. Report to the user:
 
 If there are fewer than 2 spaces, there's nothing to connect. Stop and explain.
 
-### 2. Sample each space
+### 2. Deep sample each space
 
-For each space, get a sense of what's in it:
+For each space, build a thorough inventory of what it contains:
 
 ```bash
-npx arkeon search query --q "*" --space-id {space_id} --limit 30
+npx arkeon search query --q "*" --space-id {space_id} --limit 100
 ```
 
-Note the entity types, key labels, and predicates used. Build a mental model of what each space contains and where overlaps might exist.
+Also get high-connectivity entities that are likely connection hubs:
 
-### 3. Plan connections
+```bash
+npx arkeon graph traverse --id {any_entity_id} --mode bridge --depth 2 --limit 50
+```
 
-Based on the survey, identify potential cross-space connections. Look for:
+For each space, note:
+- All entity types and their counts
+- Key entity labels (people, organizations, concepts, places, works)
+- Predicates used
+- Entities that appear frequently in relationships (hubs)
 
-- **Same entity, different spaces** — e.g., "Augustine" appears in a theology space and a philosophy space. These should be linked (or merged if appropriate).
-- **Referenced but not present** — e.g., a theology space mentions Plato but doesn't have a Plato entity, while a philosophy space does. Create a cross-space relationship.
-- **Thematic connections** — e.g., a concept like "natural law" in a legal space relates to "natural law" in a philosophy space. These are conceptually linked even if the entities have different labels.
-- **Temporal/causal chains** — e.g., events in one space that influenced events in another.
+### 3. Generate space pairs and dispatch sub-agents
 
-Report the plan to the user:
+Enumerate all unique pairs of spaces: (A, B), (A, C), (B, C), etc. For N spaces this is N*(N-1)/2 pairs.
+
+If `$ARGUMENTS` specifies a topic or entity name, filter to pairs where at least one space contains entities matching that topic.
+
+Report the plan:
 
 > **Connection plan:**
-> - {N} entities appear in multiple spaces (candidates for linking)
-> - {M} cross-space relationships to create
-> - Spaces involved: {list}
+> - {N} spaces to survey
+> - {P} space pairs to analyze
+> - Dispatching sub-agents for parallel discovery
 
-If `$ARGUMENTS` specifies a topic or entity name, focus the search on that topic rather than doing a broad survey.
+**Launch one sub-agent per space pair.** Send all Agent tool calls in a single message so they run concurrently. Each sub-agent's prompt must include:
 
-### 4. Search for matches
+1. The two space IDs and names
+2. The sampled entity lists from step 2 for both spaces
+3. The full connection protocol (steps a-g below)
 
-For each potential connection, search across spaces to find matching entities:
+### Sub-agent connection protocol
+
+For your assigned space pair (Space A and Space B):
+
+**a. Cross-search.** For every notable entity in Space A (people, organizations, concepts, places, works), search Space B:
 
 ```bash
-npx arkeon search query --q "{entity_label}" --limit 20
+npx arkeon search query --q "{entity_label}" --space-id {space_B_id} --limit 20
 ```
 
-Note: omitting `--space-id` searches across ALL spaces. Compare results to find the same entity in different spaces.
+Then do the reverse: search Space A for every notable entity in Space B. Be exhaustive — search for every entity, not just the ones you think will match.
 
-When evaluating matches, consider:
-- Same label and type → strong match
-- Similar label, same type → likely match (verify via description)
-- Same concept, different labels → use judgment (e.g., "De Civitate Dei" and "City of God")
+**b. Evaluate matches.** For each search hit, assess the connection:
+- Same label and type: strong match, use `same_as`
+- Similar label, same type: likely match, verify via description, use `same_as`
+- Same concept, different labels (e.g., "De Civitate Dei" / "City of God"): use `same_as` with detail explaining the equivalence
+- Thematic connection (e.g., "natural law" in legal vs. philosophical context): use `related_to`
+- Influence or reference: use `influenced_by`, `references`, `preceded`, `part_of`
 
-### 5. Create cross-space relationships
+**c. Search descriptions.** Don't just match labels — read entity descriptions for references to entities in the other space that aren't captured by label matching:
 
-For each confirmed connection, create a relationship. Use the Write tool to create an ops JSON file:
+```bash
+npx arkeon entities get {id}
+```
 
-Write to `/tmp/arkeon-connect-ops.json`:
+Look for mentions of people, works, concepts, or events from the other space.
+
+**d. Build ops file.** Collect ALL connections into a single ops file:
+
+Write to `/tmp/arkeon-connect-{spaceA}-{spaceB}.json`:
 ```json
 {
   "format": "arke.ops/v1",
@@ -91,52 +114,71 @@ Write to `/tmp/arkeon-connect-ops.json`:
       "source": "01ENTITY_IN_SPACE_A",
       "target": "01ENTITY_IN_SPACE_B",
       "predicate": "same_as",
-      "detail": "Same person appearing in both theology and philosophy corpora"
+      "detail": "Same person appearing in both spaces"
     }
   ]
 }
 ```
 
-Then submit:
-```bash
-npx arkeon ingest post-ops --data @/tmp/arkeon-connect-ops.json
-```
-
 Key rules:
 - Use **bare ULIDs** for both source and target (they already exist).
 - **No `source.entity_id`** on the envelope — you're not extracting from a document.
-- **No `defaults.space_id`** — cross-space relationships don't belong to a single space. If you want the relationship edge itself to live in a specific space, set `space_id` on the relate op.
+- **No `defaults.space_id`** — cross-space relationships don't belong to a single space.
 - Relationship predicates for cross-space links:
   - `same_as` — identical entity in different spaces
   - `related_to` — thematic or conceptual connection
   - `influenced_by`, `references`, `preceded` — directional connections
   - `part_of` — hierarchical connections
 - Always include a `detail` field explaining the connection.
+- Batch ALL connections for this pair into one ops file.
 
-### 6. Enrich thin entities
+**e. Submit:**
+```bash
+npx arkeon ingest post-ops --data @/tmp/arkeon-connect-{spaceA}-{spaceB}.json
+```
 
-When you find the same entity in two spaces but one has a richer description, consider updating the thinner one:
+**f. Enrich thin entities.** When you find the same entity in two spaces but one has a richer description, update the thinner one:
 
 ```bash
 npx arkeon entities get {id}
-```
-
-Check the `ver` field, then update:
-```bash
 npx arkeon entities update {id} --properties '{"description":"enriched description"}' --ver {ver}
 ```
 
-This is optional — only do it when one space has clearly more information about the entity than another.
+**g. Report back** with: how many connections created, how many entities enriched, and a list of the connections found.
 
-### 7. Report
+### 4. Cross-cutting synthesis (after all sub-agents complete)
+
+After all pair-wise sub-agents finish, do a final synthesis pass yourself:
+
+**a. Multi-space entities.** Identify entities that were connected across 3+ spaces. Search for them:
+
+```bash
+npx arkeon search query --q "{frequently_connected_entity}" --limit 50
+```
+
+If entity X was linked between spaces A-B and A-C, verify the B-C link exists too. Create it if missing.
+
+**b. Thematic bridges.** Look for higher-order patterns across all spaces:
+- Shared methodologies or frameworks
+- Common time periods or events
+- Cross-disciplinary concepts that unite multiple spaces
+- People or organizations referenced across many spaces
+
+Submit these as a final ops batch.
+
+**c. Second-order connections.** Check if connections created by sub-agents reveal new connections. For example, if Space A's "natural law" is linked to Space B's "lex naturalis", and Space B's "lex naturalis" is linked to Space C's "divine law", then Space A's "natural law" may relate to Space C's "divine law" too.
+
+### 5. Report
 
 After all connections are made, summarize:
 
 > **Connect complete.**
 > - Spaces surveyed: {N}
+> - Space pairs analyzed: {P}
 > - Cross-space relationships created: {R}
 > - Entities enriched: {E}
 > - Connection types: {breakdown by predicate}
+> - Multi-space entities: {list of entities appearing in 3+ spaces}
 >
 > Notable connections:
 > - {entity} links {space_a} and {space_b} via {predicate}
