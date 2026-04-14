@@ -84,11 +84,19 @@ arkeon relationships list --source-id <id>
 arkeon spaces list
 ```
 
-## API discovery
+## Reference
 
-The API is self-documenting:
+```bash
+arkeon guide                      # Getting started tutorial
+arkeon docs                       # Full CLI + API + SDK reference (auto-generated)
+arkeon docs --format cli          # CLI commands only
+arkeon docs --format api          # API reference (works offline, same as /llms.txt)
+arkeon docs --format sdk          # SDK quick reference
+```
 
-- [`/llms.txt`](http://localhost:8000/llms.txt) — full reference optimized for LLM context windows
+When the stack is running, the API is also self-documenting:
+
+- [`/llms.txt`](http://localhost:8000/llms.txt) — full API reference optimized for LLM context windows
 - [`/openapi.json`](http://localhost:8000/openapi.json) — OpenAPI 3.1 spec
 - [`/help`](http://localhost:8000/help) — interactive guide
 

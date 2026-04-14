@@ -9,6 +9,7 @@ import { Command } from "commander";
 
 import { registerAuthCommands } from "./cli/commands/auth/index.js";
 import { registerConfigCommands } from "./cli/commands/config/index.js";
+import { registerDocsCommand } from "./cli/commands/docs/index.js";
 import { registerEntityContentCommands } from "./cli/commands/entities/index.js";
 import { registerGuideCommand } from "./cli/commands/guide/index.js";
 import { registerLocalCommands } from "./cli/commands/local/index.js";
@@ -62,5 +63,6 @@ registerConfigCommands(program);
 registerEntityContentCommands(program);
 registerGuideCommand(program);
 registerApiCommands(program, { skipExisting: true });
+registerDocsCommand(program); // last — needs the full command tree
 
 program.parse();
