@@ -393,7 +393,9 @@ export function useMapData(
       const db = await openCacheDb()
       const tx = db.transaction(CACHE_STORE, 'readwrite')
       tx.objectStore(CACHE_STORE).delete(CACHE_KEY)
-    } catch {}
+    } catch (err) {
+      console.warn('Failed to clear explorer IDB cache:', err)
+    }
     rerender()
     // Bump counter to re-trigger the initial load effect
     setResetCounter((n) => n + 1)

@@ -352,6 +352,11 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect, onEn
     }
   }, [client, entities])
 
+  const handleDeselect = useCallback(() => {
+    setSelectedId(null)
+    onEntityDeselect?.()
+  }, [onEntityDeselect])
+
   const selectEntity = useCallback((id: string) => {
     setSelectedId(id)
     onEntitySelect?.(id)
@@ -403,7 +408,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect, onEn
           selectedId={selectedId}
           selectedRelEndpoints={selectedRelEndpoints}
           onSelect={selectEntity}
-          onDeselect={() => { setSelectedId(null); onEntityDeselect?.() }}
+          onDeselect={handleDeselect}
           onEntitySelect={onEntitySelect}
         />
       </SigmaContainer>
@@ -421,8 +426,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect, onEn
           </div>
           <button
             onClick={() => {
-              setSelectedId(null)
-              onEntityDeselect?.()
+              handleDeselect()
               resetView()
             }}
             className="px-2.5 py-1.5 bg-zinc-800/90 rounded text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -440,7 +444,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect, onEn
           client={client}
           onNavigate={selectEntity}
           onLoadMore={() => {}}
-          onClose={() => { setSelectedId(null); onEntityDeselect?.() }}
+          onClose={handleDeselect}
         />
       )}
     </div>
