@@ -3,11 +3,12 @@
 
 /**
  * Post-write deduplication: search for potential duplicates among
- * newly created entities and use LLM to judge matches.
+ * newly created entities, use LLM to judge matches, and auto-merge
+ * confirmed duplicates via POST /entities/merge-batch.
  */
 
 import { LlmClient } from "../lib/llm";
-import { search, getEntity } from "../lib/arke-client";
+import { search, getEntity, post } from "../lib/arke-client";
 import type { EntityCandidate, MergeDecision } from "../lib/types";
 import type { LlmUsage } from "../lib/llm";
 import { normalizeLabel as normalize } from "../lib/normalize";
@@ -19,9 +20,9 @@ function buildQueries(label: string): string[] {
   return [...queries].filter(Boolean).slice(0, 5);
 }
 
-const DEDUPE_PROMPT = `You are an entity dedupe judge.
+const DEDUPE_PROMPT = `You are an entity merge judge for a knowledge graph.
 
-Given one graph entity and a set of graph candidates, decide which candidate IDs are the same real-world entity.
+Given one entity and a set of candidates, decide which candidates refer to the same real-world entity and should be merged.
 
 Return JSON:
 {
@@ -33,10 +34,12 @@ Return JSON:
 }
 
 Rules:
-- Be conservative — same means exact or near-exact identity
-- Use type as a hint, not a hard constraint
+- MERGE when candidates clearly refer to the same real-world entity, even if labels differ (e.g. "Henry Kissinger" = "Secretary Kissinger" = "Dr. Kissinger" — same person, different titles)
+- Use descriptions to confirm identity — if descriptions reference the same roles, events, or attributes, they are likely the same entity
+- Keep SEPARATE when candidates are genuinely different entities that happen to share a name (e.g. a person vs an organization, or father vs son)
+- Type is a hint, not absolute — the same entity may have been typed differently
 - Exclude the entity itself from results
-- If uncertain, put the candidate in different_ids`;
+- When in doubt and descriptions are consistent, prefer merging`;
 
 async function dedupeOne(
   llm: LlmClient,
@@ -54,7 +57,7 @@ async function dedupeOne(
 
   const SKIP_TYPES = new Set(["document", "text_chunk"]);
   const MAX_DESC_CHARS = 200;
-  const MAX_CANDIDATES = 10;
+  const MAX_CANDIDATES = 20;
 
   const queries = buildQueries(label);
   const hits = new Map<string, EntityCandidate>();
@@ -84,17 +87,24 @@ async function dedupeOne(
   const candidates = [...hits.values()].slice(0, MAX_CANDIDATES);
   if (candidates.length === 0) return {};
 
-  const exactMatch = candidates.find(
-    (c) => normalize(c.label) === normalize(label),
+  // Collect ALL exact normalized-label matches (not just the first)
+  const normalizedSelf = normalize(label);
+  const exactMatches = candidates.filter(
+    (c) => normalize(c.label) === normalizedSelf,
   );
-  if (exactMatch) {
-    return {
-      duplicate: {
-        entityId,
-        duplicateIds: [exactMatch.id],
-        rationale: `Exact label match: "${exactMatch.label}"`,
-      },
-    };
+  if (exactMatches.length > 0) {
+    // If all candidates are exact matches, no need for LLM
+    const nonExact = candidates.filter((c) => normalize(c.label) !== normalizedSelf);
+    if (nonExact.length === 0) {
+      return {
+        duplicate: {
+          entityId,
+          duplicateIds: exactMatches.map((c) => c.id),
+          rationale: `Exact label match: "${exactMatches[0].label}"${exactMatches.length > 1 ? ` (+${exactMatches.length - 1} more)` : ""}`,
+        },
+      };
+    }
+    // Otherwise, include exact matches in the LLM call for the fuzzy ones too
   }
 
   const result = await llm.chatJson<MergeDecision>(
@@ -156,4 +166,68 @@ export async function dedupeEntities(
   }
 
   return { duplicates, usage };
+}
+
+/**
+ * Auto-merge confirmed duplicates via POST /entities/merge-batch.
+ * Each duplicate group becomes [entityId, ...duplicateIds].
+ * Failures are logged and swallowed — a 404/410 means another parallel
+ * job already merged the entity, which is fine.
+ */
+export async function mergeConfirmedDuplicates(
+  duplicates: Array<{ entityId: string; duplicateIds: string[]; rationale: string }>,
+): Promise<{ merged: number; failed: number }> {
+  if (duplicates.length === 0) return { merged: 0, failed: 0 };
+
+  // Consolidate overlapping groups using union-find.
+  // If entity A matches B and A matches C, merge into one group [A, B, C].
+  const parent = new Map<string, string>();
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x);
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(x, root); // path compression
+    return root;
+  }
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  for (const d of duplicates) {
+    for (const dupId of d.duplicateIds) {
+      union(d.entityId, dupId);
+    }
+  }
+
+  // Collect consolidated groups
+  const groupMap = new Map<string, Set<string>>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    if (!groupMap.has(root)) groupMap.set(root, new Set());
+    groupMap.get(root)!.add(id);
+  }
+
+  const groups = [...groupMap.values()]
+    .filter((s) => s.size >= 2)
+    .map((s) => ({ entity_ids: [...s] }));
+
+  try {
+    const result = (await post("/entities/merge-batch", {
+      groups,
+      property_strategy: "accumulate",
+    })) as { merged: number; failed: number };
+
+    if (result.merged > 0) {
+      console.log(`[knowledge:dedupe] Auto-merged ${result.merged} duplicate(s)`);
+    }
+    return { merged: result.merged ?? 0, failed: result.failed ?? 0 };
+  } catch (err) {
+    // Graceful failure — entities may have been merged by another parallel job
+    console.warn(
+      `[knowledge:dedupe] Merge-batch failed (likely already merged):`,
+      err instanceof Error ? err.message : err,
+    );
+    return { merged: 0, failed: groups.length };
+  }
 }

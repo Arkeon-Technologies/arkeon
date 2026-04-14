@@ -17,7 +17,7 @@ import type { ExtractPlan } from "../lib/types";
 
 import { materializeShellEntities } from "./materialize";
 import { submitOpsWithRetry } from "./write";
-import { dedupeEntities } from "./dedupe";
+import { dedupeEntities, mergeConfirmedDuplicates } from "./dedupe";
 
 export interface PipelineOpts {
   jobId: string;
@@ -35,7 +35,7 @@ export interface PipelineResult {
   createdEntities: number;
   updatedEntities: number;
   createdRelationships: number;
-  potentialDuplicates: number;
+  mergedDuplicates: number;
   createdEntityIds: string[];
   refToId: Record<string, string>;
   usage: { model: string; tokensIn: number; tokensOut: number; llmCalls: number };
@@ -47,7 +47,7 @@ const ZERO_RESULT: PipelineResult = {
   createdEntities: 0,
   updatedEntities: 0,
   createdRelationships: 0,
-  potentialDuplicates: 0,
+  mergedDuplicates: 0,
   createdEntityIds: [],
   refToId: {},
   usage: { model: "", tokensIn: 0, tokensOut: 0, llmCalls: 0 },
@@ -98,16 +98,24 @@ export async function runExtractionPipeline(
   }, resolverLlm);
   appendLog(jobId, "info", `Written: ${writeResult.createdEntityIds.length} created, ${writeResult.updatedEntityIds.length} updated, ${writeResult.createdRelationshipIds.length} relationships`);
 
-  // Dedupe (post-write LLM fuzzy matching)
+  // Dedupe + auto-merge (post-write LLM fuzzy matching → merge-batch)
   const extractionConfig = await getExtractionConfig();
   let mergedCount = 0;
   if (writeResult.createdEntityIds.length > 0) {
     appendLog(jobId, "info", "Deduplicating");
     const dedupeResult = await dedupeEntities(resolverLlm, writeResult.createdEntityIds, spaceId, { concurrency: extractionConfig.max_concurrency });
     for (const u of dedupeResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "dedupe" }, u); }
-    mergedCount = dedupeResult.duplicates.length;
-    if (mergedCount > 0) {
-      appendLog(jobId, "info", `Found ${mergedCount} potential duplicates`);
+
+    if (dedupeResult.duplicates.length > 0) {
+      appendLog(jobId, "info", `Found ${dedupeResult.duplicates.length} duplicates, auto-merging`);
+      const mergeResult = await mergeConfirmedDuplicates(dedupeResult.duplicates);
+      mergedCount = mergeResult.merged;
+      if (mergeResult.merged > 0) {
+        appendLog(jobId, "info", `Merged ${mergeResult.merged} duplicate(s)`);
+      }
+      if (mergeResult.failed > 0) {
+        appendLog(jobId, "info", `${mergeResult.failed} merge(s) skipped (already merged or gone)`);
+      }
     }
   }
 
@@ -117,7 +125,7 @@ export async function runExtractionPipeline(
     createdEntities: writeResult.createdEntityIds.length,
     updatedEntities: writeResult.updatedEntityIds.length,
     createdRelationships: writeResult.createdRelationshipIds.length,
-    potentialDuplicates: mergedCount,
+    mergedDuplicates: mergedCount,
     createdEntityIds: writeResult.createdEntityIds,
     refToId: writeResult.refToId,
     usage: { model, tokensIn, tokensOut, llmCalls },
