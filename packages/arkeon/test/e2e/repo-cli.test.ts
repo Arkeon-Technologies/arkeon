@@ -105,16 +105,16 @@ describe("CLI integration — init / diff / add / rm", () => {
 
   // --- diff ---
 
-  test("diff shows 3 added files on fresh init", () => {
+  test("diff shows added files on fresh init", () => {
     const result = arkeon("diff --json", testDir);
     expect(result.ok).toBe(true);
 
     const json = parseJson(result.stdout);
     expect(json?.ok).toBe(true);
     const added = json?.added as Array<{ path: string }>;
-    expect(added).toHaveLength(3);
     const paths = added.map((a) => a.path).sort();
-    expect(paths).toEqual(["README.md", "texts/doc-a.md", "texts/doc-b.md"]);
+    // AGENTS.md is written by init for universal AI tool support
+    expect(paths).toEqual(["AGENTS.md", "README.md", "texts/doc-a.md", "texts/doc-b.md"]);
     expect((json?.modified as unknown[])?.length).toBe(0);
     expect((json?.deleted as unknown[])?.length).toBe(0);
   });
@@ -144,7 +144,8 @@ describe("CLI integration — init / diff / add / rm", () => {
 
     const json = parseJson(result.stdout);
     expect(json?.unchanged).toBe(3);
-    expect((json?.added as unknown[])?.length).toBe(0);
+    // AGENTS.md is still unregistered (not added via `arkeon add`)
+    expect((json?.added as unknown[])?.length).toBe(1);
     expect((json?.modified as unknown[])?.length).toBe(0);
     expect((json?.deleted as unknown[])?.length).toBe(0);
   });
@@ -223,7 +224,8 @@ describe("CLI integration — init / diff / add / rm", () => {
 
     const json = parseJson(result.stdout);
     expect(json?.unchanged).toBe(2);
-    expect((json?.added as unknown[])?.length).toBe(0);
+    // AGENTS.md still shows as added (unregistered)
+    expect((json?.added as unknown[])?.length).toBe(1);
     expect((json?.modified as unknown[])?.length).toBe(0);
     expect((json?.deleted as unknown[])?.length).toBe(0);
   });
