@@ -173,7 +173,7 @@ Full architecture and data flow: `docs/dev/CONTEXT_MANAGEMENT.md`.
 | **Route added/modified/removed** | `/llms.txt`, `/help`, `/openapi.json`, CLI commands, worker prompt, `arkeon docs` | Update `createRoute()` + Zod schemas, then rebuild (see checklist below) |
 | **Concept changed** (core definitions, classification, best practices) | API guide, CLI guide, worker prompt | Edit `src/shared/concepts.ts` — propagates automatically |
 | **Skill changed** (ingest, connect, doctor protocols) | Claude Code skills | Edit `assets/skills/meta.yaml` or `body/*.md`, rebuild to regenerate `src/generated/assets.ts` |
-| **SDK examples or response patterns** | Worker prompt, `/llms.txt` | Edit `worker-prompt.ts` and/or `openapi-help.ts` |
+| **SDK examples or response patterns** | Worker prompt, `/llms.txt` | Edit `worker-prompt.ts` and/or `openapi-help.ts`, then rebuild |
 | **Guide content** (getting-started, admin) | `/help/guide`, `arkeon guide` | Edit `help.ts` (API) or `guide/index.ts` (CLI) |
 | **Explorer** | `/explore` browser SPA | Edit `packages/explorer/`, rebuild |
 

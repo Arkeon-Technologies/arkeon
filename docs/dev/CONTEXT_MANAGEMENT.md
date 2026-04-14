@@ -83,6 +83,8 @@ arkeon docs --format sdk   # SDK quick-reference
 
 Built from the checked-in `spec/openapi.snapshot.json`, so it works without a running server. This is how Claude Code agents (and any offline tooling) get the full API reference without starting the stack.
 
+The visual graph explorer is a separate surface at `GET /explore` (see Explorer section below) — it's not part of `arkeon docs` since it's a browser SPA, not text output.
+
 ### Skills (`packages/arkeon/assets/skills/`)
 
 Claude Code skills are the primary AX surface for agents working *on* a knowledge graph (as opposed to workers running *inside* the sandbox).
@@ -104,10 +106,6 @@ Claude Code skills are the primary AX surface for agents working *on* a knowledg
 ### Explorer (`packages/explorer/`)
 
 Browser SPA for visual graph exploration, served at `GET /explore`. Built with Vite, bundled into `dist/explorer/` as part of the `arkeon` build, ships inside the npm tarball. Not a separate package — just a build artifact.
-
-### Templates (`templates/`)
-
-Starter configurations for common use cases (e.g., personal knowledge graph). Templates are not auto-generated — they're manually maintained markdown and config files that users copy as starting points.
 
 ### Worker System Prompt (`packages/arkeon/src/server/lib/worker-prompt.ts`)
 
@@ -224,7 +222,6 @@ Quick reference for where each audience gets context:
 | Worker system prompt | Sandbox LLM workers | Yes (startup) | OpenAPI + `concepts.ts` + `worker-prompt.ts` |
 | Skills | Claude Code agents | Yes (build-time) | `assets/skills/meta.yaml` + `body/*.md` |
 | Explorer | Browser users | Yes (build-time) | `packages/explorer/` |
-| Templates | New users | No (manual) | `templates/` |
 
 ## Why This Matters
 
