@@ -125,4 +125,4 @@ npm view arkeon version
 Report:
 
 > **Published `arkeon@{next_version}` to npm.**
-> Users can update with: `npm install -g arkeon@latest`
+> Users can update with: `arkeon update` (stops running instances, installs, restarts)

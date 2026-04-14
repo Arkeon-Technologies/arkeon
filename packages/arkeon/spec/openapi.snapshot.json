@@ -110,8 +110,16 @@
       },
       "CreatedEntityResult": {
         "properties": {
+          "action": {
+            "description": "Whether this entity was newly created or updated via upsert.",
+            "enum": [
+              "created",
+              "updated"
+            ],
+            "type": "string"
+          },
           "id": {
-            "description": "The created entity's ULID — use this in subsequent requests.",
+            "description": "The entity's ULID — use this in subsequent requests. For upserts, this is the existing entity's ID.",
             "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
             "type": "string"
@@ -137,7 +145,8 @@
           "ref",
           "id",
           "type",
-          "label"
+          "label",
+          "action"
         ],
         "type": "object"
       },
@@ -388,6 +397,19 @@
                 "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                 "type": "string"
               },
+              "upsert_on": {
+                "description": "When set to ['label', 'type'], entity ops with matching (label, type) within the same space will update the existing entity instead of creating a duplicate. Requires space_id on the op or in defaults. Entities without a label or space are always created fresh.",
+                "items": {
+                  "enum": [
+                    "label",
+                    "type"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
               "write_level": {
                 "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
                 "maximum": 4,
@@ -635,7 +657,7 @@
             "type": "boolean"
           },
           "created": {
-            "description": "Ordered list of entities created in this batch. Each entry maps a @local ref to its new ULID — read this to know what IDs to use in follow-up requests.",
+            "description": "Deprecated — use 'entities' instead. Same array, included for backwards compatibility.",
             "items": {
               "$ref": "#/components/schemas/CreatedEntityResult"
             },
@@ -645,6 +667,13 @@
             "description": "Created relationships, with all refs resolved to ULIDs.",
             "items": {
               "$ref": "#/components/schemas/CreatedEdgeResult"
+            },
+            "type": "array"
+          },
+          "entities": {
+            "description": "Ordered list of entities touched by this batch. Each entry maps a @local ref to a ULID (new or existing for upserts). Check the 'action' field to distinguish creates from updates.",
+            "items": {
+              "$ref": "#/components/schemas/CreatedEntityResult"
             },
             "type": "array"
           },
@@ -675,7 +704,7 @@
         "required": [
           "format",
           "committed",
-          "created",
+          "entities",
           "edges",
           "stats"
         ],
@@ -3213,6 +3242,103 @@
       }
     },
     "/entities": {
+      "delete": {
+        "operationId": "bulkDeleteEntities",
+        "parameters": [
+          {
+            "description": "Column/property filters. See GET /help for filter syntax.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "description": "Column/property filters. See GET /help for filter syntax.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Delete all entities in this space ULID",
+            "in": "query",
+            "name": "space_id",
+            "required": false,
+            "schema": {
+              "description": "Delete all entities in this space ULID",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer"
+                    },
+                    "ids": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "deleted",
+                    "ids"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bulk delete result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Bulk delete entities matching filter and/or space",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "GET /entities",
+          "DELETE /entities/{id}"
+        ],
+        "x-arke-rules": [
+          "Requires at least one of filter or space_id",
+          "Capped at 1000 entities per call — returns 400 if more match",
+          "RLS enforces per-entity permission checks — only entities you can delete are deleted",
+          "Relationships are excluded unless explicitly filtered by kind"
+        ]
+      },
       "get": {
         "operationId": "listEntities",
         "parameters": [
@@ -3440,6 +3566,10 @@
                     "description": "Entity type",
                     "type": "string"
                   },
+                  "upsert": {
+                    "description": "When true, match existing entity by (label, type) within the space and update instead of creating a duplicate. Requires space_id and a label in properties.",
+                    "type": "boolean"
+                  },
                   "write_level": {
                     "description": "0=PUBLIC, 1=INTERNAL, 2=TEAM, 3=CONFIDENTIAL, 4=RESTRICTED",
                     "maximum": 4,
@@ -3458,6 +3588,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResponse"
+                }
+              }
+            },
+            "description": "Entity updated via upsert"
+          },
           "201": {
             "content": {
               "application/json": {
@@ -3497,9 +3637,19 @@
               }
             },
             "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           }
         },
-        "summary": "Create a new entity, optionally adding it to a space and granting permissions",
+        "summary": "Create a new entity, optionally adding it to a space and granting permissions. With upsert=true, matches on (label, type) within the space and updates instead of duplicating.",
         "tags": [
           "Entities"
         ],
@@ -3514,7 +3664,8 @@
           "Requires write_level clearance >= entity's write_level",
           "Requires read_level clearance >= entity's read_level",
           "If space_id is provided, requires contributor role or above on that space",
-          "All operations (create, space add, permission grants) are atomic"
+          "All operations (create, space add, permission grants) are atomic",
+          "upsert=true requires both space_id and a label property; without either, creates normally"
         ]
       }
     },
@@ -5083,11 +5234,12 @@
                   },
                   "property_strategy": {
                     "default": "keep_source",
-                    "description": "How to merge properties: keep_target, keep_source (default), or shallow_merge (source wins conflicts)",
+                    "description": "How to merge properties: keep_target, keep_source (default), shallow_merge (source wins conflicts), or accumulate (never drops info)",
                     "enum": [
                       "keep_target",
                       "keep_source",
-                      "shallow_merge"
+                      "shallow_merge",
+                      "accumulate"
                     ],
                     "type": "string"
                   },
@@ -6437,6 +6589,172 @@
         ],
         "x-arke-rules": [
           "Results filtered by your classification clearance"
+        ]
+      }
+    },
+    "/entities/merge-batch": {
+      "post": {
+        "description": "Each group contains entity IDs that should be merged into one. The entity with the richest properties is auto-selected as the merge target. Groups are processed concurrently; partial success is possible.",
+        "operationId": "mergeBatchEntities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "groups": {
+                    "description": "Groups of duplicate entities to merge",
+                    "items": {
+                      "properties": {
+                        "entity_ids": {
+                          "description": "Entity ULIDs to merge into one (min 2, max 500)",
+                          "items": {
+                            "description": "ULID string",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          },
+                          "maxItems": 500,
+                          "minItems": 2,
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "entity_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "property_strategy": {
+                    "default": "accumulate",
+                    "description": "How to merge properties: accumulate (default, never drops info), shallow_merge (source wins), keep_target, keep_source",
+                    "enum": [
+                      "keep_target",
+                      "keep_source",
+                      "shallow_merge",
+                      "accumulate"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "groups"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "failed": {
+                      "description": "Total groups that failed",
+                      "type": "integer"
+                    },
+                    "groups": {
+                      "items": {
+                        "properties": {
+                          "error": {
+                            "description": "Error message if group failed",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "final_ver": {
+                            "description": "Target version after all merges",
+                            "type": "integer"
+                          },
+                          "merged_count": {
+                            "description": "Number of sources merged into target",
+                            "type": "integer"
+                          },
+                          "target_id": {
+                            "description": "Entity chosen as merge target",
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "target_id",
+                          "merged_count",
+                          "final_ver",
+                          "error"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "merged": {
+                      "description": "Total entities successfully merged",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "merged",
+                    "failed",
+                    "groups"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Batch merge results (partial success possible)"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Merge multiple groups of duplicate entities in a single request",
+        "tags": [
+          "Entities"
+        ],
+        "x-arke-auth": "required",
+        "x-arke-related": [
+          "POST /entities/{id}/merge",
+          "POST /entities/bulk"
+        ],
+        "x-arke-rules": [
+          "Requires admin access on all entities in every group",
+          "All entities in a group must have the same kind (entity or relationship)",
+          "Entity with richest properties is auto-selected as merge target",
+          "Maximum 100 groups per request, 500 entities per group",
+          "An entity ID must not appear in more than one group"
         ]
       }
     },

@@ -36,7 +36,7 @@ export interface PlannedEntity {
   op_index: number;
   /** The @local ref from the request, e.g. "@jane". */
   local_ref: string;
-  /** Preallocated ULID — the entity will be inserted with this id. */
+  /** Preallocated ULID — the entity will be inserted with this id (overwritten for upserts). */
   id: string;
   type: string;
   /** label extracted from properties for echo-back; may be null. */
@@ -47,6 +47,16 @@ export interface PlannedEntity {
   write_level: number | null;
   space_id: string | null;
   permissions: PermissionGrant[];
+  /**
+   * Set when upsert_on is active and this entity has a label + space_id.
+   * Used by the executor to look up existing entities pre-flight.
+   * Key format: `type|lower(label)` for Map lookups.
+   */
+  upsert_key: string | null;
+  /** Set by the executor after pre-flight lookup when an existing entity matches. */
+  is_upsert?: boolean;
+  /** The existing entity's version, set by executor for CAS on upsert UPDATE. */
+  existing_ver?: number;
 }
 
 export interface PlannedEdge {
@@ -73,6 +83,8 @@ export interface OpsPlan {
   edges: PlannedEdge[];
   /** Global ULIDs referenced by edges — need an existence + read-visibility check before execute. */
   referenced_global_ids: Set<string>;
+  /** True when upsert_on is set in defaults — signals executor to run pre-flight upsert lookup. */
+  upsert_active: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +126,21 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   /** @local ref → preallocated ULID */
   const localRefs = new Map<string, string>();
   const defaults = envelope.defaults ?? {};
+  const upsertActive = !!(defaults.upsert_on?.includes("label") && defaults.upsert_on?.includes("type"));
+
+  /**
+   * Within-batch dedup: when upsert_on is active, two entity ops with the
+   * same (type, lower(label)) within the same space merge into one. The
+   * second op's properties are shallow-merged into the first, and its @local
+   * ref is aliased to the first entity's preallocated ULID.
+   *
+   * Key: `type|lower(label)|space_id`
+   */
+  const batchDedup = upsertActive ? new Map<string, PlannedEntity>() : null;
 
   envelope.ops.forEach((op, op_index) => {
     if (op.op === "entity") {
-      processEntityOp(op, op_index, defaults, localRefs, entities, errors);
+      processEntityOp(op, op_index, defaults, localRefs, entities, errors, upsertActive, batchDedup);
     } else {
       processRelateOp(
         op,
@@ -136,7 +159,7 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   }
 
   return {
-    plan: { entities, edges, referenced_global_ids },
+    plan: { entities, edges, referenced_global_ids, upsert_active: upsertActive },
     errors: [],
   };
 }
@@ -152,6 +175,8 @@ function processEntityOp(
   localRefs: Map<string, string>,
   entities: PlannedEntity[],
   errors: OpsParseError[],
+  upsertActive: boolean,
+  batchDedup: Map<string, PlannedEntity> | null,
 ): void {
   // Duplicate ref in the same batch
   if (localRefs.has(op.ref)) {
@@ -166,12 +191,36 @@ function processEntityOp(
     return;
   }
 
-  const id = generateUlid();
   const properties = collectPassthroughProperties(op, ENTITY_OP_RESERVED_KEYS);
   const label = extractLabel(properties);
+  const spaceId = op.space_id ?? defaults.space_id ?? null;
+
+  // Within-batch dedup: if upsert is active and we have a label + space,
+  // check if an earlier op in this batch already covers the same (type, label).
+  // If so, merge properties into the earlier entity and alias this ref to it.
+  if (upsertActive && batchDedup && label && spaceId) {
+    const dedupKey = `${op.type}|${label.toLowerCase()}|${spaceId}`;
+    const existing = batchDedup.get(dedupKey);
+    if (existing) {
+      // Shallow-merge: this op's properties win on conflict
+      Object.assign(existing.properties, properties);
+      existing.label = label; // update to latest casing
+      // Alias this ref to the existing entity's ULID
+      localRefs.set(op.ref, existing.id);
+      return;
+    }
+  }
+
+  const id = generateUlid();
+
+  // Build the upsert key for cross-batch matching (executor will use it)
+  let upsertKey: string | null = null;
+  if (upsertActive && label && spaceId) {
+    upsertKey = `${op.type}|${label.toLowerCase()}`;
+  }
 
   localRefs.set(op.ref, id);
-  entities.push({
+  const entity: PlannedEntity = {
     op_index,
     local_ref: op.ref,
     id,
@@ -180,9 +229,16 @@ function processEntityOp(
     properties,
     read_level: op.read_level ?? defaults.read_level ?? null,
     write_level: op.write_level ?? defaults.write_level ?? null,
-    space_id: op.space_id ?? defaults.space_id ?? null,
+    space_id: spaceId,
     permissions: op.permissions ?? defaults.permissions ?? [],
-  });
+    upsert_key: upsertKey,
+  };
+  entities.push(entity);
+
+  // Register in batch dedup map so later ops with same (type, label) merge here
+  if (upsertActive && batchDedup && upsertKey) {
+    batchDedup.set(`${op.type}|${label!.toLowerCase()}|${spaceId}`, entity);
+  }
 }
 
 function processRelateOp(

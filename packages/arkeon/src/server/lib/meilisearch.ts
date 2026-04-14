@@ -195,6 +195,14 @@ export async function removeEntity(id: string): Promise<void> {
   );
 }
 
+/** Remove multiple entities from the search index. */
+export async function removeEntities(ids: string[]): Promise<void> {
+  if (!isMeilisearchConfigured() || ids.length === 0) return;
+  await withRetry(`remove ${ids.length} entities`, () =>
+    getClient().index(ENTITIES_INDEX).deleteDocuments(ids),
+  );
+}
+
 /** Bulk add/update entities in the search index. */
 export async function bulkIndexEntities(
   entities: Record<string, unknown>[],

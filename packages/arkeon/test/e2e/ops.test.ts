@@ -16,7 +16,7 @@ import {
 type OpsResponse = {
   format: string;
   committed: boolean;
-  created: Array<{ ref: string; id: string; type: string; label: string | null }>;
+  entities: Array<{ ref: string; id: string; type: string; label: string | null; action: "created" | "updated" }>;
   edges: Array<{ id: string; source: string; predicate: string; target: string }>;
   stats: { entities: number; edges: number };
 };
@@ -50,12 +50,12 @@ describe("POST /ops — arke.ops/v1", () => {
     const data = body as OpsResponse;
     expect(data.format).toBe("arke.ops/v1");
     expect(data.committed).toBe(true);
-    expect(data.created).toHaveLength(2);
+    expect(data.entities).toHaveLength(2);
     expect(data.edges).toHaveLength(1);
     expect(data.stats).toEqual({ entities: 2, edges: 1 });
 
-    const jane = data.created.find((c) => c.ref === "@jane")!;
-    const acme = data.created.find((c) => c.ref === "@acme")!;
+    const jane = data.entities.find((c) => c.ref === "@jane")!;
+    const acme = data.entities.find((c) => c.ref === "@acme")!;
     expect(jane.label).toBe(janeLabel);
     expect(acme.label).toBe(acmeLabel);
 
@@ -87,7 +87,7 @@ describe("POST /ops — arke.ops/v1", () => {
       ],
     });
     expect(response.status).toBe(200);
-    const id = (body as OpsResponse).created[0].id;
+    const id = (body as OpsResponse).entities[0].id;
     const { body: fetched } = await getJson(`/entities/${id}`, actor.apiKey);
     expect(fetched.entity.properties.born).toBe(1974);
     expect(fetched.entity.properties.location).toBe("Seattle");
@@ -109,9 +109,9 @@ describe("POST /ops — arke.ops/v1", () => {
     });
     expect(response.status).toBe(200);
     const data = body as OpsResponse;
-    expect(data.created).toHaveLength(1);
+    expect(data.entities).toHaveLength(1);
     expect(data.edges).toHaveLength(1);
-    expect(data.edges[0].source).toBe(data.created[0].id);
+    expect(data.edges[0].source).toBe(data.entities[0].id);
     expect(data.edges[0].target).toBe(existing.id);
   });
 
@@ -132,11 +132,11 @@ describe("POST /ops — arke.ops/v1", () => {
     expect(response.status).toBe(200);
     const data = body as OpsResponse;
     expect(data.committed).toBe(false);
-    expect(data.created).toHaveLength(2);
+    expect(data.entities).toHaveLength(2);
     expect(data.stats).toEqual({ entities: 2, edges: 1 });
 
     // Verify the dry-run IDs were NOT persisted
-    const { response: fetchResp } = await apiRequest(`/entities/${data.created[0].id}`, {
+    const { response: fetchResp } = await apiRequest(`/entities/${data.entities[0].id}`, {
       apiKey: actor.apiKey,
     });
     expect(fetchResp.status).toBe(404);
@@ -249,10 +249,10 @@ describe("POST /ops — arke.ops/v1", () => {
     });
     expect(response.status).toBe(200);
     const data = body as OpsResponse;
-    expect(data.created).toHaveLength(2);
+    expect(data.entities).toHaveLength(2);
 
     // Check that each created entity has an extracted_from edge to the source
-    for (const entity of data.created) {
+    for (const entity of data.entities) {
       const { response: relResp, body: relBody } = await apiRequest(
         `/entities/${entity.id}/relationships?direction=out&predicate=extracted_from`,
         { apiKey: actor.apiKey },
@@ -283,7 +283,7 @@ describe("POST /ops — arke.ops/v1", () => {
     });
     expect(response.status).toBe(200);
     const data = body as OpsResponse;
-    expect(data.created).toHaveLength(1);
+    expect(data.entities).toHaveLength(1);
 
     // Verify the entity is in the space
     const { response: listResp, body: listBody } = await apiRequest(
@@ -292,7 +292,7 @@ describe("POST /ops — arke.ops/v1", () => {
     );
     expect(listResp.status).toBe(200);
     const entities = (listBody as any).entities as Array<any>;
-    expect(entities.find((e) => e.id === data.created[0].id)).toBeDefined();
+    expect(entities.find((e) => e.id === data.entities[0].id)).toBeDefined();
   });
 
   test("defaults block applies to ops that don't override", async () => {
@@ -314,8 +314,8 @@ describe("POST /ops — arke.ops/v1", () => {
       apiKey: actor.apiKey,
     });
     const ids = new Set((listBody as any).entities.map((e: any) => e.id));
-    expect(ids.has(data.created[0].id)).toBe(true);
-    expect(ids.has(data.created[1].id)).toBe(true);
+    expect(ids.has(data.entities[0].id)).toBe(true);
+    expect(ids.has(data.entities[1].id)).toBe(true);
   });
 
   test("classification ceiling enforced — requesting read_level > actor.max_read_level is rejected", async () => {

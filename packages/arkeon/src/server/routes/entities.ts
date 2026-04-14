@@ -23,8 +23,8 @@ import {
   parseLimit,
 } from "../lib/http";
 import { generateUlid } from "../lib/ids";
-import { buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
-import { indexEntity, indexEntityById, removeEntity } from "../lib/meilisearch";
+import { buildEntityFilterWhere, buildEntityListingQuery, mergeFilters, parseOrder, parseSort } from "../lib/listing";
+import { indexEntity, indexEntityById, removeEntities, removeEntity } from "../lib/meilisearch";
 import { fetchRelationshipContext } from "../lib/relationship-context";
 import { createRouter } from "../lib/openapi";
 import {
@@ -113,7 +113,7 @@ const createEntityRoute = createRoute({
   path: "/",
   operationId: "createEntity",
   tags: ["Entities"],
-  summary: "Create a new entity, optionally adding it to a space and granting permissions",
+  summary: "Create a new entity, optionally adding it to a space and granting permissions. With upsert=true, matches on (label, type) within the space and updates instead of duplicating.",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "PUT /entities/{id}", "POST /spaces/{id}/entities", "POST /entities/{id}/permissions"],
   "x-arke-rules": [
@@ -121,6 +121,7 @@ const createEntityRoute = createRoute({
     "Requires read_level clearance >= entity's read_level",
     "If space_id is provided, requires contributor role or above on that space",
     "All operations (create, space add, permission grants) are atomic",
+    "upsert=true requires both space_id and a label property; without either, creates normally",
   ],
   request: {
     body: {
@@ -133,16 +134,21 @@ const createEntityRoute = createRoute({
           write_level: ClassificationLevel.optional(),
           space_id: EntityIdParam.optional().describe("Space ULID — if provided, the entity is added to this space atomically"),
           permissions: z.array(InlinePermissionGrant).optional().describe("Permission grants to apply to the new entity atomically"),
+          upsert: z.boolean().optional().describe("When true, match existing entity by (label, type) within the space and update instead of creating a duplicate. Requires space_id and a label in properties."),
         }),
       ),
     },
   },
   responses: {
+    200: {
+      description: "Entity updated via upsert",
+      content: jsonContent(EntityResponse),
+    },
     201: {
       description: "Entity created",
       content: jsonContent(EntityResponse),
     },
-    ...errorResponses([400, 401, 403]),
+    ...errorResponses([400, 401, 403, 409]),
   },
 });
 
@@ -234,6 +240,40 @@ const deleteEntityRoute = createRoute({
   responses: {
     204: { description: "Entity deleted" },
     ...errorResponses([401, 403, 404]),
+  },
+});
+
+const BULK_DELETE_LIMIT = 1000;
+
+const BulkDeleteQuery = z.object({
+  filter: queryParam("filter", z.string().optional(), "Column/property filters. See GET /help for filter syntax."),
+  space_id: queryParam("space_id", z.string().optional(), "Delete all entities in this space ULID"),
+});
+
+const bulkDeleteEntitiesRoute = createRoute({
+  method: "delete",
+  path: "/",
+  operationId: "bulkDeleteEntities",
+  tags: ["Entities"],
+  summary: "Bulk delete entities matching filter and/or space",
+  "x-arke-auth": "required",
+  "x-arke-related": ["GET /entities", "DELETE /entities/{id}"],
+  "x-arke-rules": [
+    "Requires at least one of filter or space_id",
+    "Capped at 1000 entities per call — returns 400 if more match",
+    "RLS enforces per-entity permission checks — only entities you can delete are deleted",
+    "Relationships are excluded unless explicitly filtered by kind",
+  ],
+  request: { query: BulkDeleteQuery },
+  responses: {
+    200: {
+      description: "Bulk delete result",
+      content: jsonContent(z.object({
+        deleted: z.number().int(),
+        ids: z.array(z.string()),
+      })),
+    },
+    ...errorResponses([400, 401, 403]),
   },
 });
 
@@ -409,8 +449,8 @@ const mergeEntityRoute = createRoute({
       content: jsonContent(
         z.object({
           source_id: EntityIdParam.describe("Entity ULID to merge FROM (will be deleted)"),
-          property_strategy: z.enum(["keep_target", "keep_source", "shallow_merge"]).default("keep_source")
-            .describe("How to merge properties: keep_target, keep_source (default), or shallow_merge (source wins conflicts)"),
+          property_strategy: z.enum(["keep_target", "keep_source", "shallow_merge", "accumulate"]).default("keep_source")
+            .describe("How to merge properties: keep_target, keep_source (default), shallow_merge (source wins conflicts), or accumulate (never drops info)"),
           ver: z.number().int().describe("Expected current version of the target entity (CAS token)"),
           note: z.string().optional().describe("Optional version note for the merge"),
         }),
@@ -446,6 +486,64 @@ const getVersionRoute = createRoute({
       content: jsonContent(VersionSchema.extend({ entity_id: EntityIdParam })),
     },
     ...errorResponses([400, 404]),
+  },
+});
+
+const mergeBatchRoute = createRoute({
+  method: "post",
+  path: "/merge-batch",
+  operationId: "mergeBatchEntities",
+  tags: ["Entities"],
+  summary: "Merge multiple groups of duplicate entities in a single request",
+  description:
+    "Each group contains entity IDs that should be merged into one. " +
+    "The entity with the richest properties is auto-selected as the merge target. " +
+    "Groups are processed concurrently; partial success is possible.",
+  "x-arke-auth": "required",
+  "x-arke-related": ["POST /entities/{id}/merge", "POST /entities/bulk"],
+  "x-arke-rules": [
+    "Requires admin access on all entities in every group",
+    "All entities in a group must have the same kind (entity or relationship)",
+    "Entity with richest properties is auto-selected as merge target",
+    "Maximum 100 groups per request, 500 entities per group",
+    "An entity ID must not appear in more than one group",
+  ],
+  request: {
+    body: {
+      required: true,
+      content: jsonContent(
+        z.object({
+          groups: z.array(
+            z.object({
+              entity_ids: z.array(EntityIdParam).min(2).max(500)
+                .describe("Entity ULIDs to merge into one (min 2, max 500)"),
+            }),
+          ).min(1).max(100).describe("Groups of duplicate entities to merge"),
+          property_strategy: z.enum(["keep_target", "keep_source", "shallow_merge", "accumulate"]).default("accumulate")
+            .describe("How to merge properties: accumulate (default, never drops info), shallow_merge (source wins), keep_target, keep_source"),
+        }),
+      ),
+    },
+  },
+  responses: {
+    200: {
+      description: "Batch merge results (partial success possible)",
+      content: jsonContent(
+        z.object({
+          merged: z.number().int().describe("Total entities successfully merged"),
+          failed: z.number().int().describe("Total groups that failed"),
+          groups: z.array(
+            z.object({
+              target_id: EntityIdParam.describe("Entity chosen as merge target"),
+              merged_count: z.number().int().describe("Number of sources merged into target"),
+              final_ver: z.number().int().describe("Target version after all merges"),
+              error: z.string().nullable().describe("Error message if group failed"),
+            }),
+          ),
+        }),
+      ),
+    },
+    ...errorResponses([400, 401, 403]),
   },
 });
 
@@ -512,7 +610,7 @@ entitiesRouter.openapi(listEntitiesRoute, async (c) => {
   const sort = parseSort(c.req.query("sort"), ["updated_at", "created_at"], "updated_at");
 
   const userFilter = c.req.query("filter");
-  const hasKindFilter = userFilter?.split(",").some((expr) => expr.trim().startsWith("kind"));
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
   const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
   const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
 
@@ -542,11 +640,11 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
   }
 
   const properties = assertBodyObject(body.properties, "properties");
-  const id = generateUlid();
   const now = new Date().toISOString();
   const readLevel = typeof body.read_level === "number" ? body.read_level : 1;
   const writeLevel = typeof body.write_level === "number" ? body.write_level : 1;
   const spaceId = typeof body.space_id === "string" ? body.space_id : null;
+  const wantUpsert = body.upsert === true;
   const permissionGrants = Array.isArray(body.permissions)
     ? (body.permissions as Array<Record<string, unknown>>).map((g, i) => validatePermissionGrant(g, i))
     : [];
@@ -557,7 +655,90 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
     await requireSpaceRole(sql, actor, spaceId, "contributor");
   }
 
-  // Build transaction: core entity insert + optional space/permission queries
+  // Upsert path: match existing entity by (type, lower(label)) within the space
+  const label = typeof properties.label === "string" ? properties.label : null;
+  if (wantUpsert && spaceId && label) {
+    const lookupResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT e.id, e.ver
+         FROM entities e
+         JOIN space_entities se ON se.entity_id = e.id
+         WHERE se.space_id = $1
+           AND e.kind = 'entity'
+           AND e.type = $2
+           AND lower(e.properties->>'label') = $3
+         ORDER BY e.created_at ASC
+         LIMIT 1`,
+        [spaceId, body.type, label.toLowerCase()],
+      ),
+    ]);
+    const existing = (lookupResults.at(-1) as Array<{ id: string; ver: number }>)?.[0];
+
+    if (existing) {
+      // Shallow-merge update (same as PATCH /entities/{id})
+      const updateResults = await sql.transaction([
+        ...setActorContext(sql, actor),
+        sql.query(
+          `UPDATE entities
+           SET properties = properties || $1::jsonb,
+               ver = ver + 1,
+               edited_by = $2,
+               updated_at = $3::timestamptz
+           WHERE id = $4 AND ver = $5
+           RETURNING *`,
+          [JSON.stringify(properties), actor.id, now, existing.id, existing.ver],
+        ),
+      ]);
+
+      const updated = (updateResults.at(-1) as EntityRecord[])?.[0];
+      if (!updated) {
+        throw new ApiError(409, "cas_conflict", "Entity was modified between lookup and update — retry the request", {
+          entity_id: existing.id,
+          expected_ver: existing.ver,
+        });
+      }
+
+      // Version snapshot + activity (background, like PATCH)
+      backgroundTask(
+        sql.transaction([
+          ...setActorContext(sql, actor),
+          sql.query(
+            `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
+             VALUES ($1, $2, $3::jsonb, $4, NULL, $5::timestamptz)`,
+            [existing.id, updated.ver, JSON.stringify(updated.properties), actor.id, now],
+          ),
+          sql.query(
+            `INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
+             VALUES ($1, $2, 'content_updated', $3::jsonb, $4::timestamptz)`,
+            [existing.id, actor.id, JSON.stringify({ kind: "entity", type: body.type, via: "upsert" }), now],
+          ),
+        ]).then(() => undefined).catch(console.error),
+      );
+      backgroundTask(indexEntity(updated));
+
+      // Space add + permission grants still run (idempotent)
+      if (spaceId) {
+        backgroundTask(sql.transaction([
+          ...setActorContext(sql, actor),
+          addEntityToSpaceQuery(sql, spaceId, existing.id, actor.id, now),
+        ]).then(() => undefined).catch(console.error));
+      }
+      for (const grant of permissionGrants) {
+        backgroundTask(sql.transaction([
+          ...setActorContext(sql, actor),
+          grantEntityPermissionQuery(sql, existing.id, grant.grantee_type, grant.grantee_id, grant.role, actor.id),
+        ]).then(() => undefined).catch(console.error));
+      }
+
+      return c.json({ entity: updated }, 200);
+    }
+    // No match — fall through to normal INSERT
+  }
+
+  // Normal INSERT path
+  const id = generateUlid();
+
   const queries = [
     ...setActorContext(sql, actor),
     sql.query(
@@ -767,6 +948,49 @@ entitiesRouter.openapi(deleteEntityRoute, async (c) => {
   backgroundTask(removeEntity(entityId));
 
   return new Response(null, { status: 204 });
+});
+
+entitiesRouter.openapi(bulkDeleteEntitiesRoute, async (c) => {
+  const actor = requireActor(c);
+  const sql = createSql();
+
+  const userFilter = c.req.query("filter");
+  const spaceId = c.req.query("space_id");
+
+  if (!userFilter && !spaceId) {
+    throw new ApiError(400, "invalid_query", "At least one of filter or space_id is required");
+  }
+
+  // Same implicit filter as GET /entities — exclude relationships unless explicitly filtered
+  const hasKindFilter = userFilter?.split(",").some((expr) => /^kind(!:|!\?|>=|<=|>|<|:|\?)/.test(expr.trim()));
+  const implicitFilter = hasKindFilter ? undefined : "kind!:relationship";
+  const filter = implicitFilter ? mergeFilters(implicitFilter, userFilter) : userFilter;
+
+  const { whereSql, params } = buildEntityFilterWhere({ filter, spaceId });
+
+  // Guard against unbounded deletes — count first, reject if over limit
+  const countResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`SELECT count(*)::int AS n FROM entities ${whereSql}`, params),
+  ]);
+  const count = (countResults[countResults.length - 1] as Array<{ n: number }>)[0]?.n ?? 0;
+  if (count > BULK_DELETE_LIMIT) {
+    throw new ApiError(400, "too_many_entities", `Bulk delete is capped at ${BULK_DELETE_LIMIT} entities, but ${count} matched. Narrow your filter.`);
+  }
+
+  const results = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`DELETE FROM entities ${whereSql} RETURNING id`, params),
+  ]);
+
+  const deleted = results[results.length - 1] as Array<{ id: string }>;
+  const ids = deleted.map((r) => r.id);
+
+  if (ids.length > 0) {
+    backgroundTask(removeEntities(ids));
+  }
+
+  return c.json({ deleted: ids.length, ids }, 200);
 });
 
 entitiesRouter.openapi(changeLevelRoute, async (c) => {
@@ -1004,7 +1228,7 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
   const strategy = typeof body.property_strategy === "string"
     ? body.property_strategy
     : "keep_source";
-  if (!["keep_target", "keep_source", "shallow_merge"].includes(strategy)) {
+  if (!["keep_target", "keep_source", "shallow_merge", "accumulate"].includes(strategy)) {
     throw new ApiError(400, "invalid_body", "Invalid property_strategy");
   }
 
@@ -1114,6 +1338,9 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
     case "shallow_merge":
       mergedProperties = { ...target.properties, ...source.properties };
       break;
+    case "accumulate":
+      mergedProperties = accumulateProperties([target, source] as EntityRecord[]);
+      break;
     default:
       mergedProperties = source.properties;
   }
@@ -1151,6 +1378,370 @@ entitiesRouter.openapi(mergeEntityRoute, async (c) => {
   backgroundTask(indexEntity(updated));
 
   return c.json({ entity: updated }, 200);
+});
+
+// ---------------------------------------------------------------------------
+// Batch merge handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Deep-merge two plain objects. Recurses into nested objects; for other types:
+ * - Strings: keep longest
+ * - Arrays: union by JSON equality
+ * - Other: keep existing (first non-null wins)
+ */
+function deepMergeObjects(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...a };
+  for (const [key, value] of Object.entries(b)) {
+    const existing = result[key];
+    if (existing === undefined || existing === null) {
+      result[key] = value;
+    } else if (typeof existing === "string" && typeof value === "string") {
+      if (value.length > existing.length) result[key] = value;
+    } else if (Array.isArray(existing) && Array.isArray(value)) {
+      const seen = new Set(existing.map((v) => JSON.stringify(v)));
+      const merged = [...existing];
+      for (const item of value) {
+        const k = JSON.stringify(item);
+        if (!seen.has(k)) {
+          merged.push(item);
+          seen.add(k);
+        }
+      }
+      result[key] = merged;
+    } else if (
+      typeof existing === "object" && existing !== null && !Array.isArray(existing) &&
+      typeof value === "object" && value !== null && !Array.isArray(value)
+    ) {
+      result[key] = deepMergeObjects(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+    // else: keep existing (first non-null wins for other types)
+  }
+  return result;
+}
+
+/**
+ * Accumulate properties from multiple entities. Never drops information:
+ * - Strings: keep longest
+ * - Arrays: union (concat + dedupe by JSON equality)
+ * - Objects: recursive deep merge
+ * - Other types: keep first non-null
+ */
+function accumulateProperties(
+  entities: EntityRecord[],
+): Record<string, unknown> {
+  let result: Record<string, unknown> = {};
+  for (const entity of entities) {
+    if (!entity.properties) continue;
+    result = deepMergeObjects(result, entity.properties as Record<string, unknown>);
+  }
+  return result;
+}
+
+entitiesRouter.openapi(mergeBatchRoute, async (c) => {
+  const actor = requireActor(c);
+  const body = await parseJsonBody<{
+    groups: Array<{ entity_ids: string[] }>;
+    property_strategy?: string;
+  }>(c);
+
+  const groups = body.groups;
+  if (!Array.isArray(groups) || groups.length === 0) {
+    throw new ApiError(400, "invalid_body", "groups must be a non-empty array");
+  }
+  if (groups.length > 100) {
+    throw new ApiError(400, "invalid_body", "Maximum 100 groups per request");
+  }
+
+  const strategy = body.property_strategy ?? "accumulate";
+  if (!["keep_target", "keep_source", "shallow_merge", "accumulate"].includes(strategy)) {
+    throw new ApiError(400, "invalid_body", "Invalid property_strategy");
+  }
+
+  // Dedupe IDs within each group, then validate no ID across groups
+  const deduplicatedGroups: Array<{ entity_ids: string[] }> = [];
+  const allIds: string[] = [];
+  const globalSeenIds = new Set<string>();
+  for (const group of groups) {
+    if (!Array.isArray(group.entity_ids) || group.entity_ids.length < 2) {
+      throw new ApiError(400, "invalid_body", "Each group must have at least 2 entity_ids");
+    }
+    if (group.entity_ids.length > 500) {
+      throw new ApiError(400, "invalid_body", "Maximum 500 entities per group");
+    }
+    // Dedupe within group
+    const uniqueIds = [...new Set(group.entity_ids)];
+    if (uniqueIds.length < 2) {
+      throw new ApiError(400, "invalid_body", "Each group must have at least 2 unique entity_ids");
+    }
+    deduplicatedGroups.push({ entity_ids: uniqueIds });
+    for (const id of uniqueIds) {
+      if (globalSeenIds.has(id)) {
+        throw new ApiError(400, "invalid_body", `Entity ${id} appears in multiple groups`);
+      }
+      globalSeenIds.add(id);
+      allIds.push(id);
+    }
+  }
+
+  const sql = createSql();
+
+  // Bulk-fetch all entities
+  const fetchResults = await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(`SELECT * FROM entities WHERE id = ANY($1::text[])`, [allIds]),
+  ]);
+
+  const ctxLen = 1;
+  const fetchedRows = fetchResults[ctxLen] as EntityRecord[];
+  const entityMap = new Map<string, EntityRecord>();
+  for (const row of fetchedRows) {
+    entityMap.set(row.id, row);
+  }
+
+  // Verify all entities exist
+  const missing = allIds.filter((id) => !entityMap.has(id));
+  if (missing.length > 0) {
+    throw new ApiError(404, "not_found", `Entities not found: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ""}`);
+  }
+
+  // Verify admin access on all entities
+  const nonOwnedIds = allIds.filter((id) => {
+    const e = entityMap.get(id)!;
+    return e.owner_id !== actor.id && !actor.isAdmin;
+  });
+
+  if (nonOwnedIds.length > 0) {
+    // Batch check permissions for non-owned entities
+    const permResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT entity_id FROM entity_permissions
+         WHERE entity_id = ANY($1::text[]) AND role = 'admin'
+         AND ((grantee_type = 'actor' AND grantee_id = $2)
+           OR (grantee_type = 'group' AND EXISTS (
+             SELECT 1 FROM group_memberships WHERE group_id = grantee_id AND actor_id = $2)))`,
+        [nonOwnedIds, actor.id],
+      ),
+    ]);
+
+    const permittedIds = new Set(
+      (permResults[ctxLen] as Array<{ entity_id: string }>).map((r) => r.entity_id),
+    );
+    const unauthorized = nonOwnedIds.filter((id) => !permittedIds.has(id));
+    if (unauthorized.length > 0) {
+      throw new ApiError(403, "forbidden", `Admin access required on all entities. Missing for: ${unauthorized.slice(0, 3).join(", ")}${unauthorized.length > 3 ? ` (+${unauthorized.length - 3} more)` : ""}`);
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  // Process each group
+  type GroupResult = {
+    target_id: string;
+    merged_count: number;
+    final_ver: number;
+    error: string | null;
+    source_ids: string[];
+  };
+
+  // If any entities are relationships, fetch edge data for endpoint validation
+  const relationshipIds = allIds.filter((id) => entityMap.get(id)!.kind === "relationship");
+  const edgeMap = new Map<string, { source_id: string; target_id: string }>();
+  if (relationshipIds.length > 0) {
+    const edgeResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT id, source_id, target_id FROM relationship_edges WHERE id = ANY($1::text[])`,
+        [relationshipIds],
+      ),
+    ]);
+    for (const row of edgeResults[ctxLen] as Array<{ id: string; source_id: string; target_id: string }>) {
+      edgeMap.set(row.id, { source_id: row.source_id, target_id: row.target_id });
+    }
+  }
+
+  const processGroup = async (group: { entity_ids: string[] }): Promise<GroupResult> => {
+    const entities = group.entity_ids.map((id) => entityMap.get(id)!);
+
+    // Validate same kind within group
+    const kinds = new Set(entities.map((e) => e.kind));
+    if (kinds.size > 1) {
+      return {
+        target_id: "",
+        merged_count: 0,
+        final_ver: 0,
+        error: "All entities in group must have the same kind",
+        source_ids: [],
+      };
+    }
+
+    // If relationships, validate all share the same endpoints
+    if (entities[0].kind === "relationship") {
+      const firstEdge = edgeMap.get(entities[0].id);
+      if (!firstEdge) {
+        return {
+          target_id: "",
+          merged_count: 0,
+          final_ver: 0,
+          error: "Relationship edge data not found",
+          source_ids: [],
+        };
+      }
+      for (let i = 1; i < entities.length; i++) {
+        const edge = edgeMap.get(entities[i].id);
+        if (!edge || edge.source_id !== firstEdge.source_id || edge.target_id !== firstEdge.target_id) {
+          return {
+            target_id: "",
+            merged_count: 0,
+            final_ver: 0,
+            error: "Cannot merge relationships with different endpoints",
+            source_ids: [],
+          };
+        }
+      }
+    }
+
+    // Pick target: entity with most property keys, tie-break by oldest (lowest ULID)
+    const sorted = [...entities].sort((a, b) => {
+      const aKeys = Object.keys(a.properties || {}).length;
+      const bKeys = Object.keys(b.properties || {}).length;
+      if (aKeys !== bKeys) return bKeys - aKeys; // more keys first
+      return a.id < b.id ? -1 : 1; // older first
+    });
+
+    const target = sorted[0];
+    const sources = sorted.slice(1);
+    const sourceIds = sources.map((s) => s.id);
+
+    // Compute merged properties based on strategy
+    let mergedProperties: Record<string, unknown>;
+    switch (strategy) {
+      case "keep_target":
+        mergedProperties = target.properties ?? {};
+        break;
+      case "keep_source":
+        mergedProperties = sources[sources.length - 1]?.properties ?? {};
+        break;
+      case "shallow_merge": {
+        mergedProperties = { ...(target.properties ?? {}) };
+        for (const source of sources) {
+          mergedProperties = { ...mergedProperties, ...(source.properties ?? {}) };
+        }
+        break;
+      }
+      case "accumulate":
+      default:
+        mergedProperties = accumulateProperties([target, ...sources]);
+        break;
+    }
+
+    // Build merge details array (one per source)
+    const mergeDetails = sources.map((source) => ({
+      source_id: source.id,
+      source_type: source.type,
+      source_ver: source.ver,
+      source_properties: source.properties,
+      property_strategy: strategy,
+    }));
+
+    const groupSql = createSql();
+    try {
+      const mergeResults = await groupSql.transaction([
+        ...setActorContext(groupSql, actor),
+        groupSql.query(
+          `SELECT * FROM perform_group_merge($1, $2::text[], $3::jsonb, $4, $5, $6::timestamptz, $7::jsonb[])`,
+          [
+            target.id,
+            sourceIds,
+            JSON.stringify(mergedProperties),
+            target.ver,
+            actor.id,
+            now,
+            mergeDetails.map((d) => JSON.stringify(d)),
+          ],
+        ),
+      ]);
+
+      const updated = (mergeResults[ctxLen] as EntityRecord[])[0];
+      if (!updated) {
+        return {
+          target_id: target.id,
+          merged_count: 0,
+          final_ver: target.ver,
+          error: "CAS conflict — target was modified during merge",
+          source_ids: sourceIds,
+        };
+      }
+
+      return {
+        target_id: target.id,
+        merged_count: sourceIds.length,
+        final_ver: updated.ver,
+        error: null,
+        source_ids: sourceIds,
+      };
+    } catch (err) {
+      return {
+        target_id: target.id,
+        merged_count: 0,
+        final_ver: target.ver,
+        error: err instanceof Error ? err.message : "Unknown error",
+        source_ids: sourceIds,
+      };
+    }
+  };
+
+  // Execute groups with bounded concurrency (10 at a time)
+  const CONCURRENCY = 10;
+  const results: GroupResult[] = [];
+  for (let i = 0; i < deduplicatedGroups.length; i += CONCURRENCY) {
+    const batch = deduplicatedGroups.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(batch.map(processGroup));
+    for (const result of batchResults) {
+      if (result.status === "fulfilled") {
+        results.push(result.value);
+      } else {
+        results.push({
+          target_id: "",
+          merged_count: 0,
+          final_ver: 0,
+          error: result.reason instanceof Error ? result.reason.message : "Unknown error",
+          source_ids: [],
+        });
+      }
+    }
+  }
+
+  // Background: clean up search index for all deleted sources, re-index targets
+  for (const result of results) {
+    if (result.error === null) {
+      for (const sourceId of result.source_ids) {
+        backgroundTask(removeEntity(sourceId));
+      }
+      backgroundTask(indexEntityById(result.target_id));
+    }
+  }
+
+  const merged = results.reduce((sum, r) => sum + r.merged_count, 0);
+  const failed = results.filter((r) => r.error !== null).length;
+
+  return c.json({
+    merged,
+    failed,
+    groups: results.map((r) => ({
+      target_id: r.target_id,
+      merged_count: r.merged_count,
+      final_ver: r.final_ver,
+      error: r.error,
+    })),
+  }, 200);
 });
 
 entitiesRouter.openapi(bulkGetEntitiesRoute, async (c) => {

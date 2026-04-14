@@ -13,6 +13,7 @@
 
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -141,7 +142,7 @@ export async function handlePptxExtract(
   const pptxBytes = await getEntityContentBytes(entityId, contentKey);
 
   // 2. Extract via Python script
-  const tmpDir = `/tmp/pptx-${jobId}`;
+  const tmpDir = join(tmpdir(), `pptx-${jobId}`);
   let pptxResult: PptxResult;
 
   await mkdir(tmpDir, { recursive: true });

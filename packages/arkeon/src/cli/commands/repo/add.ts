@@ -61,7 +61,7 @@ type ListResponse = {
 };
 
 type OpsResult = {
-  created: Array<{ ref: string; id: string }>;
+  entities: Array<{ ref: string; id: string; action?: "created" | "updated" }>;
   edges: Array<{ id: string }>;
   stats: { entities: number; edges: number };
 };
@@ -240,11 +240,11 @@ export function registerAddCommand(program: Command): void {
 
           // Match results by ref (not positional index) for robustness
           const refToPath = new Map(batch.map((file, idx) => [`@doc${i + idx}`, file.relPath]));
-          for (const created of result.created) {
-            const path = refToPath.get(created.ref);
+          for (const entity of result.entities) {
+            const path = refToPath.get(entity.ref);
             if (path) {
-              documents.push({ path, entity_id: created.id, action: "added" });
-              output.progress(`  + ${path} -> ${created.id}`);
+              documents.push({ path, entity_id: entity.id, action: "added" });
+              output.progress(`  + ${path} -> ${entity.id}`);
               addedCount++;
             }
           }

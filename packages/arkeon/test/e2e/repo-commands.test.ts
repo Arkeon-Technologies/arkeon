@@ -29,7 +29,7 @@ import {
 type OpsResponse = {
   format: string;
   committed: boolean;
-  created: Array<{ ref: string; id: string; type: string; label: string | null }>;
+  entities: Array<{ ref: string; id: string; type: string; label: string | null; action: "created" | "updated" }>;
   edges: Array<{ id: string; source: string; predicate: string; target: string }>;
   stats: { entities: number; edges: number };
 };
@@ -117,7 +117,7 @@ async function addDocumentEntity(
   expect(response.status).toBe(200);
   const data = body as OpsResponse;
   expect(data.committed).toBe(true);
-  return data.created[0]!;
+  return data.entities[0]!;
 }
 
 async function listDocuments(apiKey: string, spaceId: string) {
@@ -274,11 +274,11 @@ describe("Repo commands — init / diff / add / rm flow", () => {
     expect(response.status).toBe(200);
     const data = body as OpsResponse;
     expect(data.committed).toBe(true);
-    expect(data.created).toHaveLength(2);
+    expect(data.entities).toHaveLength(2);
     expect(data.edges).toHaveLength(1);
 
-    augustineId = data.created.find((c) => c.ref === "@augustine")!.id;
-    cityOfGodConceptId = data.created.find((c) => c.ref === "@city_concept")!.id;
+    augustineId = data.entities.find((c) => c.ref === "@augustine")!.id;
+    cityOfGodConceptId = data.entities.find((c) => c.ref === "@city_concept")!.id;
     authoredEdgeId = data.edges[0]!.id;
   });
 
@@ -383,8 +383,8 @@ describe("Repo commands — DB cascade behavior", () => {
       },
     });
     const data = body as OpsResponse;
-    const personAId = data.created.find((c) => c.ref === "@a")!.id;
-    const personBId = data.created.find((c) => c.ref === "@b")!.id;
+    const personAId = data.entities.find((c) => c.ref === "@a")!.id;
+    const personBId = data.entities.find((c) => c.ref === "@b")!.id;
     const knowsEdgeId = data.edges[0]!.id;
 
     // Delete person A — ON DELETE CASCADE on relationship_edges.source_id
@@ -438,8 +438,8 @@ describe("Repo commands — DB cascade behavior", () => {
       },
     });
     const data = body as OpsResponse;
-    const xId = data.created.find((c) => c.ref === "@x")!.id;
-    const yId = data.created.find((c) => c.ref === "@y")!.id;
+    const xId = data.entities.find((c) => c.ref === "@x")!.id;
+    const yId = data.entities.find((c) => c.ref === "@y")!.id;
     const relId = data.edges[0]!.id;
 
     // All three should have extracted_from pointing to the document

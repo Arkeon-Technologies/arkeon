@@ -48,7 +48,16 @@ export function mergeFilters(implicit: string, userFilter?: string): string {
   return `${implicit},${userFilter}`;
 }
 
-export function buildEntityListingQuery(options: BuildListingQueryOptions) {
+interface BuildFilterWhereOptions {
+  filter?: string;
+  spaceId?: string;
+}
+
+/**
+ * Builds the WHERE clause for entity queries from filter string + space_id.
+ * Shared between listing (SELECT) and bulk delete (DELETE).
+ */
+export function buildEntityFilterWhere(options: BuildFilterWhereOptions) {
   const params: unknown[] = [];
   const where: string[] = [];
   let nextIndex = 1;
@@ -63,26 +72,38 @@ export function buildEntityListingQuery(options: BuildListingQueryOptions) {
     nextIndex += 1;
   }
 
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return { whereSql, params, nextIndex };
+}
+
+export function buildEntityListingQuery(options: BuildListingQueryOptions) {
+  const { whereSql: baseWhere, params, nextIndex: idx } = buildEntityFilterWhere({
+    filter: options.filter,
+    spaceId: options.spaceId,
+  });
+  let nextIndex = idx;
+
   const sortExpr = options.sort;
   const comparator = options.order === "desc" ? "<" : ">";
   const nulls = options.order === "desc" ? "NULLS LAST" : "NULLS FIRST";
   const direction = options.order.toUpperCase();
 
+  let fullWhere = baseWhere;
   if (options.cursor) {
     params.push(options.cursor.t, options.cursor.i);
-    where.push(`(${sortExpr}, id) ${comparator} ($${nextIndex}, $${nextIndex + 1})`);
+    const cursorCond = `(${sortExpr}, id) ${comparator} ($${nextIndex}, $${nextIndex + 1})`;
+    fullWhere = baseWhere ? `${baseWhere} AND ${cursorCond}` : `WHERE ${cursorCond}`;
     nextIndex += 2;
   }
 
   params.push(options.limit + 1);
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   return {
     query: `
       SELECT *,
         (SELECT COALESCE(array_agg(se.space_id), '{}') FROM space_entities se WHERE se.entity_id = entities.id) AS space_ids
       FROM entities
-      ${whereSql}
+      ${fullWhere}
       ORDER BY ${sortExpr} ${direction} ${nulls}, id ${direction}
       LIMIT $${nextIndex}
     `,

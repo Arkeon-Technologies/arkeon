@@ -9,6 +9,7 @@
  */
 
 import type { Command } from "commander";
+import { platform } from "node:os";
 
 import { findInstanceByName, listInstances, unregisterInstance } from "../../lib/instances.js";
 import {
@@ -64,7 +65,12 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
 
   output.progress(`[arkeon] Stopping pid ${pid}…`);
   try {
-    process.kill(pid, "SIGTERM");
+    // On Windows, process.kill(pid) calls TerminateProcess (no SIGTERM support).
+    if (platform() === "win32") {
+      process.kill(pid);
+    } else {
+      process.kill(pid, "SIGTERM");
+    }
   } catch (err) {
     output.error(err, { operation });
     process.exit(1);
@@ -92,7 +98,9 @@ export async function runStop(operation: "stop" | "down", options: StopOptions):
 
   output.error(
     new Error(
-      `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`kill -9 ${pid}\`.`,
+      platform() === "win32"
+        ? `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`taskkill /F /PID ${pid}\`.`
+        : `pid ${pid} did not exit within ${timeoutMs}ms. You may need \`kill -9 ${pid}\`.`,
     ),
     { operation },
   );
