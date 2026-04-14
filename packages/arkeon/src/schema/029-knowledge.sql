@@ -83,6 +83,9 @@ INSERT INTO extraction_config (id, entity_types, predicates, updated_at) VALUES 
   NOW()
 ) ON CONFLICT (id) DO NOTHING;
 
--- Seed poller state
-INSERT INTO knowledge_poller_state (id, last_activity_id, updated_at) VALUES ('default', 0, NOW())
+-- Seed poller state: start from current tip so the poller only watches
+-- for new events, not the entire history. Prevents a flood of extraction
+-- jobs when knowledge is enabled on an instance with existing data.
+INSERT INTO knowledge_poller_state (id, last_activity_id, updated_at)
+VALUES ('default', COALESCE((SELECT MAX(id) FROM entity_activity), 0), NOW())
 ON CONFLICT (id) DO NOTHING;
