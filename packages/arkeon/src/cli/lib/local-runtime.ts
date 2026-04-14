@@ -61,6 +61,7 @@ export function filesDataDir(): string { return join(dataDir(), "files"); }
 export function binDir(): string { return join(arkeonHome(), "bin"); }
 export function secretsFile(): string { return join(arkeonHome(), "secrets.json"); }
 export function pidfile(): string { return join(arkeonHome(), "arkeon.pid"); }
+export function meiliPidfile(): string { return join(arkeonHome(), "meili.pid"); }
 export function logfile(): string { return join(arkeonHome(), "arkeon.log"); }
 export function pendingLlmFile(): string { return join(arkeonHome(), "pending-llm.json"); }
 
@@ -305,7 +306,10 @@ export function startMeilisearch(opts: {
     if (code !== 0 && code !== null) {
       console.error(`[meili] exited with code ${code} (signal ${signal})`);
     }
+    removeMeiliPidfile();
   });
+
+  if (child.pid) writeMeiliPidfile(child.pid);
 
   return child;
 }
@@ -464,6 +468,107 @@ export function isProcessAlive(pid: number): boolean {
     const code = (err as NodeJS.ErrnoException).code;
     // EPERM means it exists but we can't signal it — still "alive"
     return code === "EPERM";
+  }
+}
+
+// =====================================================================
+// Meilisearch pidfile — tracks the child so we can kill orphans
+// =====================================================================
+
+export function writeMeiliPidfile(pid: number): void {
+  writeFileSync(meiliPidfile(), String(pid), "utf-8");
+}
+
+export function removeMeiliPidfile(): void {
+  const path = meiliPidfile();
+  if (existsSync(path)) unlinkSync(path);
+}
+
+/**
+ * Kill a Meilisearch process orphaned by a previous crash / kill -9.
+ * Reads meili.pid, checks if the process is alive, sends SIGTERM, and
+ * waits up to 5s for it to exit. No-op if the pidfile is missing or
+ * the process is already dead.
+ */
+export async function killOrphanedMeilisearch(): Promise<void> {
+  const path = meiliPidfile();
+  if (!existsSync(path)) return;
+
+  const raw = readFileSync(path, "utf-8").trim();
+  const pid = Number(raw);
+  if (!Number.isFinite(pid) || pid <= 0) {
+    removeMeiliPidfile();
+    return;
+  }
+
+  if (!isProcessAlive(pid)) {
+    removeMeiliPidfile();
+    return;
+  }
+
+  console.log(`[arkeon] Killing orphaned Meilisearch (pid ${pid})`);
+  try {
+    if (platform() === "win32") {
+      process.kill(pid);
+    } else {
+      process.kill(pid, "SIGTERM");
+    }
+  } catch {
+    removeMeiliPidfile();
+    return;
+  }
+
+  // Wait up to 5s for it to exit
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  removeMeiliPidfile();
+}
+
+// =====================================================================
+// Orphaned Postgres cleanup
+// =====================================================================
+
+/**
+ * Kill an embedded Postgres orphaned by a crash / kill -9. Reads the PID
+ * from the standard `postmaster.pid` in the data directory (line 1 is the
+ * PID). Sends SIGTERM and waits up to 5s. No-op if the file is missing or
+ * the process is dead.
+ */
+export async function killOrphanedPostgres(): Promise<void> {
+  const pmPid = join(pgDataDir(), "postmaster.pid");
+  if (!existsSync(pmPid)) return;
+
+  const raw = readFileSync(pmPid, "utf-8").trim();
+  const firstLine = raw.split("\n")[0]?.trim();
+  const pid = Number(firstLine);
+  if (!Number.isFinite(pid) || pid <= 0) return;
+
+  if (!isProcessAlive(pid)) {
+    // Stale lockfile — Postgres is gone but didn't clean up.
+    // Remove it so the next start doesn't fail.
+    try { unlinkSync(pmPid); } catch { /* ignore */ }
+    return;
+  }
+
+  console.log(`[arkeon] Killing orphaned Postgres (pid ${pid})`);
+  try {
+    if (platform() === "win32") {
+      process.kill(pid);
+    } else {
+      process.kill(pid, "SIGTERM");
+    }
+  } catch {
+    return;
+  }
+
+  // Wait up to 5s for it to exit
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) break;
+    await new Promise((r) => setTimeout(r, 200));
   }
 }
 
