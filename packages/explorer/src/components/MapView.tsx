@@ -688,7 +688,7 @@ interface MapViewProps {
 
 export function MapView({
   client,
-  nodeCap = 50000,
+  nodeCap = 10000,
   selectId,
   onEntitySelect,
   onEntityDeselect,
@@ -698,12 +698,14 @@ export function MapView({
 
   const [selectedId, setSelectedId] = useState<string | null>(selectId ?? null)
   const [selectedEntity, setSelectedEntity] = useState<LoadedEntity | null>(null)
+  const lastSelectIdRef = useRef<string | undefined>(selectId)
 
   // Load detail entity when selection changes
   const selectEntity = useCallback(
     async (id: string) => {
       setSelectedId(id)
       onEntitySelect?.(id)
+      lastSelectIdRef.current = id
       const loaded = await fetchRelationships(id)
       if (loaded) {
         if (loaded.entity.kind === 'relationship') {
@@ -718,10 +720,10 @@ export function MapView({
   )
 
   // When selectId changes externally (e.g. feed click), sync selection
+  // Skip if we already handled this ID via selectEntity (avoids double-fetch)
   useEffect(() => {
-    if (selectId) {
-      ensureEntity(selectId)
-      selectEntity(selectId)
+    if (selectId && selectId !== lastSelectIdRef.current) {
+      ensureEntity(selectId).then(() => selectEntity(selectId))
     }
   }, [selectId, ensureEntity, selectEntity])
 

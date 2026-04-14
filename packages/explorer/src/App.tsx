@@ -45,7 +45,7 @@ export function App() {
   const apiKey = apiKeyRef.current || undefined
 
   const initial = useMemo(getInitialParams, [])
-  const nodeCap = initial.cap ? Math.max(1, parseInt(initial.cap, 10) || 50000) : 50000
+  const nodeCap = initial.cap ? Math.max(1, parseInt(initial.cap, 10) || 10000) : 10000
 
   type Mode = 'graph' | 'feed'
   const [mode, setMode] = useState<Mode>(initial.mode)
