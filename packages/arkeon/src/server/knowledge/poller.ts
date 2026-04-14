@@ -68,6 +68,8 @@ async function pollForNewContent(): Promise<void> {
 
       if (events.length === 0) break;
 
+      console.log(`[knowledge:poller] Processing batch ${batchesProcessed + 1}: ${events.length} events, checkpoint=${lastActivityId}, range=${events[0]!.activity_id}..${events[events.length - 1]!.activity_id}`);
+
       // Batch-fetch all referenced entities in a single query instead of
       // one transaction per event. This is critical for performance when
       // the poller has a backlog (e.g. hundreds of entity_created events
