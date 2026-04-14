@@ -2,6 +2,10 @@
 
 A knowledge base that runs on your machine. Arkeon builds a structured knowledge graph that transcends individual repositories — connecting concepts, patterns, and relationships across all of your code and documents into one queryable graph.
 
+<p align="center">
+  <img src="docs/assets/explorer.png" alt="Arkeon Explorer — graph visualization and entity detail view" width="800" />
+</p>
+
 ## Getting started
 
 **1. Install Arkeon**
