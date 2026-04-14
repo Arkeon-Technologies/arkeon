@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright (c) 2026 Arkeon Technologies, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // Headless screenshot server for the Arkeon explorer graph.
 // Returns PNGs of the rendered graph via HTTP. Listens on 127.0.0.1 only.
 //

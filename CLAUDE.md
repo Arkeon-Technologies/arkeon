@@ -209,3 +209,25 @@ After any feature work, ask: "Can an agent discover and use this?" Specifically:
 3. If it's a concept — is it in `concepts.ts`?
 4. If it's a CLI-only feature — does `arkeon docs --format cli` show it?
 5. Rebuild and verify: `npm run build -w packages/sdk-ts && npm run build -w packages/arkeon`
+
+## Publishing to npm
+
+Publishing is automated via GitHub Actions (`.github/workflows/publish.yml`) and triggered by **GitHub Releases with specific tag prefixes**:
+
+- `arkeon-v<version>` → publishes `arkeon` to npm (e.g., `arkeon-v0.3.6`)
+- `sdk-v<version>` → publishes `@arkeon-technologies/sdk` to npm (e.g., `sdk-v0.1.11`)
+
+Tags like `v0.3.6` (without the `arkeon-` prefix) will NOT trigger a publish. The workflow uses npm trusted publishing (OIDC) — no token needed.
+
+### Release checklist
+
+1. Bump `version` in `packages/arkeon/package.json` (or `packages/sdk-ts/package.json` for SDK)
+2. Commit and push to main
+3. Create a GitHub release with the correct tag prefix:
+   ```bash
+   gh release create arkeon-v0.3.6 --title "arkeon v0.3.6" --generate-notes
+   ```
+4. The publish workflow runs automatically — check Actions to confirm
+5. Verify on npm: `npm view arkeon version`
+
+Do NOT create releases with bare `v*` tags — they won't publish.
