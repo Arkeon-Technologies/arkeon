@@ -5,7 +5,7 @@
  * `arkeon install <provider>` / `arkeon uninstall <provider>`
  *
  * Installs Arkeon skills into an AI coding environment.
- * Providers: claude (now), codex, cursor (future).
+ * Use "agents" to install all providers at once.
  */
 
 import type { Command } from "commander";
@@ -17,7 +17,7 @@ export function registerInstallCommands(program: Command): void {
   program
     .command("install")
     .description("Install Arkeon skills into an AI coding environment")
-    .argument("<provider>", "Target environment: claude, codex, cursor")
+    .argument("<provider>", "Target: agents (all), claude, codex, cursor, gemini")
     .action(async (providerName: string) => {
       try {
         const provider = getProvider(providerName);
@@ -54,7 +54,7 @@ export function registerInstallCommands(program: Command): void {
   program
     .command("uninstall")
     .description("Remove Arkeon skills from an AI coding environment")
-    .argument("<provider>", "Target environment: claude, codex, cursor")
+    .argument("<provider>", "Target: agents (all), claude, codex, cursor, gemini")
     .action(async (providerName: string) => {
       try {
         const provider = getProvider(providerName);

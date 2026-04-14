@@ -2,35 +2,50 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Reads the Genesis seed envelope from packages/cli/assets/seeds/ and
- * emits a single TypeScript module at packages/cli/src/generated/assets.ts
- * exporting it as a typed object literal.
+ * Bundles the Genesis seed and composed skills into a single TypeScript module
+ * at src/generated/assets.ts.
  *
- * The generated module is committed (same pattern as src/generated/index.ts)
- * so the package builds without an out-of-band copy step and the bundled
- * payload is reviewable in PR diffs.
+ * Skills are composed from three sources:
+ *   1. Shared body content: assets/skills/body/<skill>.md
+ *   2. Provider metadata:   assets/skills/meta.yaml
+ *   3. Optional overrides:  assets/skills/overrides/<provider>/<skill>.md
  *
- * Wired into `npm run build` ahead of tsup. tsup then inlines the generated
- * module into dist/index.js, so the published npm package needs no separate
- * assets directory at runtime for the seed.
+ * For each provider defined in meta.yaml, the bundler composes a complete
+ * skill file by combining the provider-specific YAML frontmatter with the
+ * shared body and any override content.
+ *
+ * The AGENTS.md template is bundled under the special key AGENTS_MD.
  */
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import yaml from "js-yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliRoot = join(__dirname, "..");
 
 const genesisOpsPath = join(cliRoot, "assets", "seeds", "genesis-creation.ops.json");
-
 const outputPath = join(cliRoot, "src", "generated", "assets.ts");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function readText(path: string): string {
   try {
     return readFileSync(path, "utf8");
   } catch (error) {
     throw new Error(`bundle-assets: failed to read ${path}: ${(error as Error).message}`);
+  }
+}
+
+function readTextOptional(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
   }
 }
 
@@ -43,42 +58,117 @@ function readJson(path: string): unknown {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Genesis seed
+// ---------------------------------------------------------------------------
+
 const genesisOps = readJson(genesisOpsPath);
 
 // ---------------------------------------------------------------------------
-// Skills — walk assets/skills/<provider>/<skill-name>/SKILL.md
+// Skills — compose from meta.yaml + body/ + overrides/
 // ---------------------------------------------------------------------------
 
-const skillsDir = join(cliRoot, "assets", "skills");
-const skills: Record<string, Record<string, string>> = {};
-const VALID_NAME = /^[a-z0-9][a-z0-9-]*$/;
+interface SkillMeta {
+  description: string;
+  "argument-hint"?: string;
+}
 
-try {
-  for (const provider of readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!provider.isDirectory()) continue;
-    if (!VALID_NAME.test(provider.name)) {
-      console.warn(`bundle-assets: skipping provider "${provider.name}" — invalid name`);
-      continue;
-    }
-    const providerDir = join(skillsDir, provider.name);
-    skills[provider.name] = {};
-    for (const skill of readdirSync(providerDir, { withFileTypes: true })) {
-      if (!skill.isDirectory()) continue;
-      if (!VALID_NAME.test(skill.name)) {
-        console.warn(`bundle-assets: skipping skill "${skill.name}" — invalid name`);
+interface ProviderConfig {
+  format: string;
+  dir: string;
+  global: boolean;
+  frontmatter: {
+    common: Record<string, unknown>;
+    "per-skill": Record<string, Record<string, unknown>>;
+  };
+}
+
+interface MetaFile {
+  skills: Record<string, SkillMeta>;
+  providers: Record<string, ProviderConfig>;
+}
+
+const YAML_NEEDS_QUOTING = /^[{[\]>|*&!%#@`'",?:=-]|[:{}\[\],] |: |#/;
+
+function formatYamlValue(v: unknown): string {
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return String(v);
+  const s = String(v);
+  if (YAML_NEEDS_QUOTING.test(s) || s === "" || s === "true" || s === "false" || s === "null") {
+    return JSON.stringify(s); // double-quote escaping
+  }
+  return s;
+}
+
+const skillsDir = join(cliRoot, "assets", "skills");
+const metaPath = join(skillsDir, "meta.yaml");
+const skills: Record<string, Record<string, string>> = {};
+
+if (existsSync(metaPath)) {
+  const meta = yaml.load(readText(metaPath)) as MetaFile;
+  const skillNames = Object.keys(meta.skills);
+
+  for (const [providerName, providerConfig] of Object.entries(meta.providers)) {
+    skills[providerName] = {};
+
+    for (const skillName of skillNames) {
+      const bodyPath = join(skillsDir, "body", `${skillName}.md`);
+      const body = readTextOptional(bodyPath);
+      if (!body) {
+        console.warn(`bundle-assets: skipping ${providerName}/${skillName} — no body file`);
         continue;
       }
-      const skillFile = join(providerDir, skill.name, "SKILL.md");
-      try {
-        skills[provider.name]![skill.name] = readText(skillFile);
-      } catch {
-        // Skip skills without SKILL.md
+
+      // Compose frontmatter: skill metadata + provider common + provider per-skill
+      const skillMeta = meta.skills[skillName]!;
+      const fm: Record<string, unknown> = { name: skillName };
+
+      fm.description = skillMeta.description;
+      if (skillMeta["argument-hint"]) {
+        fm["argument-hint"] = skillMeta["argument-hint"];
       }
+
+      // Provider common frontmatter (e.g., disable-model-invocation for Claude)
+      const common = providerConfig.frontmatter?.common ?? {};
+      for (const [k, v] of Object.entries(common)) {
+        fm[k] = v;
+      }
+
+      // Provider per-skill frontmatter (e.g., allowed-tools for Claude)
+      const perSkill = providerConfig.frontmatter?.["per-skill"]?.[skillName] ?? {};
+      for (const [k, v] of Object.entries(perSkill)) {
+        fm[k] = v;
+      }
+
+      // Build YAML frontmatter string
+      const fmLines = Object.entries(fm).map(([k, v]) => `${k}: ${formatYamlValue(v)}`);
+      const frontmatter = `---\n${fmLines.join("\n")}\n---`;
+
+      // Optional override content
+      const overridePath = join(skillsDir, "overrides", providerName, `${skillName}.md`);
+      const override = readTextOptional(overridePath);
+
+      // Compose final content
+      let content = `${frontmatter}\n\n${body.trim()}`;
+      if (override) {
+        content += `\n\n${override.trim()}`;
+      }
+      content += "\n";
+
+      skills[providerName]![skillName] = content;
     }
   }
-} catch {
-  // assets/skills/ doesn't exist yet — no skills to bundle
+} else {
+  console.warn("bundle-assets: no meta.yaml found — no skills to bundle");
 }
+
+
+// ---------------------------------------------------------------------------
+// AGENTS.md template
+// ---------------------------------------------------------------------------
+
+const agentsMdPath = join(skillsDir, "agents.md");
+const agentsMd = readTextOptional(agentsMdPath) ?? "";
 
 // ---------------------------------------------------------------------------
 // Emit
@@ -89,8 +179,9 @@ const banner = `// AUTO-GENERATED by scripts/bundle-assets.ts — do not edit.
 // part of \`npm run build -w packages/arkeon\`).
 //
 // Source files:
-//   - genesis-creation.ops.json <- assets/seeds/
-//   - skills/**  <- assets/skills/<provider>/<skill>/SKILL.md
+//   - genesis-creation.ops.json  <- assets/seeds/
+//   - meta.yaml + body/ + overrides/ <- assets/skills/
+//   - agents.md  <- assets/skills/agents.md
 `;
 
 const skillEntries = Object.entries(skills)
@@ -110,12 +201,17 @@ const body = `${banner}
 export const GENESIS_OPS: { format: string; ops: Array<Record<string, unknown>> } = ${JSON.stringify(genesisOps)};
 
 /**
- * Bundled skills keyed by provider → skill-name → SKILL.md content.
+ * Bundled skills keyed by provider → skill-name → composed skill content.
  * Used by \`arkeon install <provider>\` to write skills to the target directory.
  */
 export const SKILLS: Record<string, Record<string, string>> = {
 ${skillEntries}
 };
+
+/**
+ * Universal AGENTS.md template written to project roots by \`arkeon install agents\`.
+ */
+export const AGENTS_MD: string = ${JSON.stringify(agentsMd)};
 `;
 
 mkdirSync(dirname(outputPath), { recursive: true });
@@ -125,3 +221,4 @@ console.log(`bundle-assets: wrote ${outputPath}`);
 console.log(`  genesis-creation.ops.json: ${(JSON.stringify(genesisOps) as string).length} bytes (parsed)`);
 const skillCount = Object.values(skills).reduce((n, s) => n + Object.keys(s).length, 0);
 console.log(`  skills: ${skillCount} across ${Object.keys(skills).length} provider(s)`);
+console.log(`  agents.md: ${agentsMd.length} bytes`);

@@ -1,11 +1,3 @@
----
-name: arkeon-doctor
-description: Build, test, version-bump, and publish the arkeon npm package from main.
-disable-model-invocation: true
-argument-hint: [patch|minor|major]
-allowed-tools: Bash(npm *, npx *, git *, gh *, node *, cat *, ls *, curl *), Read, Glob, Grep
----
-
 # Arkeon Doctor
 
 Build, verify, and publish the `arkeon` npm package. Handles the full release flow: typecheck, build, smoke test, version bump, and GitHub Release (which triggers the publish workflow).
