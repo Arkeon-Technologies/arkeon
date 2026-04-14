@@ -585,6 +585,24 @@ export async function killOrphanedPostgres(): Promise<void> {
 }
 
 // =====================================================================
+// Port availability check
+// =====================================================================
+
+/**
+ * Returns true if something is already listening on the given port.
+ * Uses a quick TCP connect probe — fails fast (~100ms) if nothing is there.
+ */
+export function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> {
+  const { createConnection } = require("node:net") as typeof import("node:net");
+  return new Promise((resolve) => {
+    const sock = createConnection({ port, host, timeout: 500 });
+    sock.once("connect", () => { sock.destroy(); resolve(true); });
+    sock.once("error", () => { resolve(false); });
+    sock.once("timeout", () => { sock.destroy(); resolve(false); });
+  });
+}
+
+// =====================================================================
 // Sha256 helper for binary checksums (future use)
 // =====================================================================
 

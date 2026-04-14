@@ -113,11 +113,61 @@ async function runStart(options: StartOptions): Promise<void> {
 
   checkWorkerToolchain();
 
+  // --- Shutdown handler ---
+  // Registered early so that a SIGTERM/SIGINT received while services are
+  // still starting up will tear down whatever has been started so far,
+  // instead of leaving orphaned Postgres/Meilisearch processes.
+  let pg: { appUrl: string; superUrl: string; stop: () => Promise<void> } | null = null;
+  let meili: ChildProcess | null = null;
+  let api: { stop: () => Promise<void> } | null = null;
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n[arkeon] ${signal} received, shutting down…`);
+
+    if (api) {
+      try { await api.stop(); } catch (err) {
+        console.warn("[arkeon] api.stop error:", (err as Error).message);
+      }
+    }
+    if (meili) {
+      try {
+        const child = meili;
+        await new Promise<void>((resolve) => {
+          let resolved = false;
+          const done = () => { if (!resolved) { resolved = true; resolve(); } };
+          child.once("exit", done);
+          try {
+            if (IS_WIN) { child.kill(); } else { child.kill("SIGTERM"); }
+          } catch { done(); return; }
+          setTimeout(done, 5000);
+        });
+      } catch (err) {
+        console.warn("[arkeon] meili stop error:", (err as Error).message);
+      }
+    }
+    if (pg) {
+      try { await pg.stop(); } catch (err) {
+        console.warn("[arkeon] pg stop error:", (err as Error).message);
+      }
+    }
+    removePidfile();
+    removeMeiliPidfile();
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  if (IS_WIN) {
+    process.on("SIGBREAK", () => void shutdown("SIGBREAK"));
+  }
+
   // --- Postgres ---
   // In embedded mode (default) we boot a Postgres cluster inside
   // ~/.arkeon/data/postgres. In external mode the user is responsible
   // for provisioning the database; we only run migrations against it.
-  let pg: { appUrl: string; superUrl: string; stop: () => Promise<void> } | null = null;
   let dbAppUrl: string;
   let migrationUrl: string;
 
@@ -125,10 +175,6 @@ async function runStart(options: StartOptions): Promise<void> {
     console.log(`[arkeon] Using external Postgres (DATABASE_URL set)`);
     dbAppUrl = externalDatabaseUrl;
     migrationUrl = externalMigrationUrl ?? externalDatabaseUrl;
-    // In external mode the DBA has already created the arke_app role
-    // with whatever password they chose. We must NOT let migrate.js
-    // re-ALTER it to our generated password. Pull ARKE_APP_PASSWORD
-    // from the env — the operator supplies it alongside DATABASE_URL.
     if (!process.env.ARKE_APP_PASSWORD && !process.env.ARKEON_ARKE_APP_PASSWORD) {
       console.error(
         "[arkeon] ARKE_APP_PASSWORD must be set when using an external database — " +
@@ -147,8 +193,6 @@ async function runStart(options: StartOptions): Promise<void> {
     });
     dbAppUrl = pg.appUrl;
     migrationUrl = pg.superUrl;
-    // ARKE_APP_PASSWORD has to match what migrate.js wrote to the
-    // arke_app role — migrations applied it later in this same run.
     process.env.ARKE_APP_PASSWORD = secrets.pgPassword;
   }
 
@@ -166,9 +210,6 @@ async function runStart(options: StartOptions): Promise<void> {
   }
 
   // --- Meilisearch ---
-  // Same escape hatch: if MEILI_URL is set we skip downloading and
-  // spawning the binary and just pass the URL through to the API.
-  let meili: ChildProcess | null = null;
   let meiliUrlForApi: string;
   let meiliKeyForApi: string;
 
@@ -199,15 +240,8 @@ async function runStart(options: StartOptions): Promise<void> {
 
   // --- API ---
   console.log(`[arkeon] Starting API on port ${apiPort}`);
-  // Lazy import: loading the API eagerly would pull in every route,
-  // schema, etc. on every CLI command (including `arkeon stop`), which
-  // is pointless. Doing it here keeps `arkeon --help` and the unrelated
-  // commands cheap.
   const { startApi } = await import("../../../server/server.js");
   const storageDir = filesDataDir();
-  // Thread storage location via env so src/server/lib/storage.ts
-  // writes uploaded files into the ~/.arkeon state dir rather than the
-  // process cwd.
   process.env.STORAGE_BACKEND = process.env.STORAGE_BACKEND ?? "local";
   process.env.STORAGE_DIR = process.env.STORAGE_DIR ?? storageDir;
   process.env.ARKEON_LOCAL = "true";
@@ -222,15 +256,12 @@ async function runStart(options: StartOptions): Promise<void> {
     );
   }
 
-  // Admin bootstrap key: env wins over generated secret so operators
-  // can pin a fixed key (e.g. injected from Kubernetes Secrets) instead
-  // of chasing a randomly-generated one each deploy.
   const adminBootstrapKey =
     process.env.ARKEON_ADMIN_BOOTSTRAP_KEY ??
     process.env.ADMIN_BOOTSTRAP_KEY ??
     secrets.adminBootstrapKey;
 
-  const api = await startApi({
+  api = await startApi({
     port: apiPort,
     databaseUrl: dbAppUrl,
     adminBootstrapKey,
@@ -251,65 +282,6 @@ async function runStart(options: StartOptions): Promise<void> {
   console.log(`         Admin key: ${adminBootstrapKey}`);
   console.log("");
   console.log("         Press Ctrl+C to stop.");
-
-  let shuttingDown = false;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`\n[arkeon] ${signal} received, shutting down…`);
-
-    try {
-      await api.stop();
-    } catch (err) {
-      console.warn("[arkeon] api.stop error:", (err as Error).message);
-    }
-    if (meili) {
-      try {
-        // Wait for Meilisearch to actually flush + exit rather than
-        // fire-and-forgetting the signal. The child has its own
-        // checkpoint-on-shutdown logic and can take a second or two;
-        // we don't want process.exit() to race it.
-        const child = meili;
-        await new Promise<void>((resolve) => {
-          let resolved = false;
-          const done = () => {
-            if (resolved) return;
-            resolved = true;
-            resolve();
-          };
-          child.once("exit", done);
-          try {
-            if (IS_WIN) { child.kill(); } else { child.kill("SIGTERM"); }
-          } catch {
-            done();
-            return;
-          }
-          // Hard cap: if Meilisearch doesn't exit in 5 seconds, stop
-          // waiting and let the Postgres + pidfile cleanup continue.
-          setTimeout(done, 5000);
-        });
-      } catch (err) {
-        console.warn("[arkeon] meili stop error:", (err as Error).message);
-      }
-    }
-    if (pg) {
-      try {
-        await pg.stop();
-      } catch (err) {
-        console.warn("[arkeon] pg stop error:", (err as Error).message);
-      }
-    }
-    removePidfile();
-    removeMeiliPidfile();
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-  process.on("SIGINT", () => void shutdown("SIGINT"));
-  // Windows sends SIGBREAK on Ctrl+Break; SIGINT already covers Ctrl+C.
-  if (IS_WIN) {
-    process.on("SIGBREAK", () => void shutdown("SIGBREAK"));
-  }
 }
 
 /**
