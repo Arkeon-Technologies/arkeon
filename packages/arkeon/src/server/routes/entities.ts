@@ -205,7 +205,7 @@ const updateEntityRoute = createRoute({
   summary: "Update entity properties",
   "x-arke-auth": "required",
   "x-arke-related": ["GET /entities/{id}", "GET /entities/{id}/versions"],
-  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= entity's write_level", "Optimistic concurrency: must pass current ver to update", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved"],
+  "x-arke-rules": ["Only the owner, an entity editor, or an entity admin may update", "Requires write_level clearance >= entity's write_level", "Optimistic concurrency: must pass current ver to update", "Properties are shallow-merged: only provided keys are updated, omitted keys are preserved", "remove_properties deletes keys by name after the merge, so removals take precedence over additions"],
   request: {
     params: entityIdParams(),
     body: {
@@ -214,6 +214,7 @@ const updateEntityRoute = createRoute({
         z.object({
           ver: z.number().int().describe("Expected current version (CAS token)"),
           properties: z.record(z.string(), z.any()).optional(),
+          remove_properties: z.array(z.string()).optional().describe("Property keys to delete from the entity. Applied after the properties merge, so removals take precedence."),
           note: z.string().optional(),
         }),
       ),
@@ -849,28 +850,63 @@ entitiesRouter.openapi(updateEntityRoute, async (c) => {
   const properties = body.properties === undefined
     ? undefined
     : assertBodyObject(body.properties, "properties");
+  const removeProperties = Array.isArray(body.remove_properties)
+    ? (body.remove_properties as string[]).filter((k) => typeof k === "string" && k.length > 0)
+    : [];
   const note = body.note === undefined ? null : typeof body.note === "string" ? body.note : null;
 
-  if (!properties) {
+  if (!properties && removeProperties.length === 0) {
     throw new ApiError(400, "invalid_body", "No changes requested");
   }
 
   const sql = createSql();
   const now = new Date().toISOString();
 
+  // Build the properties expression:
+  //   merge only:  properties || $merge
+  //   remove only: properties - $keys
+  //   both:        (properties || $merge) - $keys  (removals win)
+  const hasMerge = properties && Object.keys(properties).length > 0;
+  const hasRemove = removeProperties.length > 0;
+  let propsExpr: string;
+  const params: unknown[] = [];
+  let paramIdx = 1;
+
+  if (hasMerge && hasRemove) {
+    propsExpr = `(properties || $${paramIdx}::jsonb) - $${paramIdx + 1}::text[]`;
+    params.push(JSON.stringify(properties), removeProperties);
+    paramIdx += 2;
+  } else if (hasMerge) {
+    propsExpr = `properties || $${paramIdx}::jsonb`;
+    params.push(JSON.stringify(properties));
+    paramIdx += 1;
+  } else {
+    propsExpr = `properties - $${paramIdx}::text[]`;
+    params.push(removeProperties);
+    paramIdx += 1;
+  }
+
+  // Remaining params: edited_by, note, updated_at, id, ver
+  const editedByIdx = paramIdx;
+  const noteIdx = paramIdx + 1;
+  const nowIdx = paramIdx + 2;
+  const idIdx = paramIdx + 3;
+  const verIdx = paramIdx + 4;
+  params.push(actor.id, note, now, entityId, expectedVer);
+
   // RLS enforces: classification ceiling + ACL (owner/editor/admin/is_admin)
   const results = await sql.transaction([
     ...setActorContext(sql, actor),
     sql.query(
       `UPDATE entities
-       SET properties = properties || $1::jsonb,
+       SET properties = ${propsExpr},
            ver = ver + 1,
-           edited_by = $2,
-           note = $3,
-           updated_at = $4::timestamptz
-       WHERE id = $5 AND ver = $6
+           edited_by = $${editedByIdx},
+           note = $${noteIdx},
+           updated_at = $${nowIdx}::timestamptz
+       WHERE id = $${idIdx} AND ver = $${verIdx}
        RETURNING *`,
-      [JSON.stringify(properties), actor.id, note, now, entityId, expectedVer],
+      params,
     ),
   ]);
 
