@@ -57,6 +57,9 @@ function GraphSyncAndEvents({
   const setSettings = useSetSettings()
   const { entities, isLoading, bulkLoadComplete, fetchRelationships } = data
   const layoutDoneRef = useRef(false)
+  const [layoutDone, setLayoutDone] = useState(false)
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
 
   // Sync entities into graphology and run layout.
   // During bulk load: add nodes/edges silently (no layout yet).
@@ -90,8 +93,8 @@ function GraphSyncAndEvents({
         if (graph.hasEdge(rel.id)) continue
         try {
           graph.addEdgeWithKey(rel.id, rel.source_id, rel.target_id, {
-            color: '#222222',
-            size: 0.3,
+            color: '#333333',
+            size: 0.5,
             predicate: rel.predicate,
             type: 'line',
           })
@@ -155,33 +158,38 @@ function GraphSyncAndEvents({
       // (FA2 runs synchronously on main thread)
       const iters = graph.order <= 200 ? 150 : graph.order <= 1000 ? 80 : graph.order <= 3000 ? 50 : 30
       forceAtlas2.assign(graph, { iterations: iters, settings })
+      setLayoutDone(true)
     } else {
       // Incremental: settle new nodes from polling
       forceAtlas2.assign(graph, { iterations: 15, settings })
     }
   }, [entities, bulkLoadComplete, sigma])
 
-  // Zoom to selected entity when selectId prop changes
+  // Zoom to selected entity after layout is done
   useEffect(() => {
     if (!selectId) return
-    if (isLoading) return
+    if (!layoutDone) return
     const graph = sigma.getGraph()
     if (!graph.hasNode(selectId)) return
 
-    const timer = setTimeout(() => {
-      const displayData = sigma.getNodeDisplayData(selectId)
-      if (!displayData) return
-      const camera = sigma.getCamera()
-      // viewportToFramedGraph converts pixel coords to camera coords
-      const pos = sigma.viewportToFramedGraph(displayData)
-      camera.animate({ x: pos.x, y: pos.y, ratio: 0.1 }, { duration: 600 })
-      onSelect(selectId)
-      fetchRelationships(selectId)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [selectId, isLoading, sigma, onSelect, fetchRelationships])
+    // Force re-process, then zoom after Sigma renders with correct positions.
+    // getNodeDisplayData returns framedGraph coords — pass directly to camera.
+    sigma.refresh()
+    const handler = () => {
+      sigma.off('afterRender', handler)
+      const data = sigma.getNodeDisplayData(selectId)
+      if (!data) return
+      sigma.getCamera().animate(
+        { x: data.x, y: data.y, ratio: 0.1 },
+        { duration: 600 },
+      )
+    }
+    sigma.on('afterRender', handler)
+    onSelect(selectId)
+    fetchRelationships(selectId)
+  }, [selectId, layoutDone, sigma, onSelect, fetchRelationships])
 
-  // Register click events
+  // Register click and hover events
   useEffect(() => {
     registerEvents({
       clickNode: ({ node }) => {
@@ -190,31 +198,59 @@ function GraphSyncAndEvents({
         fetchRelationships(node)
       },
       clickEdge: ({ edge }) => {
-        // Edge ID is the relationship entity ID — select it to show in EntityPanel
         onSelect(edge)
         onEntitySelect?.(edge)
       },
       clickStage: () => {
         onDeselect()
       },
+      enterNode: ({ node }) => {
+        setHoveredNode(node)
+        const container = sigma.getContainer()
+        if (container) container.style.cursor = 'pointer'
+      },
+      leaveNode: () => {
+        setHoveredNode(null)
+        const container = sigma.getContainer()
+        if (container) container.style.cursor = 'default'
+      },
+      enterEdge: ({ edge }) => {
+        setHoveredEdge(edge)
+        const container = sigma.getContainer()
+        if (container) container.style.cursor = 'pointer'
+      },
+      leaveEdge: () => {
+        setHoveredEdge(null)
+        const container = sigma.getContainer()
+        if (container) container.style.cursor = 'default'
+      },
     })
-  }, [registerEvents, onSelect, onDeselect, onEntitySelect, fetchRelationships])
+  }, [registerEvents, onSelect, onDeselect, onEntitySelect, fetchRelationships, sigma])
 
-  // Node/edge reducers for selection highlighting
+  // Node/edge reducers for selection and hover highlighting
   useEffect(() => {
     const graph = sigma.getGraph()
     const rel = selectedRelEndpoints
 
     setSettings({
       nodeReducer: (node, attrs) => {
-        if (!selectedId && !rel) return attrs
+        // Hover feedback (when nothing selected)
+        if (!selectedId && !rel) {
+          if (hoveredNode === node) {
+            return { ...attrs, size: attrs.size + 1.5, forceLabel: true }
+          }
+          if (hoveredNode && graph.areNeighbors(node, hoveredNode)) {
+            return { ...attrs, forceLabel: true }
+          }
+          return attrs
+        }
 
         // Relationship selected — highlight both endpoints
         if (rel) {
           if (node === rel.sourceId || node === rel.targetId) {
-            return { ...attrs, size: 5, color: '#ffffff', zIndex: 2 }
+            return { ...attrs, size: 5, color: '#ffffff', zIndex: 2, forceLabel: true }
           }
-          return { ...attrs, color: '#222222', size: 1.5, zIndex: 0 }
+          return { ...attrs, color: '#222222', size: 1.5, zIndex: 0, label: null }
         }
 
         // If selected ID isn't a graph node (e.g. detail entity), don't dim
@@ -222,15 +258,21 @@ function GraphSyncAndEvents({
 
         // Node selected
         if (node === selectedId) {
-          return { ...attrs, size: 5, color: '#ffffff', zIndex: 2 }
+          return { ...attrs, size: 5, color: '#ffffff', zIndex: 2, forceLabel: true }
         }
         if (graph.areNeighbors(node, selectedId!)) {
-          return { ...attrs, size: 3.5, zIndex: 1 }
+          return { ...attrs, size: 3.5, zIndex: 1, forceLabel: true }
         }
-        return { ...attrs, color: '#222222', size: 1.5, zIndex: 0 }
+        return { ...attrs, color: '#222222', size: 1.5, zIndex: 0, label: null }
       },
       edgeReducer: (edge, attrs) => {
-        if (!selectedId && !rel) return attrs
+        // Hover feedback (when nothing selected)
+        if (!selectedId && !rel) {
+          if (hoveredEdge === edge) {
+            return { ...attrs, size: 1.5, color: '#666666', zIndex: 1 }
+          }
+          return attrs
+        }
 
         // Relationship selected — highlight the specific edge
         if (rel) {
@@ -252,7 +294,7 @@ function GraphSyncAndEvents({
         return { ...attrs, color: '#111111', size: 0.2, zIndex: 0 }
       },
     })
-  }, [selectedId, selectedRelEndpoints, sigma, setSettings])
+  }, [selectedId, selectedRelEndpoints, hoveredNode, hoveredEdge, sigma, setSettings])
 
   return null
 }
@@ -323,7 +365,7 @@ export function MapView({ client, nodeCap = 3000, selectId, onEntitySelect }: Ma
           labelColor: { color: '#a1a1aa' },
           labelFont: 'Inter, system-ui, sans-serif',
           labelSize: 11,
-          defaultNodeColor: '#52525b',
+          defaultNodeColor: '#d4d4d8',
           defaultEdgeColor: '#222222',
           defaultEdgeType: 'line',
           enableEdgeEvents: true,
