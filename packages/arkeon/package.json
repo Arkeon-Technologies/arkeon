@@ -1,6 +1,6 @@
 {
   "name": "arkeon",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Self-contained knowledge-graph platform: Hono API server, embedded Postgres + Meilisearch, CLI, and sandboxed agent runtime. One package, one process, no Docker.",
   "repository": {
     "type": "git",
