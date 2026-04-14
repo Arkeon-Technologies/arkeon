@@ -513,16 +513,21 @@ export async function killOrphanedMeilisearch(): Promise<void> {
     } else {
       process.kill(pid, "SIGTERM");
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[arkeon] Could not signal Meilisearch pid ${pid}: ${(err as Error).message}`);
     removeMeiliPidfile();
     return;
   }
 
-  // Wait up to 5s for it to exit
+  // Wait up to 5s for graceful exit, then SIGKILL
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) break;
     await new Promise((r) => setTimeout(r, 200));
+  }
+  if (isProcessAlive(pid)) {
+    console.warn(`[arkeon] Meilisearch pid ${pid} did not exit in 5s — sending SIGKILL`);
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
   }
   removeMeiliPidfile();
 }
@@ -560,15 +565,22 @@ export async function killOrphanedPostgres(): Promise<void> {
     } else {
       process.kill(pid, "SIGTERM");
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[arkeon] Could not signal Postgres pid ${pid}: ${(err as Error).message}`);
     return;
   }
 
-  // Wait up to 5s for it to exit
+  // Wait up to 5s for graceful exit, then SIGKILL and remove lockfile
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) break;
     await new Promise((r) => setTimeout(r, 200));
+  }
+  if (isProcessAlive(pid)) {
+    console.warn(`[arkeon] Postgres pid ${pid} did not exit in 5s — sending SIGKILL`);
+    try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+    // SIGKILL won't let Postgres clean up its own lockfile
+    try { unlinkSync(pmPid); } catch { /* ignore */ }
   }
 }
 
