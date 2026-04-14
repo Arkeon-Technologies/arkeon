@@ -348,13 +348,15 @@ Search for entities with similar or identical labels across different types:
 npx arkeon search query --q "{entity_label}" --space-id {space_id} --limit 20
 ```
 
-Look for cross-type duplicates (same entity created under different types by different sub-agents). When found:
+Look for cross-type duplicates (same entity created under different types by different sub-agents) or near-duplicates with slightly different labels. Collect all duplicate groups, then merge them in a single batch request:
 
 ```bash
-npx arkeon entities merge {keep_id} {duplicate_id}
+npx arkeon entities post-merge-batch --groups '[{"entity_ids": ["<id1>", "<id2>"]}, {"entity_ids": ["<id3>", "<id4>", "<id5>"]}]'
 ```
 
-Prefer keeping the entity with the richer description.
+Each group is a set of duplicate entity IDs that should become one entity. The server auto-selects the entity with the richest properties as the merge target — you do not need to pick a winner or supply a version number. All relationships, permissions, and space memberships from source entities are transferred to the target; sources are deleted and replaced with redirects.
+
+Use `--property-strategy accumulate` (the default) to deep-merge properties without losing information. Collect all groups first, then send one batch — do not merge one pair at a time.
 
 #### 11b. Enrich key entities
 
