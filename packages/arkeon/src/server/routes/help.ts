@@ -130,6 +130,7 @@ authentication, pagination, and error handling automatically.
 
 GET /help                         Full route index with auth & summary
 GET /help/GET/entities/{id}       Detailed docs for any specific route
+GET /help/guide/explorer          Explorer graph + screenshot server docs
 GET /llms.txt                     Machine-readable route index
 `;
 
@@ -247,6 +248,93 @@ See GET /help for the full route index.
 See GET /help/<METHOD>/<path> for detailed docs on any route.
 `;
 
+const EXPLORER_GUIDE = `# Arkeon — Explorer & Visual Inspection
+
+## What is the Explorer?
+
+The Explorer is a browser-based graph visualization served at GET /explore.
+It renders every entity in your instance as a force-directed graph using
+Sigma.js (WebGL). Nodes represent entities, edges represent relationships.
+
+## Accessing the Explorer
+
+Open your instance URL with /explore:
+
+  https://<instance>.arkeon.tech/explore
+
+Authentication is automatic when served from the instance — the API key is
+injected into the page. You can also pass a key manually:
+
+  /explore?key=<api-key>
+
+## Interacting with the Graph
+
+- Click a node to select it — the detail panel opens on the right showing
+  properties, relationships, and comments.
+- Click an edge to select the relationship — shows the triplet view
+  (source -> predicate -> target).
+- Hover over nodes/edges — cursor changes to pointer, hovered element
+  highlights. Neighbors of a hovered node show labels.
+- When a node is selected, labels appear on the selected node and all its
+  direct neighbors.
+- Click the background to deselect.
+- Scroll to zoom, drag to pan.
+
+## URL Parameters
+
+  select=<entity-id>   Pre-select and zoom to an entity on load
+  mode=graph|feed      Switch between graph view and activity feed
+  cap=N                Maximum entities to load (default 3000)
+  mock                 Use built-in fixture data (dev only, no instance needed)
+
+## Screenshot Server (for LLM agents)
+
+The screenshot server lets agents visually inspect the graph without a
+browser. It runs a headless Chromium that renders the explorer and returns
+a PNG image.
+
+### Starting the server
+
+  node packages/explorer/scripts/screenshot-server.mjs
+
+This starts an HTTP server on 127.0.0.1:3200.
+
+### Taking screenshots
+
+  # Full graph
+  curl http://localhost:3200/screenshot -o /tmp/graph.png
+
+  # With a specific entity selected and zoomed
+  curl "http://localhost:3200/screenshot?select=<entity-id>" -o /tmp/graph.png
+
+  # Dev mode with mock data (no running instance needed)
+  curl "http://localhost:3200/screenshot?mock" -o /tmp/graph.png
+
+### Screenshot parameters
+
+  select=<id>   Entity to select and zoom to
+  mock          Use mock fixture data
+  width=N       Viewport width in pixels (default 1400, max 3840)
+  height=N      Viewport height in pixels (default 900, max 2160)
+  wait=N        Ms to wait for layout to settle (default 3000, max 10000)
+
+### Environment variables
+
+  EXPLORER_URL      Base URL of the explorer (default http://localhost:8000/explore/)
+  SCREENSHOT_PORT   Port to listen on (default 3200)
+
+### Agent workflow
+
+An LLM agent can use this to verify visual changes:
+
+  1. curl http://localhost:3200/screenshot -o /tmp/graph.png
+  2. Read /tmp/graph.png (multimodal — the image is returned inline)
+  3. Assess the visual state of the graph
+
+The server keeps the browser warm between requests, so subsequent
+screenshots are fast (~3s for layout settling, no cold start).
+`;
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -257,6 +345,10 @@ export function createHelpRouter(getSpec: () => { paths?: Record<string, unknown
   helpRouter.get("/guide/admin", (c) => {
     requireAdmin(c);
     return c.text(ADMIN_GUIDE, 200, TEXT_HEADERS);
+  });
+
+  helpRouter.get("/guide/explorer", (c) => {
+    return c.text(EXPLORER_GUIDE, 200, TEXT_HEADERS);
   });
 
   helpRouter.get("/guide", (c) => {
