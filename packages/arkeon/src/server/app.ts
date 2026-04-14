@@ -43,7 +43,7 @@ export const openApiConfig = {
   },
 };
 
-export function createApp() {
+export function createApp(options?: { adminKey?: string }) {
   const app = new OpenAPIHono<AppBindings>({
     defaultHook: validationHook,
   });
@@ -62,18 +62,19 @@ export function createApp() {
     console.warn(`[explorer] dist not found at ${explorerDist} — /explore will 404. Run: npm run build -w packages/explorer`);
   }
   // SPA fallback with auto-auth: intercept extension-less paths (route
-  // navigations) and serve index.html with the admin key injected. Only
-  // injected in local mode (ARKEON_LOCAL=true set by the CLI) so deployed
-  // instances don't leak the admin key. Asset requests (.js, .css, etc.)
-  // fall through to serveStatic below.
+  // navigations) and serve index.html with the admin key injected so the
+  // explorer can authenticate API calls. The key is passed directly via
+  // the options parameter (or falls back to env) to avoid env-var timing
+  // issues in the published binary.
+  const adminKey = options?.adminKey || process.env.ADMIN_BOOTSTRAP_KEY;
   function getExplorerHtml(): string | null {
     const indexPath = join(explorerDist, "index.html");
     if (!existsSync(indexPath)) return null;
     const raw = readFileSync(indexPath, "utf-8");
-    if (process.env.ARKEON_LOCAL === "true" && process.env.ADMIN_BOOTSTRAP_KEY) {
+    if (adminKey) {
       return raw.replace(
         "</head>",
-        `<script>window.__ARKEON_KEY__=${JSON.stringify(process.env.ADMIN_BOOTSTRAP_KEY)}</script></head>`,
+        `<script>window.__ARKEON_KEY__=${JSON.stringify(adminKey)}</script></head>`,
       );
     }
     return raw;
@@ -92,7 +93,10 @@ export function createApp() {
     root: explorerDist,
     rewriteRequestPath: (path) => path.replace(/^\/explore/, ""),
   }));
-  app.get("/explore", (c) => c.redirect("/explore/"));
+  app.get("/explore", (c) => {
+    const qs = new URL(c.req.url).search;
+    return c.redirect(`/explore/${qs}`);
+  });
 
   app.get("/", (c) =>
     c.json({
