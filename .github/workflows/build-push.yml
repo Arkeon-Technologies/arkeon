@@ -75,6 +75,7 @@ jobs:
         # test only checks that the poller-triggered ingest row
         # appears, not that extraction succeeds.
         run: |
+          KNOWLEDGE_POLLER_INTERVAL_MS=2000 \
           nohup npx tsx packages/arkeon/src/index.ts start \
             --port 8000 \
             --pg-port 15433 \

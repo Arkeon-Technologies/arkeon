@@ -425,9 +425,11 @@ describe("Knowledge Poller", () => {
       "test.txt",
     );
 
-    // Wait for the poller to pick it up (polls every 10s, but we'll check for up to 20s)
+    // Wait for the poller to pick it up. The poller drains its full backlog
+    // per cycle, but in CI the test suite generates ~200 activity events that
+    // must be processed first. Give it 60s to be safe under load.
     let found = false;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const { body } = await getJson(`/knowledge/jobs?entity_id=${entity.id}`, adminApiKey);
       const data = body as { jobs: any[] };
