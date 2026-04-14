@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Arkeon Technologies, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-const NO_SPACE_COLOR = '#52525b'
+const NO_SPACE_COLOR = '#d4d4d8'
 
 // Hand-picked palette of visually distinct colors for spaces.
 // Maximum perceptual distance on a dark background.

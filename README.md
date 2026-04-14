@@ -92,10 +92,11 @@ arkeon spaces list
 
 ```bash
 arkeon guide                      # Getting started tutorial
-arkeon docs                       # Full CLI + API + SDK reference (auto-generated)
+arkeon docs                       # Full CLI + API + SDK + Explorer reference
 arkeon docs --format cli          # CLI commands only
 arkeon docs --format api          # API reference (works offline, same as /llms.txt)
 arkeon docs --format sdk          # SDK quick reference
+arkeon docs --format explorer     # Explorer graph + screenshot server for agents
 ```
 
 When the stack is running, the API is also self-documenting:
@@ -103,6 +104,7 @@ When the stack is running, the API is also self-documenting:
 - [`/llms.txt`](http://localhost:8000/llms.txt) — full API reference optimized for LLM context windows
 - [`/openapi.json`](http://localhost:8000/openapi.json) — OpenAPI 3.1 spec
 - [`/help`](http://localhost:8000/help) — interactive guide
+- [`/help/guide/explorer`](http://localhost:8000/help/guide/explorer) — explorer + screenshot server docs
 
 ## Configuration
 

@@ -3,6 +3,7 @@
 
 import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { createArkeClient } from '@/lib/arke-client'
+import { createMockClient } from '@/lib/mock-client'
 import { ActivityFeed } from '@/components/ActivityFeed'
 import { MapView } from '@/components/MapView'
 
@@ -61,9 +62,10 @@ export function App() {
   const initialMode: Mode = modeParam === 'feed' ? 'feed' : 'graph'
   const [mode, setMode] = useState<Mode>(initialMode)
 
+  const useMock = searchParams.has('mock')
   const client = useMemo(
-    () => createArkeClient(apiKey),
-    [apiKey]
+    () => useMock ? createMockClient() : createArkeClient(apiKey),
+    [apiKey, useMock]
   )
 
   const handleEntitySelect = useCallback((entityId: string) => {
