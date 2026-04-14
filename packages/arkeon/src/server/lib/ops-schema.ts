@@ -232,6 +232,10 @@ export const OpsResultSchema = z
       .describe(
         "Ordered list of entities touched by this batch. Each entry maps a @local ref to a ULID (new or existing for upserts). Check the 'action' field to distinguish creates from updates.",
       ),
+    created: z
+      .array(CreatedEntityResultSchema)
+      .optional()
+      .describe("Deprecated — use 'entities' instead. Same array, included for backwards compatibility."),
     edges: z
       .array(CreatedEdgeResultSchema)
       .describe("Created relationships, with all refs resolved to ULIDs."),

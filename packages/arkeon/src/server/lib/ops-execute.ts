@@ -74,16 +74,18 @@ export async function executeOps(
   }
 
   if (opts.dryRun) {
+    const entityResults = plan.entities.map((e) => ({
+      ref: e.local_ref,
+      id: e.id,
+      type: e.type,
+      label: e.label,
+      action: (e.is_upsert ? "updated" : "created") as "created" | "updated",
+    }));
     return {
       format: "arke.ops/v1",
       committed: false,
-      entities: plan.entities.map((e) => ({
-        ref: e.local_ref,
-        id: e.id,
-        type: e.type,
-        label: e.label,
-        action: (e.is_upsert ? "updated" : "created") as "created" | "updated",
-      })),
+      entities: entityResults,
+      created: entityResults, // backwards compat
       edges: plan.edges.map((edge) => ({
         id: edge.id,
         source: edge.source_id,
@@ -114,7 +116,7 @@ export async function executeOps(
     entityQueryIdx.push(queries.length);
     if (entity.is_upsert) {
       queries.push(buildEntityUpsertUpdate(sql, entity, actor.id, now));
-      queries.push(buildEntityVersionInsertAtVer(sql, entity.id, entity.existing_ver! + 1, entity.properties, actor.id, now));
+      queries.push(buildEntityUpsertVersionInsert(sql, entity.id, actor.id, now));
       queries.push(buildEntityUpsertActivityInsert(sql, entity, actor.id, now));
     } else {
       queries.push(buildEntityInsert(sql, entity, actor.id, now));
@@ -347,6 +349,7 @@ export async function executeOps(
     format: "arke.ops/v1",
     committed: true,
     entities: resultEntities,
+    created: resultEntities, // backwards compat
     edges: createdEdges,
     stats: { entities: resultEntities.length, edges: createdEdges.length },
   };
@@ -524,17 +527,21 @@ async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient)
       labelsLower.push(entity.upsert_key!.split("|")[1]);
     }
 
-    // Query existing entities matching any (type, lower(label)) in this space
+    // Query existing entities matching any (type, lower(label)) in this space.
+    // DISTINCT ON + ORDER BY created_at picks the oldest entity deterministically
+    // when pre-existing duplicates exist (multiple entities with same type+label).
     const txResults = await sql.transaction([
       ...setActorContext(sql, actor),
       sql.query(
-        `SELECT e.id, e.type, lower(e.properties->>'label') AS label_lower, e.ver
+        `SELECT DISTINCT ON (e.type, lower(e.properties->>'label'))
+                e.id, e.type, lower(e.properties->>'label') AS label_lower, e.ver
          FROM entities e
          JOIN space_entities se ON se.entity_id = e.id
          WHERE se.space_id = $1
            AND e.kind = 'entity'
            AND e.type = ANY($2::text[])
-           AND lower(e.properties->>'label') = ANY($3::text[])`,
+           AND lower(e.properties->>'label') = ANY($3::text[])
+         ORDER BY e.type, lower(e.properties->>'label'), e.created_at ASC`,
         [spaceId, types, labelsLower],
       ),
     ]);
@@ -543,6 +550,7 @@ async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient)
     if (!rows || rows.length === 0) continue;
 
     // Build lookup map: "type|label_lower" → { id, ver }
+    // DISTINCT ON guarantees one row per (type, label_lower).
     const existing = new Map<string, { id: string; ver: number }>();
     for (const row of rows) {
       existing.set(`${row.type}|${row.label_lower}`, { id: row.id, ver: row.ver });
@@ -640,18 +648,23 @@ function buildEntityUpsertUpdate(
   );
 }
 
-function buildEntityVersionInsertAtVer(
+/**
+ * Version snapshot for upserts. Reads the merged properties from the entity
+ * row (which was just UPDATE'd earlier in the same transaction) rather than
+ * using the incoming properties — ensures the snapshot reflects the actual
+ * post-merge state including preserved keys from the original entity.
+ */
+function buildEntityUpsertVersionInsert(
   sql: SqlClient,
   entityId: string,
-  ver: number,
-  properties: Record<string, unknown>,
   actorId: string,
   now: string,
 ) {
   return sql.query(
     `INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
-     VALUES ($1, $2, $3::jsonb, $4, NULL, $5::timestamptz)`,
-    [entityId, ver, JSON.stringify(properties), actorId, now],
+     SELECT $1, ver, properties, $2, NULL, $3::timestamptz
+     FROM entities WHERE id = $1`,
+    [entityId, actorId, now],
   );
 }
 

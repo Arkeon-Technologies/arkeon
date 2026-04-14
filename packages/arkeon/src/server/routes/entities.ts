@@ -633,7 +633,9 @@ entitiesRouter.openapi(createEntityRoute, async (c) => {
          WHERE se.space_id = $1
            AND e.kind = 'entity'
            AND e.type = $2
-           AND lower(e.properties->>'label') = $3`,
+           AND lower(e.properties->>'label') = $3
+         ORDER BY e.created_at ASC
+         LIMIT 1`,
         [spaceId, body.type, label.toLowerCase()],
       ),
     ]);

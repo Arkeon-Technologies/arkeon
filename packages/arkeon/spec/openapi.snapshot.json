@@ -656,6 +656,13 @@
             "description": "True if writes were persisted, false for dry_run.",
             "type": "boolean"
           },
+          "created": {
+            "description": "Deprecated — use 'entities' instead. Same array, included for backwards compatibility.",
+            "items": {
+              "$ref": "#/components/schemas/CreatedEntityResult"
+            },
+            "type": "array"
+          },
           "edges": {
             "description": "Created relationships, with all refs resolved to ULIDs.",
             "items": {
