@@ -65,6 +65,21 @@ export function createLoadedEntity(
   }
 }
 
+// Lightweight types for graph visualization
+export interface GraphNode {
+  id: string
+  label: string
+  type: string
+  space_ids: string[]
+}
+
+export interface GraphEdge {
+  id: string
+  source_id: string
+  target_id: string
+  predicate: string
+}
+
 export interface ActivityItem {
   id: number | string
   entity_id: string
@@ -79,6 +94,13 @@ export interface ArkeActor {
   kind: string
   properties: Record<string, unknown>
   status: string
+}
+
+export interface ArkeSpace {
+  id: string
+  name: string
+  description: string | null
+  entity_count: number
 }
 
 export interface ArkeComment {
