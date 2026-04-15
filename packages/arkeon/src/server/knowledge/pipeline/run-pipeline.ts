@@ -2,22 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared extraction pipeline tail: materialize → ops submit (with retry) → dedupe.
+ * Shared extraction pipeline tail: materialize → ops submit (with retry) → consolidate.
  * Every job type prepares an ExtractPlan and hands off here.
  *
  * The resolve and rewrite steps have been replaced by deterministic upsert
- * via POST /ops with upsert_on: ["label", "type"]. Post-write LLM dedupe
- * remains for fuzzy matching.
+ * via POST /ops with upsert_on: ["label", "type"]. Post-write deduplication
+ * is handled by a debounced space-level consolidation job (see consolidate.ts).
  */
 
-import { LlmClient, type LlmUsage } from "../lib/llm";
-import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
+import { LlmClient } from "../lib/llm";
+import { resolveLlmConfig } from "../lib/config";
 import { appendLog } from "../lib/logger";
 import type { ExtractPlan } from "../lib/types";
 
 import { materializeShellEntities } from "./materialize";
 import { submitOpsWithRetry } from "./write";
-import { dedupeEntities, mergeConfirmedDuplicates } from "./dedupe";
 
 export interface PipelineOpts {
   jobId: string;
@@ -70,18 +69,6 @@ export async function runExtractionPipeline(
     return ZERO_RESULT;
   }
 
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let llmCalls = 0;
-  let model = "";
-
-  function trackUsage(usage: LlmUsage) {
-    if (!model && usage.model) model = usage.model;
-    tokensIn += usage.tokensIn;
-    tokensOut += usage.tokensOut;
-    llmCalls++;
-  }
-
   // Materialize shell entities
   const materializedPlan = materializeShellEntities(plan);
   appendLog(jobId, "info", `After materialize: ${materializedPlan.entities.length} entities, ${materializedPlan.relationships.length} relationships`);
@@ -100,25 +87,13 @@ export async function runExtractionPipeline(
   }, resolverLlm, opts.knownEntityIds);
   appendLog(jobId, "info", `Written: ${writeResult.createdEntityIds.length} created, ${writeResult.updatedEntityIds.length} updated, ${writeResult.createdRelationshipIds.length} relationships`);
 
-  // Dedupe + auto-merge (post-write LLM fuzzy matching → merge-batch)
-  const extractionConfig = await getExtractionConfig();
-  let mergedCount = 0;
-  if (writeResult.createdEntityIds.length > 0) {
-    appendLog(jobId, "info", "Deduplicating");
-    const dedupeResult = await dedupeEntities(resolverLlm, writeResult.createdEntityIds, spaceId, { concurrency: extractionConfig.max_concurrency });
-    for (const u of dedupeResult.usage) { trackUsage(u); appendLog(jobId, "llm_response", { stage: "dedupe" }, u); }
-
-    if (dedupeResult.duplicates.length > 0) {
-      appendLog(jobId, "info", `Found ${dedupeResult.duplicates.length} duplicates, auto-merging`);
-      const mergeResult = await mergeConfirmedDuplicates(dedupeResult.duplicates);
-      mergedCount = mergeResult.merged;
-      if (mergeResult.merged > 0) {
-        appendLog(jobId, "info", `Merged ${mergeResult.merged} duplicate(s)`);
-      }
-      if (mergeResult.failed > 0) {
-        appendLog(jobId, "info", `${mergeResult.failed} merge(s) skipped (already merged or gone)`);
-      }
-    }
+  // Trigger space-level consolidation instead of per-entity dedupe.
+  // The consolidate job debounces and batches all recently extracted
+  // entities in the space for holistic merge analysis.
+  if (writeResult.createdEntityIds.length > 0 && spaceId) {
+    const { ensureConsolidateJob } = await import("../queue");
+    appendLog(jobId, "info", `Triggering consolidation for space ${spaceId}`);
+    await ensureConsolidateJob(spaceId);
   }
 
   return {
@@ -127,9 +102,9 @@ export async function runExtractionPipeline(
     createdEntities: writeResult.createdEntityIds.length,
     updatedEntities: writeResult.updatedEntityIds.length,
     createdRelationships: writeResult.createdRelationshipIds.length,
-    mergedDuplicates: mergedCount,
+    mergedDuplicates: 0,
     createdEntityIds: writeResult.createdEntityIds,
     refToId: writeResult.refToId,
-    usage: { model, tokensIn, tokensOut, llmCalls },
+    usage: { model: "", tokensIn: 0, tokensOut: 0, llmCalls: 0 },
   };
 }
