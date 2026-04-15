@@ -14,7 +14,8 @@ END $$;
 -- (The original UNIQUE(entity_id, entity_ver) from 029 may still exist)
 ALTER TABLE knowledge_jobs DROP CONSTRAINT IF EXISTS knowledge_jobs_entity_id_entity_ver_key;
 
--- Prevent duplicate pending consolidate jobs per space
-CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_jobs_consolidate_pending
+-- Prevent duplicate active consolidate jobs per space (pending or processing)
+DROP INDEX IF EXISTS idx_knowledge_jobs_consolidate_pending;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_jobs_consolidate_active
   ON knowledge_jobs ((metadata->>'space_id'))
-  WHERE job_type = 'consolidate' AND status = 'pending';
+  WHERE job_type = 'consolidate' AND status IN ('pending', 'processing');

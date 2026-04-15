@@ -19,7 +19,7 @@ import { post } from "../lib/arke-client";
 import type { JobRecord } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 
-const DEBOUNCE_MS = 10_000;
+const DEBOUNCE_MS = 15_000;
 const MAX_ENTITIES_PER_BATCH = 200;
 const DESC_SNIPPET_CHARS = 150;
 
@@ -54,23 +54,31 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
   appendLog(jobId, "info", `Debouncing ${DEBOUNCE_MS}ms for space ${spaceId}`);
   await new Promise((r) => setTimeout(r, DEBOUNCE_MS));
 
-  // Fetch recently extracted entities in this space
-  // Use the job's created_at minus a buffer as the cutoff
+  // Fetch recently extracted entities in this space.
+  // Look back from NOW (after debounce) rather than job creation time,
+  // since parallel extraction jobs may write entities after this job was created.
+  // Must set admin actor context for RLS to allow reading all entities.
   const entities = await withAdminSql(async (sql) => {
-    return await sql.query(
-      `SELECT e.id, e.type,
-              e.properties->>'label' AS label,
-              substring(e.properties->>'description' for ${DESC_SNIPPET_CHARS}) AS description
-       FROM entities e
-       JOIN space_entities se ON se.entity_id = e.id
-       WHERE se.space_id = $1
-         AND e.kind = 'entity'
-         AND e.type NOT IN ('document', 'text_chunk')
-         AND e.updated_at > ($2::timestamptz - interval '5 minutes')
-       ORDER BY e.updated_at DESC
-       LIMIT ${MAX_ENTITIES_PER_BATCH}`,
-      [spaceId, job.created_at as string],
-    );
+    const results = await sql.transaction([
+      sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+      sql`SELECT set_config('app.actor_read_level', '4', true)`,
+      sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+      sql.query(
+        `SELECT e.id, e.type,
+                e.properties->>'label' AS label,
+                substring(e.properties->>'description' for ${DESC_SNIPPET_CHARS}) AS description
+         FROM entities e
+         JOIN space_entities se ON se.entity_id = e.id
+         WHERE se.space_id = $1
+           AND e.kind = 'entity'
+           AND e.type NOT IN ('document', 'text_chunk')
+           AND e.updated_at > (NOW() - interval '10 minutes')
+         ORDER BY e.updated_at DESC
+         LIMIT ${MAX_ENTITIES_PER_BATCH}`,
+        [spaceId],
+      ),
+    ]);
+    return results[results.length - 1] as Array<Record<string, unknown>>;
   });
 
   appendLog(jobId, "info", `Found ${entities.length} recent entities in space`);
@@ -125,7 +133,21 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
     console.log(`[knowledge:consolidate] Merging: keep "${entityList.find((e) => e.id === group.keep)?.label}" <- [${group.merge.map((id: string) => entityList.find((e) => e.id === id)?.label).join(", ")}] -- ${group.rationale}`);
   }
 
-  const batchGroups = mergeGroups.map((g) => ({
+  // Filter out groups with no actual merges (empty merge array)
+  const validGroups = mergeGroups.filter((g) => g.merge && g.merge.length > 0);
+  if (validGroups.length === 0) {
+    appendLog(jobId, "info", "All merge groups were empty (no actual duplicates)");
+    await setJobStatus(jobId, "completed", {
+      result: { entities_checked: entities.length, merge_groups: mergeGroups.length, merged: 0 },
+      model: result.usage.model,
+      tokens_in: result.usage.tokensIn,
+      tokens_out: result.usage.tokensOut,
+      llm_calls: 1,
+    });
+    return;
+  }
+
+  const batchGroups = validGroups.map((g) => ({
     entity_ids: [g.keep, ...g.merge],
   }));
 

@@ -287,7 +287,7 @@ async function pollAndProcess(): Promise<void> {
          LIMIT $1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts`,
+       RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts, created_at`,
       [available],
     ),
   );
