@@ -298,6 +298,97 @@
           }
         ]
       },
+      "GraphDataResponse": {
+        "properties": {
+          "cursor": {
+            "description": "Pagination cursor for next page, null if no more results",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edges": {
+            "description": "Edges connecting nodes in the result set",
+            "items": {
+              "$ref": "#/components/schemas/GraphEdge"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "description": "Lightweight node data for graph rendering",
+            "items": {
+              "$ref": "#/components/schemas/GraphNode"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges",
+          "cursor"
+        ],
+        "type": "object"
+      },
+      "GraphEdge": {
+        "properties": {
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "source_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "target_id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "predicate"
+        ],
+        "type": "object"
+      },
+      "GraphNode": {
+        "properties": {
+          "id": {
+            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display label (from properties.label/title/name or entity type)",
+            "type": "string"
+          },
+          "space_ids": {
+            "description": "Space memberships",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "description": "Entity type (e.g. person, document, event)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "type",
+          "space_ids"
+        ],
+        "type": "object"
+      },
       "Group": {
         "properties": {
           "created_at": {
@@ -6763,6 +6854,94 @@
           "Entity with richest properties is auto-selected as merge target",
           "Maximum 100 groups per request, 500 entities per group",
           "An entity ID must not appear in more than one group"
+        ]
+      }
+    },
+    "/graph/data": {
+      "get": {
+        "description": "Returns lightweight node and edge data suitable for rendering large graphs.\nNodes include only id, label, type, and space memberships.\nEdges include only id, source_id, target_id, and predicate.\nFull entity details should be loaded on-demand via GET /entities/{id}.",
+        "operationId": "getGraphData",
+        "parameters": [
+          {
+            "description": "Filter to entities within this space",
+            "in": "query",
+            "name": "space_id",
+            "required": false,
+            "schema": {
+              "description": "Filter to entities within this space",
+              "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Max nodes to return (default 10000, max 50000)",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "description": "Max nodes to return (default 10000, max 50000)",
+              "maximum": 50000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor from a previous response",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Pagination cursor from a previous response",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphDataResponse"
+                }
+              }
+            },
+            "description": "Graph nodes and edges"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Bulk graph data for visualization — minimal node and edge payloads in a single response",
+        "tags": [
+          "Graph"
+        ],
+        "x-arke-auth": "optional",
+        "x-arke-related": [
+          "GET /entities/{id}",
+          "GET /graph/traverse"
+        ],
+        "x-arke-rules": [
+          "Nodes filtered by your classification clearance",
+          "Edges only included when both endpoints are in the result set",
+          "Collection edges are excluded"
         ]
       }
     },

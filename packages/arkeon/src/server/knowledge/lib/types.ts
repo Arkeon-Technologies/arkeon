@@ -145,7 +145,7 @@ export interface IngestResult {
   extractedRelationships: number;
   createdEntities: number;
   createdRelationships: number;
-  potentialDuplicates: number;
+  mergedDuplicates: number;
   chunksCreated?: number;
   usage: {
     model: string;
