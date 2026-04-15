@@ -2,33 +2,68 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Post-write deduplication: search for potential duplicates among
- * newly created entities, use LLM to judge matches, and auto-merge
- * confirmed duplicates via POST /entities/merge-batch.
+ * Post-write deduplication via component-based search + LLM judge.
+ *
+ * Algorithm:
+ * 1. Search: for each entity, find candidates via Meilisearch
+ * 2. Build components: union-find on (entity, candidate) edges
+ * 3. LLM judge per component: "which of these are the same?"
+ * 4. Rectify: union-find on LLM output to merge overlapping subgroups
+ * 5. Merge: execute each rectified group (no overlaps possible)
  */
 
 import { LlmClient } from "../lib/llm";
 import { search, getEntity, post } from "../lib/arke-client";
-import type { EntityCandidate, MergeDecision } from "../lib/types";
+import type { EntityCandidate } from "../lib/types";
 import type { LlmUsage } from "../lib/llm";
 import { normalizeLabel as normalize } from "../lib/normalize";
 
+// ---------------------------------------------------------------------------
+// Union-find
+// ---------------------------------------------------------------------------
+
+class UnionFind {
+  private parent = new Map<string, string>();
+
+  find(x: string): string {
+    if (!this.parent.has(x)) this.parent.set(x, x);
+    let root = x;
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
+    this.parent.set(x, root);
+    return root;
+  }
+
+  union(a: string, b: string): void {
+    const ra = this.find(a), rb = this.find(b);
+    if (ra !== rb) this.parent.set(ra, rb);
+  }
+
+  components(): Map<string, Set<string>> {
+    const groups = new Map<string, Set<string>>();
+    for (const id of this.parent.keys()) {
+      const root = this.find(id);
+      if (!groups.has(root)) groups.set(root, new Set());
+      groups.get(root)!.add(id);
+    }
+    return groups;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Stop words & query building
+// ---------------------------------------------------------------------------
+
 const STOP_WORDS = new Set([
-  // articles
   "the", "a", "an",
-  // prepositions
   "of", "in", "on", "at", "to", "for", "from", "with", "by", "into",
   "through", "during", "before", "after", "above", "below", "between",
   "under", "over", "about", "against", "among", "upon", "within",
-  // conjunctions
   "and", "or", "but", "nor", "yet", "so",
-  // pronouns / determiners
   "is", "was", "are", "were", "be", "been", "being",
   "has", "had", "have", "having",
   "do", "does", "did",
   "that", "this", "these", "those", "it", "its",
   "he", "she", "they", "we", "his", "her", "their", "our",
-  // common filler
   "as", "if", "not", "no", "all", "also", "more", "most", "very",
   "which", "who", "whom", "whose", "when", "where", "how", "what",
 ]);
@@ -37,242 +72,274 @@ function buildQueries(label: string): string[] {
   const normalized = normalize(label);
   const parts = normalized.split(" ").filter(Boolean);
   const queries = new Set<string>([label, normalized]);
-  // Add content words first (skip stop words so they don't waste query slots)
   for (const part of parts) {
     if (!STOP_WORDS.has(part)) queries.add(part);
   }
   return [...queries].filter(Boolean).slice(0, 10);
 }
 
-const DEDUPE_PROMPT = `You are an entity merge judge for a knowledge graph.
+// ---------------------------------------------------------------------------
+// LLM prompt for component-level judging
+// ---------------------------------------------------------------------------
 
-Given one entity and a set of candidates, decide which candidates refer to the same real-world entity and should be merged.
+const COMPONENT_JUDGE_PROMPT = `You are deduplicating a knowledge graph. Below are entities that search identified as potentially referring to the same things. Decide which ones are truly the same real-world entity.
 
 Return JSON:
 {
-  "self_ref": "01ABCSELF",
-  "self_label": "Gregor Brask",
-  "same_as_ids": ["01CAND1"],
-  "different_ids": ["01OTHER"],
-  "rationale": "short explanation"
+  "merge_groups": [
+    {"ids": ["ID1", "ID2"], "rationale": "Same person, different name forms"},
+    {"ids": ["ID3", "ID4", "ID5"], "rationale": "Same organization"}
+  ],
+  "no_merge": ["ID6", "ID7"]
 }
 
 Rules:
-- MERGE when candidates clearly refer to the same real-world entity, even if labels differ (e.g. "Henry Kissinger" = "Secretary Kissinger" = "Dr. Kissinger" — same person, different titles)
-- Use descriptions to confirm identity — if descriptions reference the same roles, events, or attributes, they are likely the same entity
-- Keep SEPARATE when candidates are genuinely different entities that happen to share a name (e.g. a person vs an organization, or father vs son, or "Mercury" the planet vs "Mercury" the element)
-- Type is a hint, not absolute — the same entity may have been typed differently
-- Exclude the entity itself from results
-- If uncertain and descriptions are too sparse to confirm, put the candidate in different_ids — false merges are irreversible and worse than missed merges`;
+- Group entities that are THE SAME real-world noun (person, place, thing, org) under different labels
+- Examples of true duplicates: "Columbia" = "Command Module Columbia", "Dr. Oppenheimer" = "J. Robert Oppenheimer", "AEC" = "Atomic Energy Commission", "USSR" = "Soviet Union"
+- Do NOT merge an event/action with the entity it describes: "Armstrong walks on Moon" ≠ "Neil Armstrong"
+- Do NOT merge a concept with an event referencing it: "Depression" ≠ "Aldrin's depression struggles"
+- Do NOT merge related but distinct things: "State Department" ≠ "Sidelining of the State Department"
+- Type differences are OK if it's truly the same thing: "Oak Ridge" (location) = "Oak Ridge facility" (org)
+- When uncertain, put entities in no_merge — false merges are irreversible
+- Every entity ID must appear in exactly one merge group OR in no_merge`;
 
-async function dedupeOne(
-  llm: LlmClient,
-  entityId: string,
+const MAX_DESC_CHARS = 200;
+const SKIP_TYPES = new Set(["document", "text_chunk"]);
+
+// ---------------------------------------------------------------------------
+// Step 1: Search for candidates per entity, build entity info map
+// ---------------------------------------------------------------------------
+
+async function searchForCandidates(
+  entityIds: string[],
   spaceId?: string,
 ): Promise<{
-  duplicate?: { entityId: string; duplicateIds: string[]; rationale: string };
-  usage?: LlmUsage;
+  edges: Array<[string, string]>;
+  entityInfo: Map<string, EntityCandidate>;
 }> {
-  const entity = await getEntity(entityId);
-  if (!entity) {
-    console.log(`[knowledge:dedupe] ${entityId} — entity not found, skipping`);
-    return {};
-  }
+  const edges: Array<[string, string]> = [];
+  const entityInfo = new Map<string, EntityCandidate>();
+  const entitySet = new Set(entityIds);
 
-  const label = entity.properties?.label ?? "";
-  if (!label) {
-    console.log(`[knowledge:dedupe] ${entityId} — no label, skipping`);
-    return {};
-  }
+  for (const entityId of entityIds) {
+    const entity = await getEntity(entityId);
+    if (!entity) continue;
+    const label = entity.properties?.label ?? "";
+    if (!label) continue;
+    if (SKIP_TYPES.has(entity.type)) continue;
 
-  const SKIP_TYPES = new Set(["document", "text_chunk"]);
-  const MAX_DESC_CHARS = 200;
-  const MAX_CANDIDATES = 20;
+    // Store info for this entity
+    if (!entityInfo.has(entityId)) {
+      entityInfo.set(entityId, {
+        id: entityId,
+        label,
+        type: entity.type,
+        description: typeof entity.properties?.description === "string"
+          ? entity.properties.description.slice(0, MAX_DESC_CHARS) : "",
+      });
+    }
 
-  const queries = buildQueries(label);
-  console.log(`[knowledge:dedupe] ${entityId} "${label}" (${entity.type}) — queries: ${JSON.stringify(queries)}`);
+    const queries = buildQueries(label);
+    for (const q of queries) {
+      const results = await search(q, { space_id: spaceId, limit: 20 });
+      for (const hit of results) {
+        if (!hit.id || hit.id === entityId) continue;
+        // Only consider candidates that are in our entity set OR are existing graph entities
+        if (entityInfo.has(hit.id)) {
+          edges.push([entityId, hit.id]);
+          continue;
+        }
 
-  const hits = new Map<string, EntityCandidate>();
-
-  for (const q of queries) {
-    const results = await search(q, { space_id: spaceId, limit: 20 });
-    for (const hit of results) {
-      if (hit.id && hit.id !== entityId && !hits.has(hit.id)) {
         const full = await getEntity(hit.id);
         if (!full) continue;
         if (full.kind === "relationship") continue;
         if (SKIP_TYPES.has(full.type)) continue;
         const candidateLabel = full?.properties?.label ?? "";
-        if (normalize(candidateLabel) !== "") {
-          const desc = full?.properties?.description ?? "";
-          hits.set(hit.id, {
-            id: hit.id,
-            label: candidateLabel,
-            type: full?.type ?? "",
-            description: typeof desc === "string" ? desc.slice(0, MAX_DESC_CHARS) : "",
-          });
-        }
+        if (normalize(candidateLabel) === "") continue;
+
+        entityInfo.set(hit.id, {
+          id: hit.id,
+          label: candidateLabel,
+          type: full.type ?? "",
+          description: typeof full.properties?.description === "string"
+            ? full.properties.description.slice(0, MAX_DESC_CHARS) : "",
+        });
+        edges.push([entityId, hit.id]);
       }
     }
   }
 
-  const candidates = [...hits.values()].slice(0, MAX_CANDIDATES);
-  if (candidates.length === 0) {
-    console.log(`[knowledge:dedupe] ${entityId} "${label}" — no candidates found`);
-    return {};
-  }
-
-  console.log(`[knowledge:dedupe] ${entityId} "${label}" — ${candidates.length} candidate(s): ${candidates.map((c) => `"${c.label}" (${c.type})`).join(", ")}`);
-
-  // Collect ALL exact normalized-label matches (not just the first)
-  const normalizedSelf = normalize(label);
-  const exactMatches = candidates.filter(
-    (c) => normalize(c.label) === normalizedSelf,
-  );
-  if (exactMatches.length > 0) {
-    // If all candidates are exact matches, no need for LLM
-    const nonExact = candidates.filter((c) => normalize(c.label) !== normalizedSelf);
-    if (nonExact.length === 0) {
-      console.log(`[knowledge:dedupe] ${entityId} "${label}" — exact match (no LLM): ${exactMatches.map((c) => c.id).join(", ")}`);
-      return {
-        duplicate: {
-          entityId,
-          duplicateIds: exactMatches.map((c) => c.id),
-          rationale: `Exact label match: "${exactMatches[0].label}"${exactMatches.length > 1 ? ` (+${exactMatches.length - 1} more)` : ""}`,
-        },
-      };
-    }
-    // Otherwise, include exact matches in the LLM call for the fuzzy ones too
-  }
-
-  console.log(`[knowledge:dedupe] ${entityId} "${label}" — calling LLM for fuzzy match`);
-  const result = await llm.chatJson<MergeDecision>(
-    DEDUPE_PROMPT,
-    JSON.stringify({
-      self_ref: entityId,
-      self_label: label,
-      self_type: entity.type,
-      self_description: typeof entity.properties?.description === "string"
-        ? entity.properties.description.slice(0, MAX_DESC_CHARS) : "",
-      candidates,
-    }),
-    { maxTokens: 1200 },
-  );
-
-  const sameIds = (result.data.same_as_ids ?? []).filter(
-    (id) => id !== entityId,
-  );
-
-  if (sameIds.length > 0) {
-    console.log(`[knowledge:dedupe] ${entityId} "${label}" — LLM says merge with: ${sameIds.join(", ")} — ${result.data.rationale ?? ""}`);
-  } else {
-    console.log(`[knowledge:dedupe] ${entityId} "${label}" — LLM says no duplicates — ${result.data.rationale ?? ""}`);
-  }
-
-  return {
-    duplicate: sameIds.length > 0
-      ? { entityId, duplicateIds: sameIds, rationale: result.data.rationale ?? "" }
-      : undefined,
-    usage: result.usage,
-  };
+  return { edges, entityInfo };
 }
+
+// ---------------------------------------------------------------------------
+// Main dedupe function
+// ---------------------------------------------------------------------------
 
 export async function dedupeEntities(
   llm: LlmClient,
   entityIds: string[],
   spaceId?: string,
-  opts?: { concurrency?: number },
+  _opts?: { concurrency?: number },
 ): Promise<{
   duplicates: Array<{ entityId: string; duplicateIds: string[]; rationale: string }>;
   usage: LlmUsage[];
 }> {
-  // Wait for Meilisearch to index newly written entities.
-  // Jitter scales with concurrency — more parallel jobs means more spread needed.
-  // Base 2s for indexing + up to (concurrency * 0.4s) random jitter.
-  const concurrency = opts?.concurrency ?? 10;
-  const jitter = 2000 + Math.random() * concurrency * 400;
-  await new Promise((r) => setTimeout(r, jitter));
+  // Wait for Meilisearch indexing
+  await new Promise((r) => setTimeout(r, 3000));
 
-  const results = await Promise.all(
-    entityIds.map((id) =>
-      dedupeOne(llm, id, spaceId).catch((err) => {
-        console.warn(`[knowledge:dedupe] Failed for ${id}, skipping:`, err instanceof Error ? err.message : err);
-        return {} as { duplicate?: undefined; usage?: undefined };
-      }),
-    ),
-  );
+  console.log(`[knowledge:dedupe] Searching for candidates among ${entityIds.length} entities`);
 
-  const duplicates: Array<{ entityId: string; duplicateIds: string[]; rationale: string }> = [];
-  const usage: LlmUsage[] = [];
+  // Step 1: Search for all candidates
+  const { edges, entityInfo } = await searchForCandidates(entityIds, spaceId);
 
-  for (const r of results) {
-    if (r.duplicate) duplicates.push(r.duplicate);
-    if (r.usage) usage.push(r.usage);
+  if (edges.length === 0) {
+    console.log(`[knowledge:dedupe] No candidate edges found`);
+    return { duplicates: [], usage: [] };
   }
 
-  return { duplicates, usage };
+  console.log(`[knowledge:dedupe] Found ${edges.length} candidate edges, ${entityInfo.size} unique entities`);
+
+  // Step 2: Build components via union-find on search edges
+  const uf = new UnionFind();
+  for (const [a, b] of edges) {
+    uf.union(a, b);
+  }
+
+  const components = uf.components();
+  const multiComponents = [...components.values()].filter((s) => s.size >= 2);
+
+  console.log(`[knowledge:dedupe] ${multiComponents.length} component(s) with 2+ entities`);
+
+  if (multiComponents.length === 0) {
+    return { duplicates: [], usage: [] };
+  }
+
+  // Step 3: LLM judge per component
+  const allUsage: LlmUsage[] = [];
+  const llmMergeGroups: Array<{ ids: string[]; rationale: string }> = [];
+
+  for (const component of multiComponents) {
+    const entityList = [...component]
+      .map((id) => entityInfo.get(id))
+      .filter((e): e is EntityCandidate => !!e);
+
+    if (entityList.length < 2) continue;
+
+    console.log(`[knowledge:dedupe] Judging component of ${entityList.length}: ${entityList.map((e) => `"${e.label}"`).join(", ")}`);
+
+    // Check for exact normalized label matches first (no LLM needed)
+    const labelGroups = new Map<string, EntityCandidate[]>();
+    for (const e of entityList) {
+      const key = normalize(e.label);
+      if (!labelGroups.has(key)) labelGroups.set(key, []);
+      labelGroups.get(key)!.push(e);
+    }
+
+    const exactGroups = [...labelGroups.values()].filter((g) => g.length >= 2);
+    const needsLlm = entityList.length > exactGroups.reduce((n, g) => n + g.length, 0);
+
+    if (!needsLlm && exactGroups.length > 0) {
+      // All entities have exact label matches — no LLM needed
+      for (const group of exactGroups) {
+        llmMergeGroups.push({
+          ids: group.map((e) => e.id),
+          rationale: `Exact label match: "${group[0].label}"`,
+        });
+      }
+      console.log(`[knowledge:dedupe] Exact matches only — ${exactGroups.length} group(s), no LLM needed`);
+      continue;
+    }
+
+    // Call LLM for fuzzy matching
+    try {
+      const result = await llm.chatJson<{
+        merge_groups: Array<{ ids: string[]; rationale: string }>;
+        no_merge?: string[];
+      }>(
+        COMPONENT_JUDGE_PROMPT,
+        JSON.stringify({ entities: entityList }),
+        { maxTokens: 2000 },
+      );
+
+      allUsage.push(result.usage);
+
+      const groups = result.data.merge_groups ?? [];
+      for (const g of groups) {
+        if (g.ids && g.ids.length >= 2) {
+          llmMergeGroups.push(g);
+          console.log(`[knowledge:dedupe] LLM merge: [${g.ids.map((id) => entityInfo.get(id)?.label ?? id).join(", ")}] — ${g.rationale}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[knowledge:dedupe] LLM judge failed for component, skipping:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (llmMergeGroups.length === 0) {
+    console.log(`[knowledge:dedupe] No duplicates confirmed`);
+    return { duplicates: [], usage: allUsage };
+  }
+
+  // Step 4: Rectify — union-find on LLM output to merge overlapping subgroups
+  const rectifyUf = new UnionFind();
+  for (const group of llmMergeGroups) {
+    for (let i = 1; i < group.ids.length; i++) {
+      rectifyUf.union(group.ids[0], group.ids[i]);
+    }
+  }
+
+  const rectifiedComponents = rectifyUf.components();
+  const finalGroups = [...rectifiedComponents.values()]
+    .filter((s) => s.size >= 2);
+
+  console.log(`[knowledge:dedupe] Rectified into ${finalGroups.length} final merge group(s)`);
+
+  // Convert to the format expected by mergeConfirmedDuplicates
+  const duplicates = finalGroups.map((group) => {
+    const ids = [...group];
+    return {
+      entityId: ids[0],
+      duplicateIds: ids.slice(1),
+      rationale: llmMergeGroups.find((g) => g.ids.some((id) => group.has(id)))?.rationale ?? "Component merge",
+    };
+  });
+
+  return { duplicates, usage: allUsage };
 }
 
+// ---------------------------------------------------------------------------
+// Execute merges
+// ---------------------------------------------------------------------------
+
 /**
- * Auto-merge confirmed duplicates via POST /entities/merge-batch.
- * Each duplicate group becomes [entityId, ...duplicateIds].
- * Failures are logged and swallowed — a 404/410 means another parallel
- * job already merged the entity, which is fine.
+ * Merge confirmed duplicate groups via POST /entities/merge-batch.
+ * Processes one group at a time to handle cascading merges cleanly.
  */
 export async function mergeConfirmedDuplicates(
   duplicates: Array<{ entityId: string; duplicateIds: string[]; rationale: string }>,
 ): Promise<{ merged: number; failed: number }> {
   if (duplicates.length === 0) return { merged: 0, failed: 0 };
 
-  // Consolidate overlapping groups using union-find.
-  // If entity A matches B and A matches C, merge into one group [A, B, C].
-  const parent = new Map<string, string>();
-  function find(x: string): string {
-    if (!parent.has(x)) parent.set(x, x);
-    let root = x;
-    while (parent.get(root) !== root) root = parent.get(root)!;
-    parent.set(x, root); // path compression
-    return root;
-  }
-  function union(a: string, b: string) {
-    const ra = find(a), rb = find(b);
-    if (ra !== rb) parent.set(ra, rb);
-  }
+  let merged = 0;
+  let failed = 0;
 
   for (const d of duplicates) {
-    for (const dupId of d.duplicateIds) {
-      union(d.entityId, dupId);
+    const group = { entity_ids: [d.entityId, ...d.duplicateIds] };
+    try {
+      const result = (await post("/entities/merge-batch", {
+        groups: [group],
+        property_strategy: "accumulate",
+      })) as { merged: number; failed: number };
+      merged += result.merged ?? 0;
+      failed += result.failed ?? 0;
+    } catch {
+      failed++;
     }
   }
 
-  // Collect consolidated groups
-  const groupMap = new Map<string, Set<string>>();
-  for (const id of parent.keys()) {
-    const root = find(id);
-    if (!groupMap.has(root)) groupMap.set(root, new Set());
-    groupMap.get(root)!.add(id);
+  if (merged > 0) {
+    console.log(`[knowledge:dedupe] Auto-merged ${merged} duplicate(s)`);
   }
-
-  const groups = [...groupMap.values()]
-    .filter((s) => s.size >= 2)
-    .map((s) => ({ entity_ids: [...s] }));
-
-  try {
-    const result = (await post("/entities/merge-batch", {
-      groups,
-      property_strategy: "accumulate",
-    })) as { merged: number; failed: number };
-
-    if (result.merged > 0) {
-      console.log(`[knowledge:dedupe] Auto-merged ${result.merged} duplicate(s)`);
-    }
-    return { merged: result.merged ?? 0, failed: result.failed ?? 0 };
-  } catch (err) {
-    // Graceful failure — entities may have been merged by another parallel job
-    console.warn(
-      `[knowledge:dedupe] Merge-batch failed (likely already merged):`,
-      err instanceof Error ? err.message : err,
-    );
-    return { merged: 0, failed: groups.length };
-  }
+  return { merged, failed };
 }
