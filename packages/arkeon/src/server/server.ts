@@ -149,7 +149,7 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
   if (knowledgeEnabled) {
     await bootstrapKnowledgeService();
     initKnowledgeQueue();
-    startKnowledgePoller();
+    await startKnowledgePoller();
     console.log("[knowledge] pipeline enabled");
   } else {
     console.log(
