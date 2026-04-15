@@ -141,7 +141,10 @@ async function searchForCandidates(
 
     const queries = buildQueries(label);
     for (const q of queries) {
-      const results = await search(q, { space_id: spaceId, limit: 20 });
+      // Search only on label field to avoid matching entities that merely
+      // mention this entity in their description (which creates false
+      // candidate edges and produces mega-components).
+      const results = await search(q, { space_id: spaceId, limit: 20, search_on: "label" });
       for (const hit of results) {
         if (!hit.id || hit.id === entityId) continue;
         // Only consider candidates that are in our entity set OR are existing graph entities

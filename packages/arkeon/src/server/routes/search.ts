@@ -38,6 +38,11 @@ const SearchQuery = ProjectionQuery.extend({
     z.string().optional(),
     "Scope search to a space ULID",
   ),
+  search_on: queryParam(
+    "search_on",
+    z.string().optional(),
+    "Comma-separated list of attributes to search on (e.g. 'label' to match only entity names). Default: all attributes.",
+  ),
   read_level: queryParam(
     "read_level",
     z.coerce.number().int().min(0).max(4).optional(),
@@ -97,6 +102,7 @@ const MultiSearchQuerySchema = z.object({
   type: z.string().optional().describe("Filter by entity type"),
   kind: z.string().optional().describe("Filter by kind (entity or relationship)"),
   space_id: z.string().optional().describe("Scope to a space ULID"),
+  search_on: z.array(z.string()).optional().describe("Attributes to search on (e.g. ['label']). Default: all."),
   read_level: z.number().int().min(0).max(4).optional().describe("Max read level for results"),
   limit: z.number().int().min(1).max(50).optional().describe("Per-query limit (default 20, max 50)"),
   offset: z.number().int().min(0).optional().describe("Per-query offset (default 0)"),
@@ -182,10 +188,16 @@ searchRouter.openapi(searchRoute, async (c) => {
     readLevelOverride,
   });
 
+  const searchOnParam = c.req.query("search_on");
+  const attributesToSearchOn = searchOnParam
+    ? searchOnParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+
   const meiliResult = await searchEntities(q, {
     filter: filters,
     limit,
     offset,
+    attributesToSearchOn,
   });
 
   if (meiliResult.ids.length === 0) {
