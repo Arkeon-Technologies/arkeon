@@ -26,6 +26,14 @@ import { EntityPanel } from './EntityPanel'
 const SPACE_NODE_PREFIX = '__space__'
 /** Edge weight for space membership edges (real edges default to 1.0) */
 const SPACE_EDGE_WEIGHT = 0.05
+/** Baseline node count where sizes look right without scaling */
+const SIZE_BASELINE = 80
+
+/** Scale node sizes down as the graph grows beyond SIZE_BASELINE */
+function nodeSizeScale(nodeCount: number): number {
+  if (nodeCount <= SIZE_BASELINE) return 1
+  return Math.max(0.5, Math.sqrt(SIZE_BASELINE / nodeCount))
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,6 +160,7 @@ function GraphSyncAndEvents({
     for (const id of stale) graph.dropNode(id)
 
     // Add new entity nodes
+    const scale = nodeSizeScale(nodes.size)
     let addedNodes = 0
     for (const [id, node] of nodes) {
       if (!graph.hasNode(id)) {
@@ -161,7 +170,7 @@ function GraphSyncAndEvents({
         graph.addNode(id, {
           x: pos.x,
           y: pos.y,
-          size: 2,
+          size: 2 * scale,
           color: getEntitySpaceColor(node.space_ids),
           label: node.label || node.type,
           type: 'circle',
@@ -220,7 +229,7 @@ function GraphSyncAndEvents({
         graph.addNode(spaceNodeId, {
           x: sx,
           y: sy,
-          size: 5,
+          size: 5 * scale,
           color: hexWithAlpha(spaceColor, 0.6),
           label: space?.name || spaceId.slice(0, 8),
           type: 'circle',
@@ -632,24 +641,25 @@ function GraphSyncAndEvents({
   useEffect(() => {
     const graph = sigma.getGraph()
     const rel = selectedRelEndpoints
+    const s = nodeSizeScale(graph.order)
 
     setSettings({
       nodeReducer: (node, attrs) => {
         const hNode = hoveredNodeRef.current
         if (!selectedId && !rel) {
-          if (hNode === node) return { ...attrs, size: attrs.size + 1.5, forceLabel: true }
+          if (hNode === node) return { ...attrs, size: attrs.size + 1.5 * s, forceLabel: true }
           if (hNode && graph.hasNode(hNode) && graph.areNeighbors(node, hNode)) return { ...attrs, forceLabel: true }
           return attrs
         }
         if (rel) {
           if (node === rel.sourceId || node === rel.targetId)
-            return { ...attrs, size: 5, color: '#ffffff', zIndex: 2, forceLabel: true }
-          return { ...attrs, color: '#222222', size: 1.5, zIndex: 0, label: null }
+            return { ...attrs, size: 5 * s, color: '#ffffff', zIndex: 2, forceLabel: true }
+          return { ...attrs, color: '#222222', size: 1.5 * s, zIndex: 0, label: null }
         }
         if (!graph.hasNode(selectedId!)) return attrs
-        if (node === selectedId) return { ...attrs, size: 5, color: '#ffffff', zIndex: 2, forceLabel: true }
-        if (graph.areNeighbors(node, selectedId!)) return { ...attrs, size: 3.5, zIndex: 1, forceLabel: true }
-        return { ...attrs, color: '#222222', size: 1.5, zIndex: 0, label: null }
+        if (node === selectedId) return { ...attrs, size: 5 * s, color: '#ffffff', zIndex: 2, forceLabel: true }
+        if (graph.areNeighbors(node, selectedId!)) return { ...attrs, size: 3.5 * s, zIndex: 1, forceLabel: true }
+        return { ...attrs, color: '#222222', size: 1.5 * s, zIndex: 0, label: null }
       },
       edgeReducer: (edge, attrs) => {
         const hEdge = hoveredEdgeRef.current
@@ -744,7 +754,7 @@ export function MapView({
         settings={{
           allowInvalidContainer: true,
           renderLabels: true,
-          labelRenderedSizeThreshold: 14,
+          labelRenderedSizeThreshold: 8,
           labelColor: { color: '#a1a1aa' },
           labelFont: 'Inter, system-ui, sans-serif',
           labelSize: 11,
