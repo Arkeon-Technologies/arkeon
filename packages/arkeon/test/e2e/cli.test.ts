@@ -98,8 +98,8 @@ describe("CLI integration — generated API commands", () => {
     expect(entities.length).toBeGreaterThan(0);
   });
 
-  test("entities list --type filters by type", () => {
-    const result = arkeon("entities list --type book --raw");
+  test("entities list --filter type filters by type", () => {
+    const result = arkeon('entities list --filter "type:book" --raw');
     expect(result.ok).toBe(true);
 
     const json = parseJson(result.stdout);
