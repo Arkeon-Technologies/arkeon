@@ -154,7 +154,21 @@ Rules:
 - source_span: a verbatim quote from the text where this relationship is stated
 - detail: explain the relationship fully — context, nuance, significance
 - Use specific predicates (e.g. "founded", "betrayed", "traveled_to") not generic ones ("relates_to")
-- source_ref and target_ref MUST match a ref from entities`;
+- source_ref and target_ref MUST match a ref from entities
+- You may include additional domain-specific properties as top-level keys on entities and relationships (alongside ref/label/type/description). If the additional instructions below request specific properties, include them on every entity or relationship as directed`;
+
+  // Known entities from the graph — enables cross-document connectivity
+  if (existingEntities && existingEntities.length > 0) {
+    prompt += `\n\nKnown entities already in the graph — reuse these when the same entity appears in this document:`;
+    for (const e of existingEntities) {
+      const desc = e.description ? ` — ${e.description}` : "";
+      prompt += `\n- [${e.id}] "${e.label}" (${e.type})${desc}`;
+    }
+    prompt += `\n\nWhen you recognize a known entity in the text:
+- Use its ID as the ref (e.g. ref: "${existingEntities[0].id}")
+- You MAY create relationships between new entities and known entities
+- If unsure whether something matches a known entity, create it as new`;
+  }
 
   // Known entities from the graph — enables cross-document connectivity
   if (existingEntities && existingEntities.length > 0) {
@@ -205,10 +219,28 @@ Rules:
   return prompt;
 }
 
+/** Collect any keys not in the known set into a properties bag. Returns null if empty. */
+function collectExtra(obj: any, knownKeys: Set<string>): Record<string, unknown> | null {
+  if (!obj || typeof obj !== "object") return null;
+  const extra: Record<string, unknown> = {};
+  let hasAny = false;
+  for (const [key, value] of Object.entries(obj)) {
+    if (!knownKeys.has(key) && value !== undefined) {
+      extra[key] = value;
+      hasAny = true;
+    }
+  }
+  return hasAny ? extra : null;
+}
+
 /**
  * Normalize LLM response into { entities, relationships }.
  * Handles: { entities, relationships }, { ops: [...] }, or mixed formats.
  */
+// Known keys to exclude from custom properties
+const ENTITY_KNOWN_KEYS = new Set(["op", "ref", "label", "type", "description"]);
+const REL_KNOWN_KEYS = new Set(["op", "source_ref", "predicate", "target_ref", "source_span", "detail", "source_shell", "target_shell"]);
+
 function normalizePlan(raw: any): ExtractPlan {
   const entities: ExtractOpEntity[] = [];
   const relationships: ExtractOpRelationship[] = [];
@@ -216,11 +248,16 @@ function normalizePlan(raw: any): ExtractPlan {
   // Preferred format: { entities: [...], relationships: [...] }
   if (Array.isArray(raw.entities)) {
     for (const e of raw.entities) {
-      entities.push({ op: "create_entity", ref: e.ref, label: e.label, type: e.type, description: e.description ?? "" });
+      const properties = collectExtra(e, ENTITY_KNOWN_KEYS);
+      entities.push({
+        op: "create_entity", ref: e.ref, label: e.label, type: e.type, description: e.description ?? "",
+        ...(properties ? { properties } : {}),
+      });
     }
   }
   if (Array.isArray(raw.relationships)) {
     for (const r of raw.relationships) {
+      const properties = collectExtra(r, REL_KNOWN_KEYS);
       relationships.push({
         op: "create_relationship",
         source_ref: r.source_ref,
@@ -230,6 +267,7 @@ function normalizePlan(raw: any): ExtractPlan {
         detail: r.detail,
         source_shell: r.source_shell,
         target_shell: r.target_shell,
+        ...(properties ? { properties } : {}),
       });
     }
   }

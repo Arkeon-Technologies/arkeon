@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "vitest";
 import { mergeGroupPlans } from "../../src/server/knowledge/pipeline/merge";
-import { buildOpsFromPlan } from "../../src/server/knowledge/pipeline/write";
+import { buildOpsFromPlan, isUlid } from "../../src/server/knowledge/pipeline/write";
 import { normalizeLabel } from "../../src/server/knowledge/lib/normalize";
 import type { ExtractPlan } from "../../src/server/knowledge/lib/types";
 import type { ChatJsonResult } from "../../src/server/knowledge/lib/llm";
@@ -346,5 +346,94 @@ describe("buildOpsFromPlan", () => {
     expect(envelope.defaults?.space_id).toBe("space1");
     expect(envelope.defaults?.read_level).toBe(2);
     expect(envelope.defaults?.write_level).toBe(3);
+  });
+
+  test("ULID ref entities are skipped when in knownEntityIds", () => {
+    const existingId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const known = new Set([existingId]);
+    const envelope = buildOpsFromPlan(
+      {
+        entities: [
+          { op: "create_entity", ref: existingId, label: "Kissinger", type: "person", description: "Existing" },
+          { op: "create_entity", ref: "e_new", label: "Shah", type: "person", description: "New" },
+        ],
+        relationships: [
+          { op: "create_relationship", source_ref: "e_new", target_ref: existingId, predicate: "met_with", source_span: "Shah met Kissinger" },
+        ],
+      },
+      "doc123",
+      undefined,
+      known,
+    );
+
+    // Only the new entity should produce an entity op
+    const entityOps = envelope.ops.filter((o) => o.op === "entity");
+    expect(entityOps).toHaveLength(1);
+    expect(entityOps[0].ref).toBe("@e_new");
+
+    // The relate op should use raw ULID for the existing entity
+    const relateOps = envelope.ops.filter((o) => o.op === "relate");
+    expect(relateOps).toHaveLength(1);
+    expect(relateOps[0].source).toBe("@e_new");
+    expect(relateOps[0].target).toBe(existingId);
+  });
+
+  test("ULID-shaped ref NOT in knownEntityIds is treated as new entity", () => {
+    const hallucinatedUlid = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    // No knownEntityIds passed, or ID not in set
+    const envelope = buildOpsFromPlan(
+      {
+        entities: [
+          { op: "create_entity", ref: hallucinatedUlid, label: "Ghost", type: "person", description: "" },
+        ],
+        relationships: [],
+      },
+      "doc123",
+      undefined,
+      new Set(["01DIFFERENTIDXXXXXXXXXXXXXX"]),
+    );
+
+    // Should NOT skip — treat as new entity with @ref
+    const entityOps = envelope.ops.filter((o) => o.op === "entity");
+    expect(entityOps).toHaveLength(1);
+    expect(entityOps[0].ref).toBe(`@${hallucinatedUlid}`);
+  });
+
+  test("ULID-shaped ref without knownEntityIds set is treated as new entity", () => {
+    const existingId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const envelope = buildOpsFromPlan(
+      {
+        entities: [
+          { op: "create_entity", ref: existingId, label: "Kissinger", type: "person", description: "" },
+        ],
+        relationships: [],
+      },
+      "doc123",
+      // no opts, no knownEntityIds
+    );
+
+    // Without knownEntityIds, ULID refs are treated as new (not silently dropped)
+    const entityOps = envelope.ops.filter((o) => o.op === "entity");
+    expect(entityOps).toHaveLength(1);
+    expect(entityOps[0].ref).toBe(`@${existingId}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isUlid
+// ---------------------------------------------------------------------------
+
+describe("isUlid", () => {
+  test("valid ULIDs", () => {
+    expect(isUlid("01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBe(true);
+    expect(isUlid("01arz3ndektsv4rrffq69g5fav")).toBe(true); // lowercase
+  });
+
+  test("not ULIDs", () => {
+    expect(isUlid("person_jane")).toBe(false);
+    expect(isUlid("e1")).toBe(false);
+    expect(isUlid("")).toBe(false);
+    expect(isUlid("01ARZ3NDEKTSV4RRFFQ69G5FA")).toBe(false); // 25 chars
+    expect(isUlid("01ARZ3NDEKTSV4RRFFQ69G5FAVX")).toBe(false); // 27 chars
   });
 });

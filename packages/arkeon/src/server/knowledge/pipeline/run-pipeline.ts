@@ -27,6 +27,8 @@ export interface PipelineOpts {
   writeLevel?: number;
   ownerId?: string;
   permissions?: Array<{ grantee_type: string; grantee_id: string; role: string }>;
+  /** Known existing entity IDs from scout — used to validate ULID refs in the extraction plan */
+  knownEntityIds?: Set<string>;
 }
 
 export interface PipelineResult {
@@ -95,7 +97,7 @@ export async function runExtractionPipeline(
     writeLevel: opts.writeLevel,
     ownerId: opts.ownerId,
     permissions: opts.permissions,
-  }, resolverLlm);
+  }, resolverLlm, opts.knownEntityIds);
   appendLog(jobId, "info", `Written: ${writeResult.createdEntityIds.length} created, ${writeResult.updatedEntityIds.length} updated, ${writeResult.createdRelationshipIds.length} relationships`);
 
   // Dedupe + auto-merge (post-write LLM fuzzy matching → merge-batch)
