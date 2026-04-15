@@ -184,9 +184,29 @@ async function pollForNewContent(): Promise<void> {
 
 /**
  * Start the content poller. Call at startup.
+ *
+ * Advances the cursor to the current tip of entity_activity before
+ * starting the poll interval. This ensures that enabling the pipeline
+ * after it was previously off never replays historical events — only
+ * new activity created after this point will be processed.
  */
-export function startKnowledgePoller(): void {
+export async function startKnowledgePoller(): Promise<void> {
   if (pollTimer) return;
+
+  // Advance cursor to current tip so we skip all historical events.
+  try {
+    const sql = createSql();
+    await sql.transaction([
+      sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
+      sql`SELECT set_config('app.actor_is_admin', 'true', true)`,
+      sql`UPDATE knowledge_poller_state
+          SET last_activity_id = COALESCE((SELECT MAX(id) FROM entity_activity), 0),
+              updated_at = NOW()
+          WHERE id = 'default'`,
+    ]);
+  } catch (err) {
+    console.error(`[knowledge:poller] Failed to advance cursor to tip (continuing anyway):`, err);
+  }
 
   pollTimer = setInterval(() => {
     pollForNewContent().catch((err) => {
