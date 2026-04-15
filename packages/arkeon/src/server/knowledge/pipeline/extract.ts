@@ -170,6 +170,19 @@ Rules:
 - If unsure whether something matches a known entity, create it as new`;
   }
 
+  // Known entities from the graph — enables cross-document connectivity
+  if (existingEntities && existingEntities.length > 0) {
+    prompt += `\n\nKnown entities already in the graph — reuse these when the same entity appears in this document:`;
+    for (const e of existingEntities) {
+      const desc = e.description ? ` — ${e.description}` : "";
+      prompt += `\n- [${e.id}] "${e.label}" (${e.type})${desc}`;
+    }
+    prompt += `\n\nWhen you recognize a known entity in the text:
+- Use its ID as the ref (e.g. ref: "${existingEntities[0].id}")
+- You MAY create relationships between new entities and known entities
+- If unsure whether something matches a known entity, create it as new`;
+  }
+
   // Entity types: space config (always strict) > strict global > survey-inferred > suggestions
   if (spaceConfig?.entity_types && spaceConfig.entity_types.length > 0) {
     prompt += `\n\nEntity types (use ONLY these): ${spaceConfig.entity_types.join(", ")}`;

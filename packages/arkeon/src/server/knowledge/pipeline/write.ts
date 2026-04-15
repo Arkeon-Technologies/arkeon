@@ -48,7 +48,9 @@ export interface WriteOpts {
 
 // ULID pattern: 26 uppercase Crockford base32 characters
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
-function isUlid(ref: string): boolean {
+
+/** Exported for testing */
+export function isUlid(ref: string): boolean {
   return ULID_RE.test(ref);
 }
 
@@ -56,12 +58,18 @@ export function buildOpsFromPlan(
   plan: ExtractPlan,
   documentId: string,
   opts?: WriteOpts,
+  /** Set of known existing entity IDs (from scout). ULID refs not in this set are treated as new entities to prevent hallucinated refs from silently dropping. */
+  knownEntityIds?: Set<string>,
 ): OpsEnvelopeInput {
   const ops: Array<Record<string, unknown>> = [];
 
   for (const entity of plan.entities) {
-    // Skip entities that reference existing graph entities (ULID refs from scout)
-    if (isUlid(entity.ref)) continue;
+    // Skip entities that reference existing graph entities (ULID refs from scout).
+    // Only skip if the ID is in the known set — a hallucinated ULID-shaped ref
+    // that isn't in knownEntityIds gets treated as a new entity with @ref.
+    if (isUlid(entity.ref) && knownEntityIds?.has(entity.ref)) {
+      continue;
+    }
 
     ops.push({
       op: "entity",
@@ -75,9 +83,11 @@ export function buildOpsFromPlan(
   }
 
   for (const rel of plan.relationships) {
-    // Use raw ULID for existing entities, @ref for new local entities
-    const source = isUlid(rel.source_ref) ? rel.source_ref : `@${rel.source_ref}`;
-    const target = isUlid(rel.target_ref) ? rel.target_ref : `@${rel.target_ref}`;
+    // Use raw ULID for known existing entities, @ref for new local entities
+    const sourceIsKnown = isUlid(rel.source_ref) && knownEntityIds?.has(rel.source_ref);
+    const targetIsKnown = isUlid(rel.target_ref) && knownEntityIds?.has(rel.target_ref);
+    const source = sourceIsKnown ? rel.source_ref : `@${rel.source_ref}`;
+    const target = targetIsKnown ? rel.target_ref : `@${rel.target_ref}`;
 
     ops.push({
       op: "relate",
@@ -206,8 +216,9 @@ export async function submitOpsWithRetry(
   documentId: string,
   opts: WriteOpts | undefined,
   llm: LlmClient,
+  knownEntityIds?: Set<string>,
 ): Promise<WriteResult> {
-  let envelope = buildOpsFromPlan(plan, documentId, opts);
+  let envelope = buildOpsFromPlan(plan, documentId, opts, knownEntityIds);
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
