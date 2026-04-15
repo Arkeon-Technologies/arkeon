@@ -128,6 +128,12 @@ Return JSON:
       "description": "CEO of Acme Corp who announced the Q3 restructuring. Described as 'a decisive leader who transformed the company' (para 3)."
     },
     {
+      "ref": "org_acme",
+      "label": "Acme Corp",
+      "type": "organization",
+      "description": "Technology company undergoing major restructuring in Q3 2024."
+    },
+    {
       "ref": "event_restructuring",
       "label": "Q3 Restructuring",
       "type": "event",
@@ -137,10 +143,23 @@ Return JSON:
   "relationships": [
     {
       "source_ref": "person_jane",
+      "predicate": "leads",
+      "target_ref": "org_acme",
+      "source_span": "Jane Smith, CEO of Acme Corp",
+      "detail": "Jane Smith serves as CEO, leading the company through its restructuring."
+    },
+    {
+      "source_ref": "person_jane",
       "predicate": "announced",
       "target_ref": "event_restructuring",
       "source_span": "Jane Smith announced a sweeping restructuring of three major divisions",
       "detail": "Announced during the Q3 earnings call, affecting engineering, sales, and operations."
+    },
+    {
+      "source_ref": "org_acme",
+      "predicate": "undergoing",
+      "target_ref": "event_restructuring",
+      "detail": "Acme Corp is the subject of the Q3 restructuring affecting 3 divisions."
     }
   ]
 }
@@ -151,24 +170,17 @@ Rules:
 - Labels should be proper names, not titles or roles (e.g. "Henry Kissinger" not "Secretary Kissinger", "Anwar Sadat" not "President Sadat")
 - Give each entity a short stable ref like "person_jane" or "event_battle"
 - Descriptions should be rich and cite the source text (quote key phrases)
-- source_span: a verbatim quote from the text where this relationship is stated
-- detail: explain the relationship fully — context, nuance, significance
-- Use specific predicates (e.g. "founded", "betrayed", "traveled_to") not generic ones ("relates_to")
-- source_ref and target_ref MUST match a ref from entities
-- You may include additional domain-specific properties as top-level keys on entities and relationships (alongside ref/label/type/description). If the additional instructions below request specific properties, include them on every entity or relationship as directed`;
 
-  // Known entities from the graph — enables cross-document connectivity
-  if (existingEntities && existingEntities.length > 0) {
-    prompt += `\n\nKnown entities already in the graph — reuse these when the same entity appears in this document:`;
-    for (const e of existingEntities) {
-      const desc = e.description ? ` — ${e.description}` : "";
-      prompt += `\n- [${e.id}] "${e.label}" (${e.type})${desc}`;
-    }
-    prompt += `\n\nWhen you recognize a known entity in the text:
-- Use its ID as the ref (e.g. ref: "${existingEntities[0].id}")
-- You MAY create relationships between new entities and known entities
-- If unsure whether something matches a known entity, create it as new`;
-  }
+Relationship extraction is critical — a graph with entities but no connections is useless:
+- Connect entities to each other, not just to an abstract concept. If Turing worked at Manchester, that's a relationship between the person and the organization.
+- Look for implicit relationships: if two people are mentioned in the same context, they likely interact. If a person is at an organization, extract that.
+- A well-extracted document has 2-3x more relationships than entities. If you have 8 entities, aim for 16-24 relationships.
+- Every entity should connect to at least one other entity. Orphan entities with no relationships are rarely useful.
+- Use specific predicates (e.g. "founded", "led", "located_in", "participated_in") not generic ones ("relates_to")
+- source_ref and target_ref MUST match a ref from entities (or a known entity ID)
+- source_span (optional): a verbatim quote from the text where this relationship is stated
+- detail: explain the relationship fully — context, nuance, significance
+- You may include additional domain-specific properties as top-level keys on entities and relationships (alongside ref/label/type/description). If the additional instructions below request specific properties, include them on every entity or relationship as directed`;
 
   // Known entities from the graph — enables cross-document connectivity
   if (existingEntities && existingEntities.length > 0) {
