@@ -399,7 +399,7 @@ describe("buildOpsFromPlan", () => {
     expect(entityOps[0].ref).toBe(`@${hallucinatedUlid}`);
   });
 
-  test("ULID-shaped ref without knownEntityIds set is skipped (backward compat)", () => {
+  test("ULID-shaped ref without knownEntityIds set is treated as new entity", () => {
     const existingId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
     const envelope = buildOpsFromPlan(
       {
@@ -412,9 +412,10 @@ describe("buildOpsFromPlan", () => {
       // no opts, no knownEntityIds
     );
 
-    // Without knownEntityIds, ULID refs are still skipped (backward compat)
+    // Without knownEntityIds, ULID refs are treated as new (not silently dropped)
     const entityOps = envelope.ops.filter((o) => o.op === "entity");
-    expect(entityOps).toHaveLength(0);
+    expect(entityOps).toHaveLength(1);
+    expect(entityOps[0].ref).toBe(`@${existingId}`);
   });
 });
 

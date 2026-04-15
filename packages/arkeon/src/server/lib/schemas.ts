@@ -268,6 +268,34 @@ export const TraverseResponseSchema = z
   })
   .openapi("TraverseResponse");
 
+// --- Graph data (lightweight visualization) ---
+
+export const GraphNodeSchema = z
+  .object({
+    id: UlidSchema,
+    label: z.string().describe("Display label (from properties.label/title/name or entity type)"),
+    type: z.string().describe("Entity type (e.g. person, document, event)"),
+    space_ids: z.array(z.string()).describe("Space memberships"),
+  })
+  .openapi("GraphNode");
+
+export const GraphEdgeSchema = z
+  .object({
+    id: UlidSchema,
+    source_id: UlidSchema,
+    target_id: UlidSchema,
+    predicate: z.string(),
+  })
+  .openapi("GraphEdge");
+
+export const GraphDataResponseSchema = z
+  .object({
+    nodes: z.array(GraphNodeSchema).describe("Lightweight node data for graph rendering"),
+    edges: z.array(GraphEdgeSchema).describe("Edges connecting nodes in the result set"),
+    cursor: z.string().nullable().describe("Pagination cursor for next page, null if no more results"),
+  })
+  .openapi("GraphDataResponse");
+
 // --- Expanded entity (view=expanded) ---
 
 export const ExpandedEntitySchema = EntitySchema.extend({

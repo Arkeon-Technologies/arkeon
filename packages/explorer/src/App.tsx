@@ -7,17 +7,12 @@ import { createMockClient } from '@/lib/mock-client'
 import { ActivityFeed } from '@/components/ActivityFeed'
 import { MapView } from '@/components/MapView'
 
-// Read the API key from the URL, persist in sessionStorage so it survives
-// reloads, then strip it from the browser URL so it doesn't leak into
-// history, server logs, referers, or shared bookmarks.
 function readAndStripApiKey(): string | undefined {
   if (typeof window === 'undefined') return undefined
 
-  // 1. Server-injected key (auto-auth for local/deployed instances)
   const injected = (window as Record<string, unknown>).__ARKEON_KEY__ as string | undefined
   if (injected) return injected
 
-  // 2. Explicit URL param (manual override)
   const params = new URLSearchParams(window.location.search)
   const key = params.get('key') || undefined
   if (key) {
@@ -28,66 +23,79 @@ function readAndStripApiKey(): string | undefined {
     window.history.replaceState({}, '', newUrl)
     return key
   }
-  // 3. Fall back to sessionStorage from a previous load in this tab
   try { return sessionStorage.getItem('arke-api-key') || undefined } catch {}
   return undefined
 }
 
-function useQueryParams() {
-  const [params, setParams] = useState(() => new URLSearchParams(window.location.search))
-  useEffect(() => {
-    const handler = () => setParams(new URLSearchParams(window.location.search))
-    window.addEventListener('popstate', handler)
-    return () => window.removeEventListener('popstate', handler)
-  }, [])
-  return params
+function getInitialParams() {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    select: params.get('select') || undefined,
+    mode: (params.get('mode') === 'feed' ? 'feed' : 'graph') as 'graph' | 'feed',
+    cap: params.get('cap'),
+    mock: params.has('mock'),
+  }
 }
 
 export function App() {
-  // Capture the API key once on mount and strip it from the URL.
-  // useRef ensures it survives re-renders without being re-read from the (now-stripped) URL.
   const apiKeyRef = useRef<string | undefined>(undefined)
   if (apiKeyRef.current === undefined) {
     apiKeyRef.current = readAndStripApiKey() ?? ''
   }
   const apiKey = apiKeyRef.current || undefined
 
-  const searchParams = useQueryParams()
-  const selectParam = searchParams.get('select') || undefined
-  const modeParam = searchParams.get('mode') || 'graph'
-  const capParam = searchParams.get('cap')
-  const nodeCap = capParam ? Math.max(1, parseInt(capParam, 10) || 3000) : 3000
+  const initial = useMemo(getInitialParams, [])
+  const nodeCap = initial.cap ? Math.max(1, parseInt(initial.cap, 10) || 10000) : 10000
 
   type Mode = 'graph' | 'feed'
-  const initialMode: Mode = modeParam === 'feed' ? 'feed' : 'graph'
-  const [mode, setMode] = useState<Mode>(initialMode)
+  const [mode, setMode] = useState<Mode>(initial.mode)
+  const [selectId, setSelectId] = useState<string | undefined>(initial.select)
 
-  const useMock = searchParams.has('mock')
   const client = useMemo(
-    () => useMock ? createMockClient() : createArkeClient(apiKey),
-    [apiKey, useMock]
+    () => initial.mock ? createMockClient() : createArkeClient(apiKey),
+    [apiKey, initial.mock]
   )
 
-  const handleEntitySelect = useCallback((entityId: string) => {
+  // Sync URL on popstate (back/forward)
+  useEffect(() => {
+    const handler = () => {
+      const params = new URLSearchParams(window.location.search)
+      setSelectId(params.get('select') || undefined)
+      setMode(params.get('mode') === 'feed' ? 'feed' : 'graph')
+    }
+    window.addEventListener('popstate', handler)
+    return () => window.removeEventListener('popstate', handler)
+  }, [])
+
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
     const url = new URL(window.location.href)
-    url.searchParams.set('select', entityId)
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null) url.searchParams.delete(k)
+      else url.searchParams.set(k, v)
+    }
     window.history.pushState({}, '', url.toString())
   }, [])
 
+  const handleEntitySelect = useCallback((entityId: string) => {
+    setSelectId(entityId)
+    updateUrl({ select: entityId })
+  }, [updateUrl])
+
+  const handleEntityDeselect = useCallback(() => {
+    setSelectId(undefined)
+    updateUrl({ select: null })
+  }, [updateUrl])
+
   const handleFeedEntityClick = useCallback((entityId: string) => {
+    setSelectId(entityId)
     setMode('graph')
-    const url = new URL(window.location.href)
-    url.searchParams.set('select', entityId)
-    url.searchParams.set('mode', 'graph')
-    window.history.pushState({}, '', url.toString())
-  }, [])
+    updateUrl({ select: entityId, mode: 'graph' })
+  }, [updateUrl])
 
   const switchMode = useCallback((newMode: Mode) => {
     setMode(newMode)
-    const url = new URL(window.location.href)
-    url.searchParams.set('mode', newMode)
-    window.history.pushState({}, '', url.toString())
-  }, [])
+    updateUrl({ mode: newMode })
+  }, [updateUrl])
 
   const navBar = (
     <div className="absolute top-0 left-0 right-0 z-50 flex items-center gap-1 px-3 py-2 bg-[#0a0a0a]/80 backdrop-blur-sm border-b border-zinc-800/50">
@@ -111,26 +119,24 @@ export function App() {
     </div>
   )
 
-  if (mode === 'feed') {
-    return (
-      <div className="h-screen bg-[#0a0a0a] flex flex-col">
-        {navBar}
-        <div className="flex-1 overflow-auto pt-12 p-6 max-w-3xl mx-auto w-full">
-          <ActivityFeed client={client} onSelectEntity={handleFeedEntityClick} />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="h-screen bg-[#0a0a0a] relative">
       {navBar}
-      <MapView
-        client={client}
-        nodeCap={nodeCap}
-        selectId={selectParam}
-        onEntitySelect={handleEntitySelect}
-      />
+      {/* Keep MapView mounted so graph state persists across mode switches */}
+      <div className={mode === 'graph' ? 'h-full' : 'hidden'}>
+        <MapView
+          client={client}
+          nodeCap={nodeCap}
+          selectId={selectId}
+          onEntitySelect={handleEntitySelect}
+          onEntityDeselect={handleEntityDeselect}
+        />
+      </div>
+      {mode === 'feed' && (
+        <div className="flex-1 overflow-auto pt-12 p-6 max-w-3xl mx-auto w-full h-full">
+          <ActivityFeed client={client} onSelectEntity={handleFeedEntityClick} />
+        </div>
+      )}
     </div>
   )
 }

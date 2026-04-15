@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Arkeon Technologies, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { type ArkeEntity, type ArkeRelationship, type ActivityItem, type ArkeActor, type ArkeComment } from './arke-types'
+import { type ArkeEntity, type ArkeRelationship, type ActivityItem, type ArkeActor, type ArkeComment, type ArkeSpace, type GraphNode, type GraphEdge } from './arke-types'
 
 type RelPage = { relationships: ArkeRelationship[]; cursor: string | null }
 
@@ -30,6 +30,10 @@ export interface ArkeInstanceClient {
   listEntities(options?: { spaceId?: string; limit?: number; cursor?: string }): Promise<{ entities: ArkeEntity[]; cursor: string | null }>
   /** Fetch activity since a timestamp */
   getActivitySince(since: string, limit?: number): Promise<{ activity: ActivityItem[]; cursor: string | null }>
+  /** Fetch lightweight graph data for visualization */
+  getGraphData(options?: { spaceId?: string; limit?: number; cursor?: string }): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; cursor: string | null }>
+  /** Fetch all spaces */
+  getSpaces(): Promise<ArkeSpace[]>
 }
 
 /**
@@ -184,6 +188,22 @@ export function createArkeClient(apiKey?: string, baseUrl = ''): ArkeInstanceCli
       return apiFetch<{ activity: ActivityItem[]; cursor: string | null }>(
         `/activity?${params.toString()}`
       )
+    },
+
+    async getGraphData(options?: { spaceId?: string; limit?: number; cursor?: string }) {
+      const params = new URLSearchParams()
+      if (options?.limit) params.set('limit', String(options.limit))
+      if (options?.spaceId) params.set('space_id', options.spaceId)
+      if (options?.cursor) params.set('cursor', options.cursor)
+      const qs = params.toString()
+      return apiFetch<{ nodes: GraphNode[]; edges: GraphEdge[]; cursor: string | null }>(
+        `/graph/data${qs ? `?${qs}` : ''}`
+      )
+    },
+
+    async getSpaces() {
+      const data = await apiFetch<{ spaces: ArkeSpace[] }>('/spaces')
+      return data.spaces
     },
   }
 }

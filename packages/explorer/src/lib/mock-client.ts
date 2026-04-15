@@ -277,5 +277,13 @@ export function createMockClient(): ArkeInstanceClient {
     async getActivitySince() {
       return { activity: [], cursor: null }
     },
+
+    async getGraphData() {
+      return { nodes: [], edges: [], cursor: null }
+    },
+
+    async getSpaces() {
+      return []
+    },
   }
 }

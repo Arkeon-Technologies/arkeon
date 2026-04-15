@@ -50,9 +50,9 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
   // Get extraction config
   const extractionConfig = await getExtractionConfig();
 
-  // Determine space_id: if scope_to_space is on, use the entity's first space
+  // Determine space_id: inherit from source entity unless scope_to_space is explicitly false
   let spaceId: string | undefined;
-  if (extractionConfig.scope_to_space) {
+  if (extractionConfig.scope_to_space !== false) {
     const spaceIds = entity.space_ids as string[] | undefined;
     if (spaceIds && spaceIds.length > 0) {
       spaceId = spaceIds[0];

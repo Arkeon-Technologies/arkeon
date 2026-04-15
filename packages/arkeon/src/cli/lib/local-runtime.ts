@@ -35,6 +35,7 @@ import { homedir, platform, arch } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { pipeline } from "node:stream/promises";
+import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import EmbeddedPostgres from "embedded-postgres";
@@ -593,7 +594,6 @@ export async function killOrphanedPostgres(): Promise<void> {
  * Uses a quick TCP connect probe — fails fast (~100ms) if nothing is there.
  */
 export function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> {
-  const { createConnection } = require("node:net") as typeof import("node:net");
   return new Promise((resolve) => {
     const sock = createConnection({ port, host, timeout: 500 });
     sock.once("connect", () => { sock.destroy(); resolve(true); });
