@@ -58,6 +58,9 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   }, extractResult.usage);
 
   // Pipeline tail
+  const knownEntityIds = existingEntities && existingEntities.length > 0
+    ? new Set(existingEntities.map((e) => e.id))
+    : undefined;
   const pipelineResult = await runExtractionPipeline(extractResult.data, {
     jobId,
     documentId: entityId,
@@ -66,6 +69,7 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
     writeLevel,
     ownerId,
     permissions,
+    knownEntityIds,
   });
 
   // Merge extraction + pipeline usage
