@@ -121,6 +121,52 @@ jobs:
         if: failure()
         run: tail -200 /tmp/arkeon.log || true
 
+  # Pack the tarball, install it in a clean scratch directory, and run
+  # the full lifecycle (init, up, seed, entities, down) — exactly as a
+  # first-time npm user would. Catches packaging bugs (missing dist
+  # files, broken imports, dependency conflicts) that source-tree tests
+  # miss because they run via tsx, never exercising the real tarball.
+  #
+  # Runs in parallel with test-and-push on different ports (19000 vs 8000).
+  smoke-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install worker toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
+
+      - name: Install dependencies
+        run: npm ci
+
+      # SDK must be built before arkeon — npm pack triggers prepack which
+      # runs the full arkeon build, and that build imports the SDK.
+      - name: Build SDK
+        run: npm run build -w packages/sdk-ts
+
+      - name: Cache Meilisearch binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.arkeon/bin
+          key: arkeon-bin-${{ runner.os }}-${{ runner.arch }}-meili-1.41.0
+
+      - name: Run pack smoke test
+        run: ./scripts/smoke-pack.sh
+
+      - name: Tail log on failure
+        if: failure()
+        run: |
+          SCRATCH=$(ls -td /tmp/arkeon-smoke-pack-* 2>/dev/null | head -1)
+          if [ -n "$SCRATCH" ] && [ -f "$SCRATCH/arkeon.log" ]; then
+            tail -200 "$SCRATCH/arkeon.log"
+          else
+            echo "No smoke test log found"
+          fi
+
   check-cli-spec-drift:
     # Fails if any of the three checked-in generated files are out of
     # date relative to their sources:
