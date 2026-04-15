@@ -15,7 +15,7 @@ import { setJobStatus } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 
-import { extractFromChunk } from "./extract";
+import { extractFromChunk, type EntitySummary } from "./extract";
 import { claimFinalization, runGroupFinalization } from "./finalize";
 
 export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Promise<void> {
@@ -33,6 +33,7 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
   const permissions = metadata.permissions as Array<{ grantee_type: string; grantee_id: string; role: string }> | undefined;
   const spaceId = metadata.space_id as string | undefined;
   const spaceExtractionConfig = metadata.space_extraction_config as SpaceExtractionConfig | undefined;
+  const scoutedEntities = metadata.scouted_entities as EntitySummary[] | undefined;
 
   if (!chunkText) throw new Error("No chunk_text in job metadata");
   if (!parentJobId) throw new Error("No parent_job_id for chunk_extract job");
@@ -47,7 +48,7 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
     survey,
     chunkOrdinal,
     totalChunks,
-  }, extractionConfig, spaceExtractionConfig);
+  }, extractionConfig, spaceExtractionConfig, scoutedEntities);
 
   appendLog(jobId, "llm_response", {
     stage: "chunk_extract",

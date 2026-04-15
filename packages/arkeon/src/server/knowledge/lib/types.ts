@@ -13,6 +13,8 @@ export interface ExtractOpEntity {
   label: string;
   type: string;
   description: string;
+  /** Arbitrary domain-specific properties extracted by the LLM (e.g. from custom_instructions). */
+  properties?: Record<string, unknown>;
 }
 
 export interface ExtractOpRelationship {
@@ -22,6 +24,8 @@ export interface ExtractOpRelationship {
   target_ref: string;
   source_span: string;
   detail?: string;
+  /** Arbitrary domain-specific properties extracted by the LLM (e.g. from custom_instructions). */
+  properties?: Record<string, unknown>;
   /** Inline entity definition for a source that wasn't explicitly extracted */
   source_shell?: {
     label: string;
@@ -145,7 +149,7 @@ export interface IngestResult {
   extractedRelationships: number;
   createdEntities: number;
   createdRelationships: number;
-  potentialDuplicates: number;
+  mergedDuplicates: number;
   chunksCreated?: number;
   usage: {
     model: string;

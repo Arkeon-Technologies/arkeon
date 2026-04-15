@@ -25,6 +25,7 @@ import { routeContent } from "./route";
 import { estimateTokens, chunkText, CHUNK_THRESHOLD_TOKENS } from "./chunk";
 import { surveyDocument } from "./survey";
 import { writeSourceEntities } from "./write";
+import { scoutEntities } from "./extract";
 
 export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void> {
   const jobId = job.id as string;
@@ -148,6 +149,22 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
   }
   appendLog(jobId, "info", `Routed ${text.length} chars of text (mime: ${contentResult.mimeType ?? "inline"})`);
 
+  // Scout for existing entities in the graph to enable cross-document connectivity
+  const extractorConfig = await resolveLlmConfig("extractor");
+  const extractorLlm = new LlmClient(extractorConfig);
+
+  appendLog(jobId, "info", "Scouting for existing graph entities");
+  let scoutedEntities: Array<{ id: string; label: string; type: string; description: string }> = [];
+  try {
+    const scoutResult = await scoutEntities(extractorLlm, text, spaceId);
+    scoutedEntities = scoutResult.entities;
+    if (scoutedEntities.length > 0) {
+      appendLog(jobId, "info", `Found ${scoutedEntities.length} existing entities for context`);
+    }
+  } catch (err) {
+    console.warn(`[knowledge:ingest] Scout failed, continuing without context:`, err instanceof Error ? err.message : err);
+  }
+
   const targetChunkChars = extractionConfig.target_chunk_chars;
   const chunkThresholdTokens = Math.ceil(targetChunkChars / 4);
 
@@ -164,17 +181,13 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
       triggeredBy: triggeredBy ?? undefined,
       jobType: "text.extract",
       parentJobId: jobId,
-      metadata: { text, ...inheritedMeta },
+      metadata: { text, scouted_entities: scoutedEntities, ...inheritedMeta },
     });
 
     await setJobStatus(jobId, "waiting");
   } else {
     // --- Large document: survey, chunk, fan out ---
     appendLog(jobId, "info", `Large document (~${tokens} tokens), chunking`);
-
-    // Survey
-    const extractorConfig = await resolveLlmConfig("extractor");
-    const extractorLlm = new LlmClient(extractorConfig);
 
     appendLog(jobId, "info", "Surveying document");
     const surveyResult = await surveyDocument(extractorLlm, text);
@@ -229,6 +242,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
           chunk_text: chunk.text,
           survey: surveyResult.data,
           source_entity_ids: sourceWrite.sourceEntityIds,
+          scouted_entities: scoutedEntities,
           ...inheritedMeta,
         },
       });

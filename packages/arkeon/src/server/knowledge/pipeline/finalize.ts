@@ -105,7 +105,7 @@ async function _runGroupFinalization(
 
   if (mergedPlan.entities.length === 0) {
     await setJobStatus(parentJobId, "completed", {
-      result: { createdEntities: 0, createdRelationships: 0, potentialDuplicates: 0, childJobs: groupResults.length },
+      result: { createdEntities: 0, createdRelationships: 0, mergedDuplicates: 0, childJobs: groupResults.length },
     });
     return;
   }
@@ -136,7 +136,7 @@ async function _runGroupFinalization(
       extractedRelationships: pipelineResult.extractedRelationships,
       createdEntities: pipelineResult.createdEntities,
       createdRelationships: pipelineResult.createdRelationships,
-      potentialDuplicates: pipelineResult.potentialDuplicates,
+      mergedDuplicates: pipelineResult.mergedDuplicates,
       childJobs: groupResults.length,
     },
     model: pipelineResult.usage.model || undefined,

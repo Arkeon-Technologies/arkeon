@@ -7,9 +7,12 @@ import { ApiError } from "../lib/errors";
 import { createRouter } from "../lib/openapi";
 import { fetchTraversal, MAX_HOPS, MAX_LIMIT } from "../lib/traverse";
 import { fetchSpaceForActor } from "../lib/spaces";
-import { createSql } from "../lib/sql";
+import { createSql, withTransaction } from "../lib/sql";
+import { setActorContext } from "../lib/actor-context";
+import { decodeCursor, encodeCursor } from "../lib/cursor";
 import {
   EntityIdParam,
+  GraphDataResponseSchema,
   TraverseResponseSchema,
   errorResponses,
   jsonContent,
@@ -137,6 +140,159 @@ graphRouter.openapi(traverseRoute, async (c) => {
   if (result.source_ids.length === 0) {
     throw new ApiError(404, "not_found", "No entities match the source filter");
   }
+
+  return c.json(result, 200);
+});
+
+// ---------------------------------------------------------------------------
+// GET /graph/data — lightweight bulk graph data for visualization
+// ---------------------------------------------------------------------------
+
+const GRAPH_DATA_MAX_LIMIT = 50_000;
+
+const graphDataRoute = createRoute({
+  method: "get",
+  path: "/data",
+  operationId: "getGraphData",
+  tags: ["Graph"],
+  summary: "Bulk graph data for visualization — minimal node and edge payloads in a single response",
+  description: [
+    "Returns lightweight node and edge data suitable for rendering large graphs.",
+    "Nodes include only id, label, type, and space memberships.",
+    "Edges include only id, source_id, target_id, and predicate.",
+    "Full entity details should be loaded on-demand via GET /entities/{id}.",
+  ].join("\n"),
+  "x-arke-auth": "optional",
+  "x-arke-related": [
+    "GET /entities/{id}",
+    "GET /graph/traverse",
+  ],
+  "x-arke-rules": [
+    "Nodes filtered by your classification clearance",
+    "Edges only included when both endpoints are in the result set",
+    "Collection edges are excluded",
+  ],
+  request: {
+    query: z.object({
+      space_id: queryParam(
+        "space_id",
+        EntityIdParam.optional(),
+        "Filter to entities within this space",
+      ),
+      limit: queryParam(
+        "limit",
+        z.coerce.number().int().min(1).max(GRAPH_DATA_MAX_LIMIT).optional(),
+        `Max nodes to return (default 10000, max ${GRAPH_DATA_MAX_LIMIT})`,
+      ),
+      cursor: queryParam(
+        "cursor",
+        z.string().optional(),
+        "Pagination cursor from a previous response",
+      ),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Graph nodes and edges",
+      content: jsonContent(GraphDataResponseSchema),
+    },
+    ...errorResponses([400, 403]),
+  },
+});
+
+graphRouter.openapi(graphDataRoute, async (c) => {
+  const actor = c.get("actor") ?? null;
+  const spaceId = c.req.query("space_id") || undefined;
+  const limit = Number(c.req.query("limit") ?? 10_000);
+  const cursorRaw = c.req.query("cursor") || undefined;
+  const cursor = decodeCursor(cursorRaw);
+
+  if (spaceId) {
+    const space = await fetchSpaceForActor(actor, spaceId);
+    if (!space) {
+      throw new ApiError(404, "not_found", "Space not found");
+    }
+  }
+
+  const result = await withTransaction(async (tx) => {
+    // Set RLS context
+    for (const q of setActorContext(tx, actor)) {
+      await q;
+    }
+
+    // Build nodes query
+    const params: unknown[] = [];
+    let paramIdx = 1;
+
+    let where = "WHERE e.kind = 'entity'";
+    if (spaceId) {
+      params.push(spaceId);
+      where += ` AND e.id IN (SELECT entity_id FROM space_entities WHERE space_id = $${paramIdx})`;
+      paramIdx++;
+    }
+    if (cursor) {
+      params.push(cursor.t, cursor.i);
+      where += ` AND (e.updated_at, e.id) < ($${paramIdx}, $${paramIdx + 1})`;
+      paramIdx += 2;
+    }
+    params.push(limit + 1);
+
+    const nodesRows = await tx.query(
+      `SELECT
+        e.id,
+        COALESCE(e.properties->>'label', e.properties->>'title', e.properties->>'name', e.type) AS label,
+        e.type,
+        (SELECT COALESCE(array_agg(se.space_id), '{}') FROM space_entities se WHERE se.entity_id = e.id) AS space_ids,
+        e.updated_at
+      FROM entities e
+      ${where}
+      ORDER BY e.updated_at DESC, e.id DESC
+      LIMIT $${paramIdx}`,
+      params,
+    );
+
+    // Determine pagination
+    const hasMore = nodesRows.length > limit;
+    const pageRows = hasMore ? nodesRows.slice(0, limit) : nodesRows;
+
+    let nextCursor: string | null = null;
+    if (hasMore) {
+      const last = pageRows[pageRows.length - 1];
+      nextCursor = encodeCursor({ t: last.updated_at as string, i: last.id as string });
+    }
+
+    const nodes = pageRows.map((r) => ({
+      id: r.id as string,
+      label: r.label as string,
+      type: r.type as string,
+      space_ids: (r.space_ids as string[]) || [],
+    }));
+
+    // Fetch edges between returned nodes
+    const nodeIds = nodes.map((n) => n.id);
+    let edges: Array<{ id: string; source_id: string; target_id: string; predicate: string }> = [];
+
+    if (nodeIds.length > 0) {
+      const edgeRows = await tx.query(
+        `SELECT re.id, re.source_id, re.target_id, re.predicate
+        FROM relationship_edges re
+        JOIN entities rel_e ON rel_e.id = re.id
+        WHERE re.source_id = ANY($1)
+          AND re.target_id = ANY($1)
+          AND re.predicate != 'collection'`,
+        [nodeIds],
+      );
+
+      edges = edgeRows.map((r) => ({
+        id: r.id as string,
+        source_id: r.source_id as string,
+        target_id: r.target_id as string,
+        predicate: r.predicate as string,
+      }));
+    }
+
+    return { nodes, edges, cursor: nextCursor };
+  });
 
   return c.json(result, 200);
 });
