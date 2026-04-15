@@ -13,11 +13,35 @@ import type { EntityCandidate, MergeDecision } from "../lib/types";
 import type { LlmUsage } from "../lib/llm";
 import { normalizeLabel as normalize } from "../lib/normalize";
 
+const STOP_WORDS = new Set([
+  // articles
+  "the", "a", "an",
+  // prepositions
+  "of", "in", "on", "at", "to", "for", "from", "with", "by", "into",
+  "through", "during", "before", "after", "above", "below", "between",
+  "under", "over", "about", "against", "among", "upon", "within",
+  // conjunctions
+  "and", "or", "but", "nor", "yet", "so",
+  // pronouns / determiners
+  "is", "was", "are", "were", "be", "been", "being",
+  "has", "had", "have", "having",
+  "do", "does", "did",
+  "that", "this", "these", "those", "it", "its",
+  "he", "she", "they", "we", "his", "her", "their", "our",
+  // common filler
+  "as", "if", "not", "no", "all", "also", "more", "most", "very",
+  "which", "who", "whom", "whose", "when", "where", "how", "what",
+]);
+
 function buildQueries(label: string): string[] {
-  const parts = normalize(label).split(" ").filter(Boolean);
-  const queries = new Set<string>([label, normalize(label)]);
-  for (const part of parts) queries.add(part);
-  return [...queries].filter(Boolean).slice(0, 5);
+  const normalized = normalize(label);
+  const parts = normalized.split(" ").filter(Boolean);
+  const queries = new Set<string>([label, normalized]);
+  // Add content words first (skip stop words so they don't waste query slots)
+  for (const part of parts) {
+    if (!STOP_WORDS.has(part)) queries.add(part);
+  }
+  return [...queries].filter(Boolean).slice(0, 10);
 }
 
 const DEDUPE_PROMPT = `You are an entity merge judge for a knowledge graph.
@@ -50,16 +74,24 @@ async function dedupeOne(
   usage?: LlmUsage;
 }> {
   const entity = await getEntity(entityId);
-  if (!entity) return {};
+  if (!entity) {
+    console.log(`[knowledge:dedupe] ${entityId} — entity not found, skipping`);
+    return {};
+  }
 
   const label = entity.properties?.label ?? "";
-  if (!label) return {};
+  if (!label) {
+    console.log(`[knowledge:dedupe] ${entityId} — no label, skipping`);
+    return {};
+  }
 
   const SKIP_TYPES = new Set(["document", "text_chunk"]);
   const MAX_DESC_CHARS = 200;
   const MAX_CANDIDATES = 20;
 
   const queries = buildQueries(label);
+  console.log(`[knowledge:dedupe] ${entityId} "${label}" (${entity.type}) — queries: ${JSON.stringify(queries)}`);
+
   const hits = new Map<string, EntityCandidate>();
 
   for (const q of queries) {
@@ -85,7 +117,12 @@ async function dedupeOne(
   }
 
   const candidates = [...hits.values()].slice(0, MAX_CANDIDATES);
-  if (candidates.length === 0) return {};
+  if (candidates.length === 0) {
+    console.log(`[knowledge:dedupe] ${entityId} "${label}" — no candidates found`);
+    return {};
+  }
+
+  console.log(`[knowledge:dedupe] ${entityId} "${label}" — ${candidates.length} candidate(s): ${candidates.map((c) => `"${c.label}" (${c.type})`).join(", ")}`);
 
   // Collect ALL exact normalized-label matches (not just the first)
   const normalizedSelf = normalize(label);
@@ -96,6 +133,7 @@ async function dedupeOne(
     // If all candidates are exact matches, no need for LLM
     const nonExact = candidates.filter((c) => normalize(c.label) !== normalizedSelf);
     if (nonExact.length === 0) {
+      console.log(`[knowledge:dedupe] ${entityId} "${label}" — exact match (no LLM): ${exactMatches.map((c) => c.id).join(", ")}`);
       return {
         duplicate: {
           entityId,
@@ -107,6 +145,7 @@ async function dedupeOne(
     // Otherwise, include exact matches in the LLM call for the fuzzy ones too
   }
 
+  console.log(`[knowledge:dedupe] ${entityId} "${label}" — calling LLM for fuzzy match`);
   const result = await llm.chatJson<MergeDecision>(
     DEDUPE_PROMPT,
     JSON.stringify({
@@ -123,6 +162,12 @@ async function dedupeOne(
   const sameIds = (result.data.same_as_ids ?? []).filter(
     (id) => id !== entityId,
   );
+
+  if (sameIds.length > 0) {
+    console.log(`[knowledge:dedupe] ${entityId} "${label}" — LLM says merge with: ${sameIds.join(", ")} — ${result.data.rationale ?? ""}`);
+  } else {
+    console.log(`[knowledge:dedupe] ${entityId} "${label}" — LLM says no duplicates — ${result.data.rationale ?? ""}`);
+  }
 
   return {
     duplicate: sameIds.length > 0
