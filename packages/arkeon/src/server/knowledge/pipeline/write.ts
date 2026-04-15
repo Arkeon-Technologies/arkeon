@@ -46,6 +46,12 @@ export interface WriteOpts {
 // Build ops envelope from ExtractPlan
 // ---------------------------------------------------------------------------
 
+// ULID pattern: 26 uppercase Crockford base32 characters
+const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/i;
+function isUlid(ref: string): boolean {
+  return ULID_RE.test(ref);
+}
+
 export function buildOpsFromPlan(
   plan: ExtractPlan,
   documentId: string,
@@ -54,6 +60,9 @@ export function buildOpsFromPlan(
   const ops: Array<Record<string, unknown>> = [];
 
   for (const entity of plan.entities) {
+    // Skip entities that reference existing graph entities (ULID refs from scout)
+    if (isUlid(entity.ref)) continue;
+
     ops.push({
       op: "entity",
       ref: `@${entity.ref}`,
@@ -66,11 +75,15 @@ export function buildOpsFromPlan(
   }
 
   for (const rel of plan.relationships) {
+    // Use raw ULID for existing entities, @ref for new local entities
+    const source = isUlid(rel.source_ref) ? rel.source_ref : `@${rel.source_ref}`;
+    const target = isUlid(rel.target_ref) ? rel.target_ref : `@${rel.target_ref}`;
+
     ops.push({
       op: "relate",
       ...rel.properties,
-      source: `@${rel.source_ref}`,
-      target: `@${rel.target_ref}`,
+      source,
+      target,
       predicate: rel.predicate,
       ...(rel.source_span ? { span: rel.source_span } : {}),
       ...(rel.detail ? { detail: rel.detail } : {}),

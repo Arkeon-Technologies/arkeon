@@ -10,14 +10,102 @@
  * Space config overrides global config when present.
  */
 
-import { LlmClient, type ChatJsonResult } from "../lib/llm";
+import { LlmClient, type ChatJsonResult, type LlmUsage } from "../lib/llm";
 import type { ExtractPlan, ExtractOpEntity, ExtractOpRelationship, DocumentSurvey, TextChunk, SpaceExtractionConfig } from "../lib/types";
 import type { ExtractionConfig } from "../lib/config";
+import { search } from "../lib/arke-client";
+
+// ---------------------------------------------------------------------------
+// Entity scout — lightweight LLM call to discover existing graph context
+// ---------------------------------------------------------------------------
+
+export interface EntitySummary {
+  id: string;
+  label: string;
+  type: string;
+  description: string;
+}
+
+const SCOUT_PROMPT = `Given this document excerpt, list 10-15 short keyword search queries for the key entities (people, places, organizations, events) you would extract from the full document.
+
+Return JSON: { "queries": ["kissinger", "phnom penh", "fank", "opec"] }
+
+Rules:
+- Single words or very short phrases — these are keyword searches
+- Focus on proper nouns and specific names
+- No generic terms ("meeting", "report", "government")
+- No duplicates`;
+
+const SCOUT_SAMPLE_CHARS = 3000;
+const SCOUT_MAX_QUERIES = 15;
+const SCOUT_SEARCH_LIMIT = 5;
+const SCOUT_MAX_ENTITIES = 50;
+
+/**
+ * Scout for existing entities relevant to a document by:
+ * 1. Asking the LLM for keyword search queries from a text sample
+ * 2. Running those queries against Meilisearch
+ * 3. Returning deduplicated entity summaries
+ */
+export async function scoutEntities(
+  llm: LlmClient,
+  text: string,
+  spaceId?: string,
+): Promise<{ entities: EntitySummary[]; usage: LlmUsage }> {
+  const sample = text.slice(0, SCOUT_SAMPLE_CHARS);
+
+  const result = await llm.chatJson<{ queries: string[] }>(
+    SCOUT_PROMPT,
+    sample,
+    { maxTokens: 500 },
+  );
+
+  const queries = (result.data.queries ?? [])
+    .filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+    .slice(0, SCOUT_MAX_QUERIES);
+
+  if (queries.length === 0) {
+    return { entities: [], usage: result.usage };
+  }
+
+  // Run searches in parallel
+  const hits = new Map<string, EntitySummary>();
+  const searchResults = await Promise.all(
+    queries.map((q) =>
+      search(q, { space_id: spaceId, limit: SCOUT_SEARCH_LIMIT }).catch(() => []),
+    ),
+  );
+
+  for (const results of searchResults) {
+    for (const hit of results) {
+      const id = hit.id as string;
+      const label = hit.properties?.label as string | undefined;
+      if (!id || !label || hits.has(id)) continue;
+      if (hit.kind === "relationship") continue;
+      const type = (hit.type as string) ?? "unknown";
+      // Skip document/chunk types — we want graph entities
+      if (type === "document" || type === "text_chunk") continue;
+
+      hits.set(id, {
+        id,
+        label,
+        type,
+        description: ((hit.properties?.description as string) ?? "").slice(0, 80),
+      });
+    }
+  }
+
+  return {
+    entities: [...hits.values()].slice(0, SCOUT_MAX_ENTITIES),
+    usage: result.usage,
+  };
+}
 
 function buildSystemPrompt(
   config: ExtractionConfig,
   surveyTypes?: string[],
   spaceConfig?: SpaceExtractionConfig,
+  existingEntities?: EntitySummary[],
 ): string {
   let prompt = "";
 
@@ -60,6 +148,7 @@ Return JSON:
 Rules:
 - Extract comprehensively: people, organizations, locations, events, concepts, objects, works — anything meaningful
 - Each real-world entity gets exactly ONE entry — never duplicate
+- Labels should be proper names, not titles or roles (e.g. "Henry Kissinger" not "Secretary Kissinger", "Anwar Sadat" not "President Sadat")
 - Give each entity a short stable ref like "person_jane" or "event_battle"
 - Descriptions should be rich and cite the source text (quote key phrases)
 - source_span: a verbatim quote from the text where this relationship is stated
@@ -67,6 +156,19 @@ Rules:
 - Use specific predicates (e.g. "founded", "betrayed", "traveled_to") not generic ones ("relates_to")
 - source_ref and target_ref MUST match a ref from entities
 - You may include additional domain-specific properties as top-level keys on entities and relationships (alongside ref/label/type/description). If the additional instructions below request specific properties, include them on every entity or relationship as directed`;
+
+  // Known entities from the graph — enables cross-document connectivity
+  if (existingEntities && existingEntities.length > 0) {
+    prompt += `\n\nKnown entities already in the graph — reuse these when the same entity appears in this document:`;
+    for (const e of existingEntities) {
+      const desc = e.description ? ` — ${e.description}` : "";
+      prompt += `\n- [${e.id}] "${e.label}" (${e.type})${desc}`;
+    }
+    prompt += `\n\nWhen you recognize a known entity in the text:
+- Use its ID as the ref (e.g. ref: "${existingEntities[0].id}")
+- You MAY create relationships between new entities and known entities
+- If unsure whether something matches a known entity, create it as new`;
+  }
 
   // Entity types: space config (always strict) > strict global > survey-inferred > suggestions
   if (spaceConfig?.entity_types && spaceConfig.entity_types.length > 0) {
@@ -176,8 +278,9 @@ export async function extractFromDocument(
   documentText: string,
   config: ExtractionConfig,
   spaceConfig?: SpaceExtractionConfig,
+  existingEntities?: EntitySummary[],
 ): Promise<ChatJsonResult<ExtractPlan>> {
-  const systemPrompt = buildSystemPrompt(config, undefined, spaceConfig);
+  const systemPrompt = buildSystemPrompt(config, undefined, spaceConfig, existingEntities);
 
   const result = await llm.chatJson<any>(systemPrompt, documentText, {
     maxTokens: 16_384,
@@ -196,8 +299,9 @@ function buildChunkSystemPrompt(
   chunkOrdinal: number,
   totalChunks: number,
   spaceConfig?: SpaceExtractionConfig,
+  existingEntities?: EntitySummary[],
 ): string {
-  const basePrompt = buildSystemPrompt(config, survey.entity_types, spaceConfig);
+  const basePrompt = buildSystemPrompt(config, survey.entity_types, spaceConfig, existingEntities);
 
   const contextBlock = `Document context:
 You are extracting chunk ${chunkOrdinal + 1} of ${totalChunks} from a ${survey.document_type} titled "${survey.title}".
@@ -220,6 +324,7 @@ export async function extractFromChunk(
   },
   config: ExtractionConfig,
   spaceConfig?: SpaceExtractionConfig,
+  existingEntities?: EntitySummary[],
 ): Promise<ChatJsonResult<ExtractPlan>> {
   const systemPrompt = buildChunkSystemPrompt(
     config,
@@ -227,6 +332,7 @@ export async function extractFromChunk(
     context.chunkOrdinal,
     context.totalChunks,
     spaceConfig,
+    existingEntities,
   );
 
   const result = await llm.chatJson<any>(systemPrompt, chunkText, {
@@ -286,6 +392,7 @@ export async function extractAllChunks(
   survey: DocumentSurvey,
   config: ExtractionConfig,
   spaceConfig?: SpaceExtractionConfig,
+  existingEntities?: EntitySummary[],
 ): Promise<ChatJsonResult<ExtractPlan>[]> {
   const concurrency = Number(process.env.CHUNK_EXTRACT_CONCURRENCY) || DEFAULT_CHUNK_CONCURRENCY;
 
@@ -294,7 +401,7 @@ export async function extractAllChunks(
       survey,
       chunkOrdinal: chunk.ordinal,
       totalChunks: chunks.length,
-    }, config, spaceConfig),
+    }, config, spaceConfig, existingEntities),
   );
 
   return limitConcurrency(tasks, concurrency);
