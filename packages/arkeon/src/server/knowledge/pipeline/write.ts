@@ -66,6 +66,7 @@ export function buildOpsFromPlan(
     ops.push({
       op: "entity",
       ref: `@${entity.ref}`,
+      ...entity.properties,
       type: entity.type,
       label: entity.label,
       description: entity.description,
@@ -80,6 +81,7 @@ export function buildOpsFromPlan(
 
     ops.push({
       op: "relate",
+      ...rel.properties,
       source,
       target,
       predicate: rel.predicate,
@@ -289,11 +291,11 @@ export async function writeSourceEntities(
         write_level: opts?.writeLevel,
         permissions: opts?.permissions,
         properties: {
+          ...source.properties,
           label: source.label,
           ...(source.text != null ? { text: source.text } : {}),
           ordinal: source.ordinal,
           source_document_id: parentEntityId,
-          ...source.properties,
         },
       });
 
