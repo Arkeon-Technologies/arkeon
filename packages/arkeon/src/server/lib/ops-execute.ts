@@ -25,6 +25,7 @@ import { addEntityToSpaceQuery, grantEntityPermissionQuery } from "./entities";
 import { backgroundTask } from "./background";
 import { generateUlid } from "./ids";
 import { indexEntityById } from "./meilisearch";
+import { deepMergeObjects } from "./properties";
 import { setActorContext } from "./actor-context";
 import { requireSpaceRole } from "./spaces";
 import type { SqlClient } from "./sql";
@@ -112,10 +113,12 @@ export async function executeOps(
   // extractedFromEdges array below.
   const extractedFromQueryIdx: number[] = [];
 
+  const upsertMode = plan.upsert_mode ?? "accumulate";
+
   for (const entity of plan.entities) {
     entityQueryIdx.push(queries.length);
     if (entity.is_upsert) {
-      queries.push(buildEntityUpsertUpdate(sql, entity, actor.id, now));
+      queries.push(buildEntityUpsertUpdate(sql, entity, actor.id, now, upsertMode));
       queries.push(buildEntityUpsertVersionInsert(sql, entity.id, actor.id, now));
       queries.push(buildEntityUpsertActivityInsert(sql, entity, actor.id, now));
     } else {
@@ -534,7 +537,7 @@ async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient)
       ...setActorContext(sql, actor),
       sql.query(
         `SELECT DISTINCT ON (e.type, lower(e.properties->>'label'))
-                e.id, e.type, lower(e.properties->>'label') AS label_lower, e.ver
+                e.id, e.type, lower(e.properties->>'label') AS label_lower, e.ver, e.properties
          FROM entities e
          JOIN space_entities se ON se.entity_id = e.id
          WHERE se.space_id = $1
@@ -546,14 +549,14 @@ async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient)
       ),
     ]);
 
-    const rows = txResults.at(-1) as Array<{ id: string; type: string; label_lower: string; ver: number }>;
+    const rows = txResults.at(-1) as Array<{ id: string; type: string; label_lower: string; ver: number; properties: Record<string, unknown> }>;
     if (!rows || rows.length === 0) continue;
 
-    // Build lookup map: "type|label_lower" → { id, ver }
+    // Build lookup map: "type|label_lower" → { id, ver, properties }
     // DISTINCT ON guarantees one row per (type, label_lower).
-    const existing = new Map<string, { id: string; ver: number }>();
+    const existing = new Map<string, { id: string; ver: number; properties: Record<string, unknown> }>();
     for (const row of rows) {
-      existing.set(`${row.type}|${row.label_lower}`, { id: row.id, ver: row.ver });
+      existing.set(`${row.type}|${row.label_lower}`, { id: row.id, ver: row.ver, properties: row.properties });
     }
 
     // Patch matching entities
@@ -564,6 +567,7 @@ async function resolveUpsertTargets(plan: OpsPlan, actor: Actor, sql: SqlClient)
         entity.id = match.id;
         entity.is_upsert = true;
         entity.existing_ver = match.ver;
+        entity.existing_properties = match.properties;
         idRemap.set(oldId, match.id);
       }
     }
@@ -635,7 +639,24 @@ function buildEntityUpsertUpdate(
   entity: PlannedEntity,
   actorId: string,
   now: string,
+  upsertMode: "accumulate" | "replace" = "accumulate",
 ) {
+  if (upsertMode === "accumulate" && entity.existing_properties) {
+    const merged = deepMergeObjects(
+      entity.existing_properties as Record<string, unknown>,
+      entity.properties,
+    );
+    return sql.query(
+      `UPDATE entities
+       SET properties = $1::jsonb,
+           ver = ver + 1,
+           edited_by = $2,
+           updated_at = $3::timestamptz
+       WHERE id = $4 AND ver = $5
+       RETURNING *`,
+      [JSON.stringify(merged), actorId, now, entity.id, entity.existing_ver],
+    );
+  }
   return sql.query(
     `UPDATE entities
      SET properties = properties || $1::jsonb,

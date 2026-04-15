@@ -147,6 +147,12 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
   // key. See docs/ADVANCED.md for cost/behavior notes.
   const knowledgeEnabled = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
   if (knowledgeEnabled) {
+    // Ensure the knowledge SDK knows the actual API port — without this,
+    // bootstrapKnowledgeService falls back to PORT env (often unset) → 8000,
+    // which is wrong for named instances on non-default ports.
+    if (!process.env.ARKE_API_URL) {
+      process.env.ARKE_API_URL = `http://localhost:${port}`;
+    }
     await bootstrapKnowledgeService();
     initKnowledgeQueue();
     startKnowledgePoller();

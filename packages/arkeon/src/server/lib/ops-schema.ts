@@ -164,6 +164,7 @@ export const OpsDefaultsSchema = z
     write_level: ClassificationLevel.optional(),
     permissions: z.array(InlinePermissionGrant).optional(),
     upsert_on: UpsertOnSchema.optional(),
+    upsert_mode: z.enum(["accumulate", "replace"]).default("accumulate").optional(),
   })
   .describe(
     "Defaults applied to every op that does not set them individually. Per-op values override.",

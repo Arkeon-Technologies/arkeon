@@ -25,6 +25,7 @@ import {
   type OpsEnvelope,
   type RelateOp,
 } from "./ops-schema";
+import { deepMergeObjects } from "./properties";
 import type { PermissionGrant } from "./entities";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,8 @@ export interface PlannedEntity {
   is_upsert?: boolean;
   /** The existing entity's version, set by executor for CAS on upsert UPDATE. */
   existing_ver?: number;
+  /** The existing entity's properties, set by executor for accumulate-mode merging. */
+  existing_properties?: Record<string, unknown>;
 }
 
 export interface PlannedEdge {
@@ -85,6 +88,8 @@ export interface OpsPlan {
   referenced_global_ids: Set<string>;
   /** True when upsert_on is set in defaults — signals executor to run pre-flight upsert lookup. */
   upsert_active: boolean;
+  /** Controls how properties are merged on upsert: "accumulate" deep-merges, "replace" overwrites. */
+  upsert_mode: "accumulate" | "replace";
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +164,7 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   }
 
   return {
-    plan: { entities, edges, referenced_global_ids, upsert_active: upsertActive },
+    plan: { entities, edges, referenced_global_ids, upsert_active: upsertActive, upsert_mode: defaults.upsert_mode ?? "accumulate" },
     errors: [],
   };
 }
@@ -202,8 +207,13 @@ function processEntityOp(
     const dedupKey = `${op.type}|${label.toLowerCase()}|${spaceId}`;
     const existing = batchDedup.get(dedupKey);
     if (existing) {
-      // Shallow-merge: this op's properties win on conflict
-      Object.assign(existing.properties, properties);
+      // Merge properties according to upsert_mode
+      const upsertMode = defaults.upsert_mode ?? "accumulate";
+      if (upsertMode === "accumulate") {
+        existing.properties = deepMergeObjects(existing.properties, properties);
+      } else {
+        Object.assign(existing.properties, properties);
+      }
       existing.label = label; // update to latest casing
       // Alias this ref to the existing entity's ULID
       localRefs.set(op.ref, existing.id);
