@@ -488,6 +488,14 @@
                 "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$/i",
                 "type": "string"
               },
+              "upsert_mode": {
+                "default": "accumulate",
+                "enum": [
+                  "accumulate",
+                  "replace"
+                ],
+                "type": "string"
+              },
               "upsert_on": {
                 "description": "When set to ['label', 'type'], entity ops with matching (label, type) within the same space will update the existing entity instead of creating a duplicate. Requires space_id on the op or in defaults. Entities without a label or space are always created fresh.",
                 "items": {
