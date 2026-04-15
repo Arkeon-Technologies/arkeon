@@ -169,7 +169,7 @@ export async function getExtractionConfig(): Promise<ExtractionConfig> {
         custom_instructions: null,
         max_concurrency: 10,
         target_chunk_chars: 8000,
-        scope_to_space: false,
+        scope_to_space: true,
         updated_at: new Date().toISOString(),
       };
     }
@@ -182,7 +182,7 @@ export async function getExtractionConfig(): Promise<ExtractionConfig> {
       custom_instructions: row.custom_instructions as string | null,
       max_concurrency: (row.max_concurrency as number) ?? 10,
       target_chunk_chars: (row.target_chunk_chars as number) ?? 8000,
-      scope_to_space: (row.scope_to_space as boolean) ?? false,
+      scope_to_space: (row.scope_to_space as boolean) ?? true,
       updated_at: (row.updated_at as Date).toISOString(),
     };
   });
