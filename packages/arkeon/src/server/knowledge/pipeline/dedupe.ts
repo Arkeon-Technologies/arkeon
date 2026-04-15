@@ -14,8 +14,23 @@ import type { LlmUsage } from "../lib/llm";
 import { normalizeLabel as normalize } from "../lib/normalize";
 
 const STOP_WORDS = new Set([
-  "the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or",
-  "is", "was", "by", "as", "from", "with", "that", "this", "it",
+  // articles
+  "the", "a", "an",
+  // prepositions
+  "of", "in", "on", "at", "to", "for", "from", "with", "by", "into",
+  "through", "during", "before", "after", "above", "below", "between",
+  "under", "over", "about", "against", "among", "upon", "within",
+  // conjunctions
+  "and", "or", "but", "nor", "yet", "so",
+  // pronouns / determiners
+  "is", "was", "are", "were", "be", "been", "being",
+  "has", "had", "have", "having",
+  "do", "does", "did",
+  "that", "this", "these", "those", "it", "its",
+  "he", "she", "they", "we", "his", "her", "their", "our",
+  // common filler
+  "as", "if", "not", "no", "all", "also", "more", "most", "very",
+  "which", "who", "whom", "whose", "when", "where", "how", "what",
 ]);
 
 function buildQueries(label: string): string[] {
@@ -26,7 +41,7 @@ function buildQueries(label: string): string[] {
   for (const part of parts) {
     if (!STOP_WORDS.has(part)) queries.add(part);
   }
-  return [...queries].filter(Boolean).slice(0, 5);
+  return [...queries].filter(Boolean).slice(0, 10);
 }
 
 const DEDUPE_PROMPT = `You are an entity merge judge for a knowledge graph.
