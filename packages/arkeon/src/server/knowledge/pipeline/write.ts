@@ -67,7 +67,7 @@ export function buildOpsFromPlan(
     // Skip entities that reference existing graph entities (ULID refs from scout).
     // Only skip if the ID is in the known set — a hallucinated ULID-shaped ref
     // that isn't in knownEntityIds gets treated as a new entity with @ref.
-    if (isUlid(entity.ref) && (!knownEntityIds || knownEntityIds.has(entity.ref))) {
+    if (isUlid(entity.ref) && knownEntityIds?.has(entity.ref)) {
       continue;
     }
 
@@ -83,8 +83,8 @@ export function buildOpsFromPlan(
 
   for (const rel of plan.relationships) {
     // Use raw ULID for known existing entities, @ref for new local entities
-    const sourceIsKnown = isUlid(rel.source_ref) && (!knownEntityIds || knownEntityIds.has(rel.source_ref));
-    const targetIsKnown = isUlid(rel.target_ref) && (!knownEntityIds || knownEntityIds.has(rel.target_ref));
+    const sourceIsKnown = isUlid(rel.source_ref) && knownEntityIds?.has(rel.source_ref);
+    const targetIsKnown = isUlid(rel.target_ref) && knownEntityIds?.has(rel.target_ref);
     const source = sourceIsKnown ? rel.source_ref : `@${rel.source_ref}`;
     const target = targetIsKnown ? rel.target_ref : `@${rel.target_ref}`;
 
