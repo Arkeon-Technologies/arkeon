@@ -23,7 +23,7 @@ providers:
         disable-model-invocation: true
       per-skill:
         arkeon-ingest:
-          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write"
+          allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent"
         arkeon-connect:
           allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent"
         arkeon-doctor:
