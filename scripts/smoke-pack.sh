@@ -276,7 +276,7 @@ pass "seed idempotent"
 
 echo "arkeon entities list..."
 ENTITIES_OUT=$(npx arkeon entities list --raw 2>&1) || fail "arkeon entities list"
-if echo "$ENTITIES_OUT" | grep -q '"entities"'; then
+if [[ "$ENTITIES_OUT" == *'"entities"'* ]]; then
   # Count entities in the response (non-empty array means seed data is visible)
   # Use `|| true` because grep returns exit 1 when no matches, which kills set -eo pipefail
   ENTITY_COUNT=$(echo "$ENTITIES_OUT" | grep -o '"id"' | wc -l | tr -d ' ' || true)
