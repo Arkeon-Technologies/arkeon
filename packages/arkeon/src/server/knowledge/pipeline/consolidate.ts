@@ -28,17 +28,11 @@ const DEBOUNCE_MS = 15_000;
 const MAX_ENTITIES_PER_BATCH = 200;
 const DESC_SNIPPET_CHARS = 150;
 
-/** Safely truncate a string without cutting multi-byte UTF-8 characters. */
-function safeTruncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  // Truncate and remove any trailing partial character
-  let truncated = s.slice(0, maxLen);
-  // If we cut in the middle of a surrogate pair or multi-byte sequence, trim back
-  const lastChar = truncated.charCodeAt(truncated.length - 1);
-  if (lastChar >= 0xD800 && lastChar <= 0xDBFF) {
-    truncated = truncated.slice(0, -1);
-  }
-  return truncated;
+/** Strip invalid UTF-8 sequences from a string. */
+function sanitizeUtf8(s: string): string {
+  // Replace any lone surrogates or invalid sequences
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\uFFFD\uFFFE\uFFFF]/g, "").replace(/[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]/g, "");
 }
 
 // Words too common to be meaningful for overlap detection
@@ -274,9 +268,9 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
 
   const entityList: CompactEntity[] = entities.map((e) => ({
     id: e.id as string,
-    label: (e.label as string) || "?",
+    label: sanitizeUtf8((e.label as string) || "?"),
     type: e.type as string,
-    description: (e.description as string) || "",
+    description: sanitizeUtf8((e.description as string) || ""),
   }));
 
   // Generate alternative label keywords to catch synonym-type matches
@@ -357,9 +351,9 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
       totalMergeOps += mergeOps.length;
       totalRelateOps += relateOps.length;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = sanitizeUtf8(err instanceof Error ? err.message : String(err));
       console.warn(`[knowledge:consolidate] Group revision failed: ${message}`);
-      appendLog(jobId, "error", `Group revision failed: ${message}`);
+      appendLog(jobId, "error", sanitizeUtf8(`Group revision failed: ${message}`));
     }
   }
 
