@@ -171,39 +171,36 @@ function findOverlapGroups(entities: CompactEntity[], aliasMap?: Map<string, str
       const wb = contentWords(entities[j].label);
       if (wb.size === 0) continue;
 
-      const shared = new Set([...wa].filter((w) => wb.has(w)));
-      if (shared.size === 0) continue;
-
-      // Connect if both labels are short and one contains the other
-      // (e.g. two synonyms may share no words, but "Dept. of Defense"
-      // and "Department of Defense" share 2 words), or they share >=50% of
-      // BOTH labels' content words (bidirectional overlap).
-      // Single-word labels only match if the other is also short (<=3 words).
-      const maxLen = Math.max(wa.size, wb.size);
-      const minLen = Math.min(wa.size, wb.size);
-      const overlapPct = shared.size / maxLen;
-
-      // Both must have significant overlap relative to their own size
-      const aOverlap = shared.size / wa.size;
-      const bOverlap = shared.size / wb.size;
-      const bidirectional = aOverlap >= 0.5 && bOverlap >= 0.5;
-
-      // Short labels (1-2 words) only match other short labels
-      const bothShort = maxLen <= 3 && shared.size >= 1;
-
-      // Also check alias matches: does entity A's alias match entity B's label or vice versa?
+      // Check alias matches first — works even with zero shared content words
+      // (e.g. "USSR" and "Soviet Union" share no words but aliases connect them)
       let aliasMatch = false;
       if (aliasMap) {
         const normA = normalize(entities[i].label);
         const normB = normalize(entities[j].label);
         const aliasesA = aliasMap.get(entities[i].id) ?? [];
         const aliasesB = aliasMap.get(entities[j].id) ?? [];
-        // A's aliases contain B's normalized label, or vice versa
-        aliasMatch = aliasesA.some((a) => normalize(a) === normB || normB.includes(a))
-                  || aliasesB.some((a) => normalize(a) === normA || normA.includes(a));
+        aliasMatch = aliasesA.some((a) => normalize(a) === normB || normB.includes(normalize(a)))
+                  || aliasesB.some((a) => normalize(a) === normA || normA.includes(normalize(a)));
       }
 
-      if ((bidirectional && shared.size >= 2) || (bothShort && minLen === shared.size) || aliasMatch) {
+      if (aliasMatch) {
+        union(entities[i].id, entities[j].id);
+        continue;
+      }
+
+      // Content word overlap check
+      const shared = new Set([...wa].filter((w) => wb.has(w)));
+      if (shared.size === 0) continue;
+
+      const maxLen = Math.max(wa.size, wb.size);
+      const minLen = Math.min(wa.size, wb.size);
+
+      const aOverlap = shared.size / wa.size;
+      const bOverlap = shared.size / wb.size;
+      const bidirectional = aOverlap >= 0.5 && bOverlap >= 0.5;
+      const bothShort = maxLen <= 3 && shared.size >= 1;
+
+      if ((bidirectional && shared.size >= 2) || (bothShort && minLen === shared.size)) {
         union(entities[i].id, entities[j].id);
       }
     }
