@@ -242,7 +242,7 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
       sql.query(
         `SELECT e.id, e.type,
                 e.properties->>'label' AS label,
-                substring(e.properties->>'description' for ${DESC_SNIPPET_CHARS}) AS description
+                left(e.properties->>'description', ${DESC_SNIPPET_CHARS}) AS description
          FROM entities e
          JOIN space_entities se ON se.entity_id = e.id
          WHERE se.space_id = $1
