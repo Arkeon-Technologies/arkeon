@@ -5,10 +5,13 @@
  * Space-level consolidation via LLM revision pass.
  *
  * After parallel extraction jobs write entities, a debounced consolidate
- * job gives the LLM a second look at all recently extracted entities.
- * The LLM can merge duplicates and add missing relationships using the
- * same ops format as extraction. Merge ops execute independently so
- * individual failures don't kill the batch.
+ * job identifies groups of entities with overlapping labels and gives the
+ * LLM a focused revision pass on each group. The LLM can merge duplicates
+ * and add missing relationships using the same ops format as extraction.
+ *
+ * Pre-filtering: only entities whose labels share significant content words
+ * with at least one other entity are sent to the LLM. This keeps each
+ * revision batch small (<20 entities) and avoids overwhelming the model.
  */
 
 import { withAdminSql } from "../lib/admin-sql";
@@ -17,6 +20,7 @@ import { resolveLlmConfig } from "../lib/config";
 import { appendLog } from "../lib/logger";
 import { setJobStatus } from "../queue";
 import { submitOpsEnvelope, type OpsEnvelopeInput } from "../lib/arke-client";
+import { normalizeLabel as normalize } from "../lib/normalize";
 import type { JobRecord } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 
@@ -24,9 +28,16 @@ const DEBOUNCE_MS = 15_000;
 const MAX_ENTITIES_PER_BATCH = 200;
 const DESC_SNIPPET_CHARS = 150;
 
-const REVISION_PROMPT = `You are revising a knowledge graph that was just extracted from multiple documents in parallel. Below are the recently extracted entities. Some may be duplicates of each other, and some may be missing relationships.
+// Words too common to be meaningful for overlap detection
+const OVERLAP_STOP_WORDS = new Set([
+  "the", "a", "an", "of", "in", "on", "at", "to", "for", "from", "with",
+  "by", "and", "or", "but", "is", "was", "are", "were", "be", "not",
+  "as", "that", "this", "it", "its", "no", "all",
+]);
 
-Your task: submit ops to improve the graph. Return JSON:
+const REVISION_PROMPT = `You are revising a knowledge graph. Below are entities that may be duplicates of each other based on overlapping names. Review them and submit ops.
+
+Return JSON:
 {
   "ops": [
     {"op": "merge", "target": "01KEEP_ID", "sources": ["01DUP_ID"]},
@@ -35,26 +46,95 @@ Your task: submit ops to improve the graph. Return JSON:
 }
 
 Available ops:
-- merge: combine duplicate entities. "target" is the entity to keep (prefer the one with the richest description). "sources" are entities to merge into it (they will be deleted, their relationships and properties transfer to target).
-- relate: add a missing relationship between two existing entities. Use their IDs as source/target.
+- merge: combine duplicate entities. "target" is the entity to keep (prefer richest description). "sources" are entities to delete (their relationships transfer to target).
+- relate: add a missing relationship between two existing entities.
 
-What to merge:
-- Entities that are THE SAME real-world thing under different labels (e.g. "Henry Kissinger" and "Kissinger" are the same person; "USSR" and "Soviet Union" are the same country; "AEC" and "Atomic Energy Commission" are the same organization)
-- Same entity typed differently (e.g. "Oak Ridge" as location and "Oak Ridge facility" as organization)
+MERGE only when two entities are the SAME real-world thing:
+- Same person: "Henry Kissinger" = "Kissinger" = "Dr. Kissinger"
+- Same country: "USSR" = "Soviet Union"
+- Same org: "State Department" = "U.S. State Department" = "Dept. of State"
+- Same abbreviation: "AEC" = "Atomic Energy Commission"
 
-What NOT to merge:
-- An event/action and the entity it involves: "Collins serves as museum director" is NOT "National Air and Space Museum"
-- A concept and an event: "Depression" is NOT "Aldrin's struggles with depression"
-- Related but distinct things: "State Department" is NOT "Sidelining of the State Department"
-- Different real-world things that share a word: "United States" is NOT "United Nations"
+NEVER merge:
+- Different things sharing a word: "United States" ≠ "United Nations"
+- A person and a country: "Richard Nixon" ≠ "United States"
+- An event about an entity: "Kissinger becomes Secretary" ≠ "Henry Kissinger"
+- Different cities: "Beijing" ≠ "Shanghai"
+- A policy and its violation: "Detente" ≠ "Soviet intervention"
 
-What relationships to add:
-- Only between entities that clearly interact based on their descriptions
-- Use specific predicates (led, worked_at, participated_in, located_in, etc.)
-- Do NOT create relationships that are speculative or not supported by the entity descriptions
+If nothing needs merging, return {"ops": []}. When uncertain, don't merge.`;
 
-If nothing needs fixing, return: {"ops": []}
-When uncertain about a merge, skip it — false merges are irreversible.`;
+interface CompactEntity {
+  id: string;
+  label: string;
+  type: string;
+  description: string;
+}
+
+/**
+ * Extract significant content words from a label for overlap detection.
+ */
+function contentWords(label: string): Set<string> {
+  return new Set(
+    normalize(label)
+      .split(" ")
+      .filter((w) => w.length > 1 && !OVERLAP_STOP_WORDS.has(w)),
+  );
+}
+
+/**
+ * Group entities by label overlap. Two entities are connected if one's
+ * content words are a subset of the other's, or they share >=60% of
+ * their content words. This is stricter than single-word overlap to
+ * prevent transitive chaining into mega-groups.
+ */
+function findOverlapGroups(entities: CompactEntity[]): CompactEntity[][] {
+  const parent = new Map<string, string>();
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x);
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root)!;
+    parent.set(x, root);
+    return root;
+  }
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  // Pairwise comparison with strict overlap criteria
+  for (let i = 0; i < entities.length; i++) {
+    const wa = contentWords(entities[i].label);
+    if (wa.size === 0) continue;
+    for (let j = i + 1; j < entities.length; j++) {
+      const wb = contentWords(entities[j].label);
+      if (wb.size === 0) continue;
+
+      const shared = new Set([...wa].filter((w) => wb.has(w)));
+      if (shared.size === 0) continue;
+
+      // Connect if one is a subset of the other (abbreviation/expansion)
+      // or they share >=60% of the smaller label's content words
+      const minLen = Math.min(wa.size, wb.size);
+      const isSubset = shared.size === wa.size || shared.size === wb.size;
+      const highOverlap = shared.size >= Math.max(2, Math.ceil(minLen * 0.6));
+
+      if (isSubset || highOverlap) {
+        union(entities[i].id, entities[j].id);
+      }
+    }
+  }
+
+  // Collect groups of 2+
+  const groups = new Map<string, CompactEntity[]>();
+  for (const e of entities) {
+    const root = find(e.id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root)!.push(e);
+  }
+
+  return [...groups.values()].filter((g) => g.length >= 2);
+}
 
 export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promise<void> {
   const jobId = job.id as string;
@@ -66,11 +146,10 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
     return;
   }
 
-  // Debounce: wait for parallel extraction jobs to finish
   appendLog(jobId, "info", `Debouncing ${DEBOUNCE_MS}ms for space ${spaceId}`);
   await new Promise((r) => setTimeout(r, DEBOUNCE_MS));
 
-  // Fetch recently extracted entities in this space
+  // Fetch recently extracted entities
   const entities = await withAdminSql(async (sql) => {
     const results = await sql.transaction([
       sql`SELECT set_config('app.actor_id', 'SYSTEM', true)`,
@@ -103,98 +182,105 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
     return;
   }
 
-  // Build compact entity list for LLM
-  const entityList = entities.map((e) => ({
+  const entityList: CompactEntity[] = entities.map((e) => ({
     id: e.id as string,
     label: (e.label as string) || "?",
     type: e.type as string,
     description: (e.description as string) || "",
   }));
 
-  appendLog(jobId, "info", `Sending ${entityList.length} entities to LLM for revision`);
+  // Pre-filter: find groups of entities with overlapping labels
+  const overlapGroups = findOverlapGroups(entityList);
 
-  // Call LLM for revision
-  const resolverConfig = await resolveLlmConfig("resolver");
-  const resolverLlm = new LlmClient(resolverConfig);
-
-  const result = await resolverLlm.chatJson<{
-    ops: Array<Record<string, unknown>>;
-  }>(
-    REVISION_PROMPT,
-    JSON.stringify({ entities: entityList }),
-    { maxTokens: 4000 },
-  );
-
-  const ops = result.data.ops ?? [];
-
-  if (ops.length === 0) {
-    appendLog(jobId, "info", "LLM returned no revision ops");
+  if (overlapGroups.length === 0) {
+    appendLog(jobId, "info", "No overlapping label groups found — nothing to revise");
     await setJobStatus(jobId, "completed", {
-      result: { entities_checked: entities.length, ops: 0 },
-      model: result.usage.model,
-      tokens_in: result.usage.tokensIn,
-      tokens_out: result.usage.tokensOut,
-      llm_calls: 1,
+      result: { entities_checked: entities.length, overlap_groups: 0 },
     });
     return;
   }
 
-  const mergeOps = ops.filter((o) => o.op === "merge");
-  const relateOps = ops.filter((o) => o.op === "relate");
-  appendLog(jobId, "info", `LLM returned ${mergeOps.length} merge(s), ${relateOps.length} relationship(s)`);
+  const totalInGroups = overlapGroups.reduce((n, g) => n + g.length, 0);
+  appendLog(jobId, "info", `Found ${overlapGroups.length} overlap group(s) with ${totalInGroups} entities total`);
 
-  // Log what we're about to do
-  for (const op of mergeOps) {
-    const targetLabel = entityList.find((e) => e.id === op.target)?.label ?? op.target;
-    const sourceLabels = ((op.sources as string[]) ?? []).map(
-      (id) => entityList.find((e) => e.id === id)?.label ?? id,
-    );
-    console.log(`[knowledge:consolidate] Merge: keep "${targetLabel}" <- [${sourceLabels.join(", ")}]`);
-  }
-  for (const op of relateOps) {
-    const srcLabel = entityList.find((e) => e.id === op.source)?.label ?? op.source;
-    const tgtLabel = entityList.find((e) => e.id === op.target)?.label ?? op.target;
-    console.log(`[knowledge:consolidate] Relate: "${srcLabel}" --[${op.predicate}]--> "${tgtLabel}"`);
+  for (const group of overlapGroups) {
+    console.log(`[knowledge:consolidate] Group (${group.length}): ${group.map((e) => `"${e.label}"`).join(", ")}`);
   }
 
-  // Submit ops via the ops pipeline (merge ops execute post-transaction, independently)
-  try {
-    const envelope: OpsEnvelopeInput = {
-      format: "arke.ops/v1",
-      defaults: { space_id: spaceId },
-      ops,
-    };
+  // LLM revision pass per group
+  const resolverConfig = await resolveLlmConfig("resolver");
+  const resolverLlm = new LlmClient(resolverConfig);
 
-    const opsResult = await submitOpsEnvelope(envelope);
+  let totalMergeOps = 0;
+  let totalRelateOps = 0;
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let llmCalls = 0;
+  let model = "";
 
-    appendLog(jobId, "info", `Ops submitted: ${JSON.stringify(opsResult)}`);
+  for (const group of overlapGroups) {
+    try {
+      const result = await resolverLlm.chatJson<{
+        ops: Array<Record<string, unknown>>;
+      }>(
+        REVISION_PROMPT,
+        JSON.stringify({ entities: group }),
+        { maxTokens: 2000 },
+      );
 
-    await setJobStatus(jobId, "completed", {
-      result: {
-        entities_checked: entities.length,
-        merge_ops: mergeOps.length,
-        relate_ops: relateOps.length,
-        ops_result: opsResult,
-      },
-      model: result.usage.model,
-      tokens_in: result.usage.tokensIn,
-      tokens_out: result.usage.tokensOut,
-      llm_calls: 1,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    appendLog(jobId, "error", `Ops submission failed: ${message}`);
-    await setJobStatus(jobId, "failed", {
-      error: message,
-      result: {
-        entities_checked: entities.length,
-        merge_ops: mergeOps.length,
-        relate_ops: relateOps.length,
-      },
-      model: result.usage.model,
-      tokens_in: result.usage.tokensIn,
-      tokens_out: result.usage.tokensOut,
-      llm_calls: 1,
-    });
+      if (!model && result.usage.model) model = result.usage.model;
+      totalTokensIn += result.usage.tokensIn;
+      totalTokensOut += result.usage.tokensOut;
+      llmCalls++;
+
+      const ops = result.data.ops ?? [];
+      if (ops.length === 0) continue;
+
+      const mergeOps = ops.filter((o) => o.op === "merge");
+      const relateOps = ops.filter((o) => o.op === "relate");
+
+      for (const op of mergeOps) {
+        const tgtLabel = group.find((e) => e.id === op.target)?.label ?? op.target;
+        const srcLabels = ((op.sources as string[]) ?? []).map(
+          (id) => group.find((e) => e.id === id)?.label ?? id,
+        );
+        console.log(`[knowledge:consolidate] Merge: keep "${tgtLabel}" <- [${srcLabels.join(", ")}]`);
+      }
+      for (const op of relateOps) {
+        const srcLabel = group.find((e) => e.id === op.source)?.label ?? op.source;
+        const tgtLabel = group.find((e) => e.id === op.target)?.label ?? op.target;
+        console.log(`[knowledge:consolidate] Relate: "${srcLabel}" --[${op.predicate}]--> "${tgtLabel}"`);
+      }
+
+      // Submit ops
+      const envelope: OpsEnvelopeInput = {
+        format: "arke.ops/v1",
+        defaults: { space_id: spaceId },
+        ops,
+      };
+
+      await submitOpsEnvelope(envelope);
+      totalMergeOps += mergeOps.length;
+      totalRelateOps += relateOps.length;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[knowledge:consolidate] Group revision failed: ${message}`);
+      appendLog(jobId, "error", `Group revision failed: ${message}`);
+    }
   }
+
+  appendLog(jobId, "info", `Revision complete: ${totalMergeOps} merges, ${totalRelateOps} relationships across ${overlapGroups.length} groups`);
+
+  await setJobStatus(jobId, "completed", {
+    result: {
+      entities_checked: entities.length,
+      overlap_groups: overlapGroups.length,
+      merge_ops: totalMergeOps,
+      relate_ops: totalRelateOps,
+    },
+    model,
+    tokens_in: totalTokensIn,
+    tokens_out: totalTokensOut,
+    llm_calls: llmCalls,
+  });
 }
