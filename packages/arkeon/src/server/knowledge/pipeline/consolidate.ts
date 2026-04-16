@@ -50,17 +50,17 @@ Available ops:
 - relate: add a missing relationship between two existing entities.
 
 MERGE only when two entities are the SAME real-world thing:
-- Same person: "Henry Kissinger" = "Kissinger" = "Dr. Kissinger"
-- Same country: "USSR" = "Soviet Union"
-- Same org: "State Department" = "U.S. State Department" = "Dept. of State"
-- Same abbreviation: "AEC" = "Atomic Energy Commission"
+- Same person, different name: "William Smith" = "W. Smith" = "Dr. Smith"
+- Same country, different name: "Deutschland" = "Germany"
+- Same org, different form: "Dept. of Defense" = "Department of Defense" = "DoD"
+- Same abbreviation: "WHO" = "World Health Organization"
 
 NEVER merge:
 - Different things sharing a word: "United States" ≠ "United Nations"
-- A person and a country: "Richard Nixon" ≠ "United States"
-- An event about an entity: "Kissinger becomes Secretary" ≠ "Henry Kissinger"
-- Different cities: "Beijing" ≠ "Shanghai"
-- A policy and its violation: "Detente" ≠ "Soviet intervention"
+- A person and a country they lead: "Charles de Gaulle" ≠ "France"
+- An event about an entity: "Smith appointed Director" ≠ "William Smith"
+- Different cities: "Paris" ≠ "Lyon"
+- A policy and its violation: "Treaty" ≠ "Treaty violations"
 
 If nothing needs merging, return {"ops": []}. When uncertain, don't merge.`;
 
@@ -88,7 +88,7 @@ Only include real alternative names — not descriptions, not related concepts. 
 
 /**
  * Generate alternative label keywords for each entity via a lightweight
- * LLM call. This catches synonym matches like USSR/Soviet Union that
+ * LLM call. This catches synonym matches (e.g. abbreviations) that
  * share zero content words.
  */
 async function generateLabelAliases(
@@ -157,8 +157,8 @@ function findOverlapGroups(entities: CompactEntity[], aliasMap?: Map<string, str
       if (shared.size === 0) continue;
 
       // Connect if both labels are short and one contains the other
-      // (e.g. "USSR" and "Soviet Union" share nothing, but "State Department"
-      // and "U.S. State Department" share 2 words), or they share >=50% of
+      // (e.g. two synonyms may share no words, but "Dept. of Defense"
+      // and "Department of Defense" share 2 words), or they share >=50% of
       // BOTH labels' content words (bidirectional overlap).
       // Single-word labels only match if the other is also short (<=3 words).
       const maxLen = Math.max(wa.size, wb.size);
@@ -256,7 +256,7 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
   }));
 
   // Generate alternative label keywords to catch synonym-type matches
-  // (e.g. "USSR" for "Soviet Union", "PRC" for "People's Republic of China")
+  // (e.g. abbreviations, alternate names, translated forms)
   const resolverConfig = await resolveLlmConfig("resolver");
   const resolverLlm = new LlmClient(resolverConfig);
 

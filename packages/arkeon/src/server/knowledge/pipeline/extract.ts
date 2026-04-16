@@ -148,7 +148,7 @@ Return JSON:
 Rules:
 - Extract comprehensively: people, organizations, locations, events, concepts, objects, works — anything meaningful
 - Each real-world entity gets exactly ONE entry — never duplicate
-- Labels should be proper names, not titles or roles (e.g. "Henry Kissinger" not "Secretary Kissinger", "Anwar Sadat" not "President Sadat")
+- Labels should be proper names, not titles or roles (e.g. "Marie Curie" not "Madame Curie", "Charles Darwin" not "Professor Darwin")
 - Give each entity a short stable ref like "person_jane" or "event_battle"
 - Descriptions should be rich and cite the source text (quote key phrases)
 - source_span: a verbatim quote from the text where this relationship is stated

@@ -94,10 +94,10 @@ Return JSON:
 }
 
 Rules:
-- MERGE when candidates clearly refer to the same real-world entity, even if labels differ (e.g. "Henry Kissinger" = "Secretary Kissinger" = "Dr. Kissinger" — same person, different titles)
+- MERGE when candidates clearly refer to the same real-world entity, even if labels differ (e.g. "William Smith" = "Dr. Smith" = "W. Smith" — same person, different name forms)
 - Use descriptions to confirm identity — if descriptions reference the same roles, events, or attributes, they are likely the same entity
 - Keep SEPARATE when candidates are genuinely different entities that happen to share a name (e.g. a person vs an organization, or father vs son, or "Mercury" the planet vs "Mercury" the element)
-- Keep SEPARATE when one is an event/action ABOUT an entity (e.g. "Collins serves as museum director" ≠ "National Air and Space Museum")
+- Keep SEPARATE when one is an event/action ABOUT an entity (e.g. "Smith appointed as Director" ≠ "National Museum")
 - Type is a hint, not absolute — the same entity may have been typed differently
 - Exclude the entity itself from results
 - If uncertain and descriptions are too sparse to confirm, put the candidate in different_ids — false merges are irreversible and worse than missed merges`;
