@@ -49,6 +49,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON knowledge_dedup_queue TO arke_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON knowledge_dedup_meta TO arke_app;
 
 -- Drop the unique-pending-consolidate index — there's no more consolidate
--- job type; the sweeper supplants it. Keep the partial unique index drop
--- idempotent so re-running this migration is a no-op.
+-- job type; the sweeper supplants it.
 DROP INDEX IF EXISTS idx_knowledge_jobs_consolidate_active;
+
+-- Skip any orphaned consolidate jobs that will never be claimed.
+UPDATE knowledge_jobs SET status = 'skipped'
+WHERE job_type = 'consolidate' AND status = 'pending';

@@ -16,6 +16,8 @@ import { withAdminSql } from "./lib/admin-sql";
 
 const MARKER_KEY = "initial_backfill_complete";
 const BATCH_SIZE = 500;
+const BACKFILL_WARN_THRESHOLD = 50_000;
+const BACKFILL_MAX = Number(process.env.DEDUP_BACKFILL_MAX) || 0; // 0 = unlimited
 
 export async function runDedupBackfillIfNeeded(): Promise<void> {
   const alreadyDone = await checkMarker();
@@ -86,7 +88,15 @@ export async function runDedupBackfillIfNeeded(): Promise<void> {
           total += rows.length;
           cursor = rows[rows.length - 1]!.id as string;
           if (rows.length < BATCH_SIZE) break;
+          if (BACKFILL_MAX > 0 && total >= BACKFILL_MAX) break;
         }
+        if (BACKFILL_MAX > 0 && total >= BACKFILL_MAX) break;
+      }
+      if (total > BACKFILL_WARN_THRESHOLD) {
+        console.warn(
+          `[knowledge:dedup:backfill] large backfill: ${total} entities enqueued. ` +
+          `Set DEDUP_BACKFILL_MAX to cap if needed.`,
+        );
       }
 
       await setMarker({ at: new Date().toISOString(), entities: total, spaces: spaceCount });

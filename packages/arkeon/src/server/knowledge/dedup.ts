@@ -360,9 +360,14 @@ async function processEntity(row: QueueRow, llm: LlmClient): Promise<void> {
         model: judge.model,
       });
     } catch (mergeErr) {
-      // Merge failed — likely the target was itself merged away, or a transient
-      // error. Record and leave for retry.
-      throw new Error(`merge failed: ${mergeErr instanceof Error ? mergeErr.message : String(mergeErr)}`);
+      // If the entity was already merged/deleted between loadEntity and now,
+      // skip rather than retry — it's not coming back.
+      const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+      if (msg.includes("not_found") || msg.includes("not found") || msg.includes("already_merged")) {
+        await markSkipped(entity.id, `entity gone during merge: ${msg.slice(0, 200)}`);
+        return;
+      }
+      throw new Error(`merge failed: ${msg}`);
     }
   } else {
     console.log(

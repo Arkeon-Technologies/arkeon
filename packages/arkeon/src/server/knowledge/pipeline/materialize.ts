@@ -11,10 +11,7 @@
  */
 
 import type { ExtractOpEntity, ExtractOpRelationship, ExtractPlan } from "../lib/types";
-
-function normalizeLabel(label: string): string {
-  return label.toLowerCase().replace(/\s+/g, " ").trim();
-}
+import { normalizeLabel } from "../lib/normalize";
 
 function labelTypeKey(label: string, type: string): string {
   return `${normalizeLabel(label)}::${type.toLowerCase()}`;

@@ -179,8 +179,8 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
     const drainPromise = (async () => {
       if (knowledgeEnabled) {
         stopKnowledgePoller();
-        await stopDedupSweeper();
-        await drainKnowledgeQueue();
+        await drainKnowledgeQueue();  // finish pending extractions (may enqueue dedup work)
+        await stopDedupSweeper();     // then stop sweeper after queue is drained
       }
       await drainQueue();
       await stopScheduler();
