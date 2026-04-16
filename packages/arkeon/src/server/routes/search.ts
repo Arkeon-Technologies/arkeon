@@ -296,7 +296,11 @@ searchRouter.openapi(multiSearchRoute, async (c) => {
       readLevelOverride,
     });
 
-    return { q, filters, limit, offset };
+    const attributesToSearchOn = Array.isArray(sq.search_on)
+      ? sq.search_on.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : undefined;
+
+    return { q, filters, limit, offset, attributesToSearchOn };
   });
 
   // Execute all searches in one Meilisearch call
@@ -306,6 +310,7 @@ searchRouter.openapi(multiSearchRoute, async (c) => {
       filter: mq.filters,
       limit: mq.limit,
       offset: mq.offset,
+      attributesToSearchOn: mq.attributesToSearchOn,
     })),
   );
 

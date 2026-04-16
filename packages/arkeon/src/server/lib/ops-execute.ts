@@ -385,19 +385,53 @@ async function executeSingleMerge(
   now: string,
 ): Promise<void> {
   const allIds = [merge.target_id, ...merge.source_ids];
+  const ctxQueries = setActorContext(sql, actor);
   const txResults = await sql.transaction([
-    ...setActorContext(sql, actor),
+    ...ctxQueries,
     sql.query(
-      `SELECT id, ver, properties FROM entities WHERE id = ANY($1)`,
+      `SELECT id, ver, properties, owner_id FROM entities WHERE id = ANY($1)`,
       [allIds],
     ),
   ]);
 
-  const rows = txResults[txResults.length - 1] as Array<{ id: string; ver: number; properties: Record<string, unknown> }>;
+  const rows = txResults[txResults.length - 1] as Array<{
+    id: string; ver: number; properties: Record<string, unknown>; owner_id: string;
+  }>;
   const rowMap = new Map(rows.map(r => [r.id, r]));
 
   const target = rowMap.get(merge.target_id);
   if (!target) throw new Error(`Target entity ${merge.target_id} not found`);
+
+  // Authorization: actor must own or have admin role on every entity in the merge.
+  // Mirrors the merge-batch endpoint's check (entities.ts).
+  const nonOwnedIds = allIds.filter((id) => {
+    const e = rowMap.get(id);
+    return !e || (e.owner_id !== actor.id && !actor.isAdmin);
+  });
+  if (nonOwnedIds.length > 0) {
+    const permResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT entity_id FROM entity_permissions
+         WHERE entity_id = ANY($1::text[]) AND role = 'admin'
+         AND ((grantee_type = 'actor' AND grantee_id = $2)
+           OR (grantee_type = 'group' AND EXISTS (
+             SELECT 1 FROM group_memberships WHERE group_id = grantee_id AND actor_id = $2)))`,
+        [nonOwnedIds, actor.id],
+      ),
+    ]);
+    const permittedIds = new Set(
+      (permResults[permResults.length - 1] as Array<{ entity_id: string }>).map((r) => r.entity_id),
+    );
+    const unauthorized = nonOwnedIds.filter((id) => !permittedIds.has(id));
+    if (unauthorized.length > 0) {
+      throw new ApiError(
+        403,
+        "forbidden",
+        `Merge requires admin access on all entities. Missing admin on: ${unauthorized.slice(0, 3).join(", ")}${unauthorized.length > 3 ? ` (+${unauthorized.length - 3} more)` : ""}`,
+      );
+    }
+  }
 
   // Accumulate properties: start with target, deep-merge each source
   let merged: Record<string, unknown> = (target.properties ?? {}) as Record<string, unknown>;

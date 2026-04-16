@@ -102,9 +102,14 @@ export async function runExtractionPipeline(
     createdEntities: writeResult.createdEntityIds.length,
     updatedEntities: writeResult.updatedEntityIds.length,
     createdRelationships: writeResult.createdRelationshipIds.length,
+    // mergedDuplicates is always 0 here — dedup now runs in a separate
+    // consolidate job (per-space, debounced) which tracks its own merge
+    // counts and LLM usage in its own job result.
     mergedDuplicates: 0,
     createdEntityIds: writeResult.createdEntityIds,
     refToId: writeResult.refToId,
+    // No LLM calls in this pipeline tail anymore. The extract step (caller)
+    // tracks its own usage; consolidation tracks its own.
     usage: { model: "", tokensIn: 0, tokensOut: 0, llmCalls: 0 },
   };
 }
