@@ -6835,16 +6835,6 @@
               }
             },
             "description": "Authentication required"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
           }
         },
         "summary": "Merge multiple groups of duplicate entities in a single request",
@@ -6857,7 +6847,8 @@
           "POST /entities/bulk"
         ],
         "x-arke-rules": [
-          "Requires admin access on all entities in every group",
+          "Requires admin access on all entities in every group (checked per-group, not request-wide)",
+          "Missing or unauthorized entities fail only their group, not the whole batch",
           "All entities in a group must have the same kind (entity or relationship)",
           "Entity with richest properties is auto-selected as merge target",
           "Maximum 100 groups per request, 500 entities per group",
