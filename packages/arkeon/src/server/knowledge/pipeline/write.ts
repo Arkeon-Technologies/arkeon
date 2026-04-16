@@ -186,6 +186,9 @@ Rules:
 - For target_not_found: remove the relate op that references the missing entity
 - For unresolved_ref: ensure the referenced entity op exists before the relate op, or remove the dangling relate op
 - For duplicate_ref: rename the duplicate ref to be unique
+- For self_reference: the source and target of a relate op cannot resolve to the same entity. Either remove the op entirely or change one side to reference a different entity
+- For invalid_ref_format: the ref doesn't match the @local or ULID pattern — either drop the op or replace the ref with a valid one
+- For missing_required_field: add the missing field with a reasonable value, or drop the op if the field can't be inferred
 - Return JSON: { "ops": [...corrected ops...] }`;
 
 async function llmFixOps(
@@ -221,6 +224,16 @@ export async function submitOpsWithRetry(
   let envelope = buildOpsFromPlan(plan, documentId, opts, knownEntityIds);
   let lastError: unknown = null;
 
+  // Per-job retry telemetry — so we can see how hard each write is working
+  const attemptHistory: Array<{
+    attempt: number;
+    outcome: "success" | "non_retryable" | "retried_backoff" | "retried_llm_fix" | "retried_llm_fix_exhausted" | "non_retryable_unknown" | "abandoned_max_attempts";
+    errorCode?: string;
+    errorCount?: number;
+    fixDelta?: { opsBefore: number; opsAfter: number };
+  }> = [];
+  const startedAt = Date.now();
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const result = await submitOpsEnvelope(envelope);
@@ -237,6 +250,11 @@ export async function submitOpsWithRetry(
         );
       }
 
+      attemptHistory.push({ attempt, outcome: "success" });
+      if (attempt > 0) {
+        const dur = Date.now() - startedAt;
+        console.warn(`[knowledge:write:retry] doc=${documentId} SUCCESS after ${attempt + 1} attempts (${dur}ms)  history=${JSON.stringify(attemptHistory)}`);
+      }
       return writeResult;
     } catch (err) {
       lastError = err;
@@ -244,34 +262,69 @@ export async function submitOpsWithRetry(
 
       // Non-retryable
       if (NON_RETRYABLE_CODES.has(parsed.code)) {
+        attemptHistory.push({ attempt, outcome: "non_retryable", errorCode: parsed.code });
+        console.warn(`[knowledge:write:retry] doc=${documentId} GAVE UP on attempt ${attempt} (non-retryable code=${parsed.code})  history=${JSON.stringify(attemptHistory)}`);
         throw err;
       }
 
-      if (attempt >= MAX_RETRIES) break;
+      if (attempt >= MAX_RETRIES) {
+        attemptHistory.push({ attempt, outcome: "abandoned_max_attempts", errorCode: parsed.code });
+        break;
+      }
 
       // Simple retry (no LLM needed)
       if (parsed.code === "cas_conflict" || parsed.status >= 500) {
         const backoff = parsed.status >= 500 ? 1000 * (attempt + 1) : 100;
+        attemptHistory.push({ attempt, outcome: "retried_backoff", errorCode: parsed.code });
         await new Promise((r) => setTimeout(r, backoff));
         continue;
       }
 
       // LLM-assisted fix
       if (parsed.code === "ops_validation_failed" || parsed.code === "target_not_found") {
+        const errs = (parsed.details?.errors ?? []) as Array<Record<string, unknown>>;
+
+        // Log the specific errors + the ops that triggered them (LLM's prior output)
+        console.warn(`[knowledge:write:retry] doc=${documentId} attempt ${attempt} validation failed — ${errs.length} error(s), code=${parsed.code}:`);
+        for (const e of errs.slice(0, 10)) {
+          const idx = e.op_index as number | undefined;
+          const op = typeof idx === "number" ? envelope.ops[idx] : undefined;
+          console.warn(`    [${e.code}] field=${e.field} offending=${JSON.stringify(e.offending_value)} msg="${e.message}"`);
+          if (op) console.warn(`      prior_op: ${JSON.stringify(op).slice(0, 400)}`);
+        }
+        if (errs.length > 10) console.warn(`    ... (${errs.length - 10} more errors elided)`);
+
         try {
+          const opsBefore = envelope.ops.length;
           const fixedOps = await llmFixOps(llm, envelope.ops, parsed.details);
+          const opsAfter = fixedOps.length;
+          console.warn(`[knowledge:write:retry] doc=${documentId} fix-LLM returned ${opsAfter} ops (was ${opsBefore}, Δ=${opsAfter - opsBefore})`);
           envelope = { ...envelope, ops: fixedOps };
+          attemptHistory.push({
+            attempt,
+            outcome: "retried_llm_fix",
+            errorCode: parsed.code,
+            errorCount: errs.length,
+            fixDelta: { opsBefore, opsAfter },
+          });
           continue;
         } catch (fixErr) {
-          console.warn(`[knowledge:write] LLM fix failed:`, fixErr instanceof Error ? fixErr.message : fixErr);
+          attemptHistory.push({ attempt, outcome: "retried_llm_fix_exhausted", errorCode: parsed.code, errorCount: errs.length });
+          console.warn(`[knowledge:write:retry] doc=${documentId} LLM fix FAILED on attempt ${attempt}: ${fixErr instanceof Error ? fixErr.message : fixErr}  history=${JSON.stringify(attemptHistory)}`);
           throw err;
         }
       }
 
       // Unknown error — don't retry
+      attemptHistory.push({ attempt, outcome: "non_retryable_unknown", errorCode: parsed.code });
+      console.warn(`[knowledge:write:retry] doc=${documentId} unknown error on attempt ${attempt}, not retrying (code=${parsed.code})  history=${JSON.stringify(attemptHistory)}`);
       throw err;
     }
   }
+
+  // Fell out of the loop — we exhausted attempts without success or an immediate throw
+  const dur = Date.now() - startedAt;
+  console.warn(`[knowledge:write:retry] doc=${documentId} EXHAUSTED after ${MAX_RETRIES + 1} attempts (${dur}ms)  history=${JSON.stringify(attemptHistory)}`);
 
   throw lastError;
 }

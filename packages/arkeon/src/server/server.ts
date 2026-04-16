@@ -38,6 +38,8 @@ import {
   stopKnowledgePoller,
 } from "./knowledge/poller.js";
 import { bootstrapKnowledgeService } from "./knowledge/bootstrap.js";
+import { startDedupSweeper, stopDedupSweeper } from "./knowledge/dedup.js";
+import { runDedupBackfillIfNeeded } from "./knowledge/dedup-backfill.js";
 
 export interface ArkeonApiConfig {
   /** TCP port to bind. Default: process.env.PORT ?? 8000 */
@@ -156,6 +158,11 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
     await bootstrapKnowledgeService();
     initKnowledgeQueue();
     await startKnowledgePoller();
+    // Dedup sweeper: persistent background worker that consolidates
+    // duplicate entities via LLM judgment. Replaces the old time-windowed
+    // consolidate job. Runs the one-shot backfill on first start.
+    await runDedupBackfillIfNeeded();
+    startDedupSweeper();
     console.log("[knowledge] pipeline enabled");
   } else {
     console.log(
@@ -172,7 +179,8 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
     const drainPromise = (async () => {
       if (knowledgeEnabled) {
         stopKnowledgePoller();
-        await drainKnowledgeQueue();
+        await drainKnowledgeQueue();  // finish pending extractions (may enqueue dedup work)
+        await stopDedupSweeper();     // then stop sweeper after queue is drained
       }
       await drainQueue();
       await stopScheduler();

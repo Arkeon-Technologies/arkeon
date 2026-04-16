@@ -3,10 +3,13 @@
 
 /**
  * Normalize an entity label for comparison.
- * Strips leading articles and honorific prefixes, collapses whitespace, lowercases.
+ * Strips diacritics (so "René" matches "Rene"), leading articles and
+ * honorific prefixes, collapses whitespace, lowercases.
  */
 export function normalizeLabel(label: string): string {
   return label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip combining diacritical marks
     .toLowerCase()
     .replace(
       /^(the|a|an)\s+/i,

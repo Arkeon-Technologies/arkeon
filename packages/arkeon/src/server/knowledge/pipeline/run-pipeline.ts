@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared extraction pipeline tail: materialize → ops submit (with retry) → consolidate.
+ * Shared extraction pipeline tail: materialize → ops submit (with retry).
  * Every job type prepares an ExtractPlan and hands off here.
  *
- * The resolve and rewrite steps have been replaced by deterministic upsert
- * via POST /ops with upsert_on: ["label", "type"]. Post-write deduplication
- * is handled by a debounced space-level consolidation job (see consolidate.ts).
+ * Writes to the graph use deterministic upsert via POST /ops with
+ * upsert_on: ["label", "type"]. Post-write deduplication is handled by a
+ * persistent per-entity dedup sweeper (see ../dedup.ts) — newly-created
+ * entities are enqueued automatically in ops-execute.ts.
  */
 
 import { LlmClient } from "../lib/llm";
@@ -87,14 +88,9 @@ export async function runExtractionPipeline(
   }, resolverLlm, opts.knownEntityIds);
   appendLog(jobId, "info", `Written: ${writeResult.createdEntityIds.length} created, ${writeResult.updatedEntityIds.length} updated, ${writeResult.createdRelationshipIds.length} relationships`);
 
-  // Trigger space-level consolidation instead of per-entity dedupe.
-  // The consolidate job debounces and batches all recently extracted
-  // entities in the space for holistic merge analysis.
-  if (writeResult.createdEntityIds.length > 0 && spaceId) {
-    const { ensureConsolidateJob } = await import("../queue");
-    appendLog(jobId, "info", `Triggering consolidation for space ${spaceId}`);
-    await ensureConsolidateJob(spaceId);
-  }
+  // Dedup happens via the persistent sweeper in knowledge/dedup.ts — each
+  // newly-created entity is enqueued by ops-execute.ts, and the sweeper
+  // picks them up in FIFO order. No explicit trigger needed here.
 
   return {
     extractedEntities: materializedPlan.entities.length,
