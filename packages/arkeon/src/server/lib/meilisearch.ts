@@ -278,6 +278,7 @@ export async function searchEntities(
     filter?: string[];
     limit?: number;
     offset?: number;
+    attributesToSearchOn?: string[];
   } = {},
 ): Promise<MeiliSearchResult> {
   const c = getClient();
@@ -285,6 +286,7 @@ export async function searchEntities(
     filter: options.filter,
     limit: options.limit ?? 50,
     offset: options.offset ?? 0,
+    attributesToSearchOn: options.attributesToSearchOn,
   });
   return {
     ids: result.hits.map((hit) => String(hit.id)),
@@ -304,6 +306,7 @@ export async function multiSearchEntities(
     filter?: string[];
     limit?: number;
     offset?: number;
+    attributesToSearchOn?: string[];
   }>,
 ): Promise<MeiliSearchResult[]> {
   const c = getClient();
@@ -314,6 +317,7 @@ export async function multiSearchEntities(
       filter: q.filter,
       limit: q.limit ?? 20,
       offset: q.offset ?? 0,
+      attributesToSearchOn: q.attributesToSearchOn,
     })),
   });
   return result.results.map((r) => ({

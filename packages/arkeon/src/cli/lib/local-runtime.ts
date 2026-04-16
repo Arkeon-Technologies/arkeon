@@ -364,6 +364,11 @@ export async function startEmbeddedPostgres(opts: {
     password: opts.password,
     port: opts.port,
     persistent: true,
+    // Ensure UTF-8 encoding so text operations (JSONB ->>,'substring',
+    // 'left', etc.) handle multi-byte characters correctly. Without this,
+    // initdb defaults to SQL_ASCII on systems with LC_CTYPE=C, which
+    // stores raw bytes without validation and breaks on read.
+    initdbFlags: ["--encoding=UTF8", "--lc-ctype=C", "--lc-collate=C"],
   });
 
   if (!alreadyInitialised) {

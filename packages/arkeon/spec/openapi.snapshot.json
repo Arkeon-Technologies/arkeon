@@ -528,7 +528,7 @@
           "ops": {
             "description": "Ordered list of operations. Entity ops define @local refs; relate ops reference them as source/target. Each @ref must be defined by an earlier entity op in the same list.",
             "items": {
-              "description": "A single operation — 'entity' or 'relate'.",
+              "description": "A single operation — 'entity', 'relate', or 'merge'.",
               "oneOf": [
                 {
                   "additionalProperties": {},
@@ -715,6 +715,58 @@
                     "predicate"
                   ],
                   "type": "object"
+                },
+                {
+                  "description": "Merge source entities into target. Sources are deleted, their relationships and properties accumulate onto target.",
+                  "properties": {
+                    "op": {
+                      "enum": [
+                        "merge"
+                      ],
+                      "type": "string"
+                    },
+                    "sources": {
+                      "description": "Entities to merge into target — existing ULIDs. These entities will be deleted after their properties and relationships transfer to the target.",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "example": "@jane",
+                            "pattern": "^@[a-zA-Z0-9_.-]+$",
+                            "type": "string"
+                          },
+                          {
+                            "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                            "pattern": "^(arke:)?[0-9A-HJKMNP-TV-Z]{26}$/i",
+                            "type": "string"
+                          }
+                        ],
+                        "description": "Either an @local ref (defined by an earlier entity op in this same batch) or a ULID referencing an existing entity. Bare ULIDs and 'arke:ULID' are equivalent."
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "target": {
+                      "anyOf": [
+                        {
+                          "example": "@jane",
+                          "pattern": "^@[a-zA-Z0-9_.-]+$",
+                          "type": "string"
+                        },
+                        {
+                          "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                          "pattern": "^(arke:)?[0-9A-HJKMNP-TV-Z]{26}$/i",
+                          "type": "string"
+                        }
+                      ],
+                      "description": "Entity to keep — existing ULID."
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "target",
+                    "sources"
+                  ],
+                  "type": "object"
                 }
               ]
             },
@@ -781,6 +833,29 @@
               "arke.ops/v1"
             ],
             "type": "string"
+          },
+          "merges": {
+            "description": "Results of merge operations, if any were included in the batch. Merges run post-transaction and are non-fatal.",
+            "items": {
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "sources": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target_id",
+                "sources"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "stats": {
             "properties": {
@@ -8716,6 +8791,16 @@
             }
           },
           {
+            "description": "Comma-separated list of attributes to search on (e.g. 'label' to match only entity names). Default: all attributes.",
+            "in": "query",
+            "name": "search_on",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated list of attributes to search on (e.g. 'label' to match only entity names). Default: all attributes.",
+              "type": "string"
+            }
+          },
+          {
             "description": "Restrict results to this read level or below (cannot exceed your clearance)",
             "in": "query",
             "name": "read_level",
@@ -8883,6 +8968,13 @@
                           "maximum": 4,
                           "minimum": 0,
                           "type": "integer"
+                        },
+                        "search_on": {
+                          "description": "Attributes to search on (e.g. ['label']). Default: all.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "space_id": {
                           "description": "Scope to a space ULID",

@@ -136,9 +136,19 @@ export const RelateOpSchema = z
     "Create a relationship between two entities. Any field beyond the reserved keys (op, source, target, predicate, space_id, read_level, write_level, permissions) is stored as a property — inline 'span', 'detail', 'confidence', or any other provenance/metadata directly.",
   );
 
+export const MERGE_OP_RESERVED_KEYS = new Set(["op", "target", "sources"]);
+
+export const MergeOpSchema = z
+  .object({
+    op: z.literal("merge"),
+    target: OpRefSchema.describe("Entity to keep — existing ULID."),
+    sources: z.array(OpRefSchema).min(1).describe("Entities to merge into target — existing ULIDs. These entities will be deleted after their properties and relationships transfer to the target."),
+  })
+  .describe("Merge source entities into target. Sources are deleted, their relationships and properties accumulate onto target.");
+
 export const OpSchema = z
-  .discriminatedUnion("op", [EntityOpSchema, RelateOpSchema])
-  .describe("A single operation — 'entity' or 'relate'.");
+  .discriminatedUnion("op", [EntityOpSchema, RelateOpSchema, MergeOpSchema])
+  .describe("A single operation — 'entity', 'relate', or 'merge'.");
 
 // ---------------------------------------------------------------------------
 // Envelope
@@ -244,6 +254,16 @@ export const OpsResultSchema = z
       entities: z.number().int().nonnegative(),
       edges: z.number().int().nonnegative(),
     }),
+    merges: z
+      .array(
+        z.object({
+          target_id: z.string(),
+          sources: z.number().int().nonnegative(),
+          error: z.string().optional(),
+        }),
+      )
+      .optional()
+      .describe("Results of merge operations, if any were included in the batch. Merges run post-transaction and are non-fatal."),
   })
   .openapi("OpsResult");
 
@@ -256,6 +276,7 @@ export type GlobalRef = z.infer<typeof GlobalRefSchema>;
 export type OpRef = z.infer<typeof OpRefSchema>;
 export type EntityOp = z.infer<typeof EntityOpSchema>;
 export type RelateOp = z.infer<typeof RelateOpSchema>;
+export type MergeOp = z.infer<typeof MergeOpSchema>;
 export type Op = z.infer<typeof OpSchema>;
 export type OpsEnvelope = z.infer<typeof OpsEnvelopeSchema>;
 export type OpsDefaults = z.infer<typeof OpsDefaultsSchema>;

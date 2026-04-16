@@ -13,6 +13,7 @@
  *   "pdf.page_group"     — extract from a group of PDF pages
  *   "pptx.extract"       — parse PPTX, create slide entities, fan out
  *   "pptx.slide_group"   — extract from a group of PPTX slides
+ *   "consolidate"        — space-level batch merge of recent entities
  *
  * Adding new content types (image, etc.) = registering new handlers.
  */
@@ -30,6 +31,7 @@ import { handlePdfPageGroup } from "./pipeline/pdf-page-group";
 import { handlePptxExtract } from "./pipeline/pptx-extract";
 import { handlePptxSlideGroup } from "./pipeline/pptx-slide-group";
 import { handleDocxExtract } from "./pipeline/docx-extract";
+import { handleConsolidate } from "./pipeline/consolidate";
 
 const POLL_INTERVAL_MS = 2_000;
 const JOB_TIMEOUT_MS = 300_000; // 5 minutes
@@ -57,6 +59,7 @@ const handlers: Record<string, JobHandler> = {
   "pptx.extract":       handlePptxExtract,
   "pptx.slide_group":   handlePptxSlideGroup,
   "docx.extract":       handleDocxExtract,
+  "consolidate":        handleConsolidate,
 };
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,28 @@ export async function createJob(opts: {
     return id;
   } catch (err: any) {
     if (err?.code === "23505") return null; // duplicate
+    throw err;
+  }
+}
+
+/**
+ * Ensure a pending consolidate job exists for a space.
+ * Uses the unique partial index to silently deduplicate — if one is
+ * already pending for this space, the INSERT is a no-op.
+ */
+export async function ensureConsolidateJob(spaceId: string): Promise<void> {
+  const id = generateUlid();
+  try {
+    await withAdminSql(async (sql) => {
+      await sql.query(
+        `INSERT INTO knowledge_jobs (id, entity_id, entity_ver, status, trigger, job_type, metadata, created_at)
+         VALUES ($1, NULL, 0, 'pending', 'system', 'consolidate', $2, NOW())`,
+        [id, JSON.stringify({ space_id: spaceId })],
+      );
+    });
+    console.log(`[knowledge:queue] Created consolidate job ${id} for space ${spaceId}`);
+  } catch (err: any) {
+    if (err?.code === "23505") return; // duplicate — one already pending for this space
     throw err;
   }
 }
@@ -262,7 +287,7 @@ async function pollAndProcess(): Promise<void> {
          LIMIT $1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts`,
+       RETURNING id, entity_id, entity_ver, trigger, job_type, parent_job_id, metadata, attempts, max_attempts, created_at`,
       [available],
     ),
   );

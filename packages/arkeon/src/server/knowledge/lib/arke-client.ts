@@ -100,12 +100,13 @@ export async function createRelationship(
 
 export async function search(
   q: string,
-  opts?: { space_id?: string; filter?: string; limit?: number },
+  opts?: { space_id?: string; filter?: string; limit?: number; search_on?: string },
 ): Promise<any[]> {
   const params: Record<string, string> = { q };
   if (opts?.space_id) params.space_id = opts.space_id;
   if (opts?.filter) params.filter = opts.filter;
   if (opts?.limit) params.limit = String(opts.limit);
+  if (opts?.search_on) params.search_on = opts.search_on;
   const data = (await get("/search", { params })) as any;
   return data?.results ?? [];
 }

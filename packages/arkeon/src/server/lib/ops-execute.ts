@@ -32,7 +32,7 @@ import type { SqlClient } from "./sql";
 import type { Actor } from "../types";
 
 import type { OpsEnvelope, OpsResult, CreatedEntityResult, CreatedEdgeResult } from "./ops-schema";
-import type { OpsPlan, PlannedEntity, PlannedEdge } from "./ops-parse";
+import type { OpsPlan, PlannedEntity, PlannedEdge, PlannedMerge } from "./ops-parse";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -348,6 +348,21 @@ export async function executeOps(
     backgroundTask(indexEntityById(provEdge.id));
   }
 
+  // ---- Post-transaction merges (independent, non-fatal) -------------------
+  const mergeResults: Array<{ target_id: string; sources: number; error?: string }> = [];
+  if (plan.merges && plan.merges.length > 0) {
+    for (const merge of plan.merges) {
+      try {
+        await executeSingleMerge(sql, merge, actor, now);
+        mergeResults.push({ target_id: merge.target_id, sources: merge.source_ids.length });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[ops] Merge failed (target=${merge.target_id}): ${message}`);
+        mergeResults.push({ target_id: merge.target_id, sources: merge.source_ids.length, error: message });
+      }
+    }
+  }
+
   return {
     format: "arke.ops/v1",
     committed: true,
@@ -355,7 +370,102 @@ export async function executeOps(
     created: resultEntities, // backwards compat
     edges: createdEdges,
     stats: { entities: resultEntities.length, edges: createdEdges.length },
+    ...(mergeResults.length > 0 ? { merges: mergeResults } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Post-transaction merge
+// ---------------------------------------------------------------------------
+
+async function executeSingleMerge(
+  sql: SqlClient,
+  merge: PlannedMerge,
+  actor: Actor,
+  now: string,
+): Promise<void> {
+  const allIds = [merge.target_id, ...merge.source_ids];
+  const ctxQueries = setActorContext(sql, actor);
+  const txResults = await sql.transaction([
+    ...ctxQueries,
+    sql.query(
+      `SELECT id, ver, properties, owner_id FROM entities WHERE id = ANY($1)`,
+      [allIds],
+    ),
+  ]);
+
+  const rows = txResults[txResults.length - 1] as Array<{
+    id: string; ver: number; properties: Record<string, unknown>; owner_id: string;
+  }>;
+  const rowMap = new Map(rows.map(r => [r.id, r]));
+
+  const target = rowMap.get(merge.target_id);
+  if (!target) throw new Error(`Target entity ${merge.target_id} not found`);
+
+  // Authorization: actor must own or have admin role on every entity in the merge.
+  // Mirrors the merge-batch endpoint's check (entities.ts).
+  const nonOwnedIds = allIds.filter((id) => {
+    const e = rowMap.get(id);
+    return !e || (e.owner_id !== actor.id && !actor.isAdmin);
+  });
+  if (nonOwnedIds.length > 0) {
+    const permResults = await sql.transaction([
+      ...setActorContext(sql, actor),
+      sql.query(
+        `SELECT entity_id FROM entity_permissions
+         WHERE entity_id = ANY($1::text[]) AND role = 'admin'
+         AND ((grantee_type = 'actor' AND grantee_id = $2)
+           OR (grantee_type = 'group' AND EXISTS (
+             SELECT 1 FROM group_memberships WHERE group_id = grantee_id AND actor_id = $2)))`,
+        [nonOwnedIds, actor.id],
+      ),
+    ]);
+    const permittedIds = new Set(
+      (permResults[permResults.length - 1] as Array<{ entity_id: string }>).map((r) => r.entity_id),
+    );
+    const unauthorized = nonOwnedIds.filter((id) => !permittedIds.has(id));
+    if (unauthorized.length > 0) {
+      throw new ApiError(
+        403,
+        "forbidden",
+        `Merge requires admin access on all entities. Missing admin on: ${unauthorized.slice(0, 3).join(", ")}${unauthorized.length > 3 ? ` (+${unauthorized.length - 3} more)` : ""}`,
+      );
+    }
+  }
+
+  // Accumulate properties: start with target, deep-merge each source
+  let merged: Record<string, unknown> = (target.properties ?? {}) as Record<string, unknown>;
+  for (const sourceId of merge.source_ids) {
+    const source = rowMap.get(sourceId);
+    if (!source) throw new Error(`Source entity ${sourceId} not found`);
+    merged = deepMergeObjects(merged, (source.properties ?? {}) as Record<string, unknown>);
+  }
+
+  // Build merge details for audit trail
+  const mergeDetails = merge.source_ids.map(id => {
+    const src = rowMap.get(id);
+    return JSON.stringify({
+      source_id: id,
+      source_label: (src?.properties as Record<string, unknown>)?.label ?? "",
+    });
+  });
+
+  // Call perform_group_merge
+  await sql.transaction([
+    ...setActorContext(sql, actor),
+    sql.query(
+      `SELECT * FROM perform_group_merge($1, $2::text[], $3::jsonb, $4, $5, $6::timestamptz, $7::jsonb[])`,
+      [
+        merge.target_id,
+        merge.source_ids,
+        JSON.stringify(merged),
+        target.ver,
+        actor.id,
+        now,
+        mergeDetails,
+      ],
+    ),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
