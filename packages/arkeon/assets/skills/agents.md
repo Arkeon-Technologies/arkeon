@@ -37,3 +37,34 @@ npx arkeon status          # Show running state, URLs, and version
 - State stored in `~/.arkeon/` (override with `ARKEON_HOME`)
 - Spaces provide multi-tenant isolation; entities and relationships are scoped to spaces
 - Classification levels (0-4) gate read access; write access requires level + ACL
+
+## Knowledge Graph as Memory
+
+This project has a persistent knowledge graph. **Check it before answering project questions. Write back when you learn something new.**
+
+### Reading from the graph
+
+Before answering domain-specific questions about this project, search the graph:
+
+```bash
+npx arkeon search query --q "<keywords>"
+```
+
+For deeper context, traverse from a known entity:
+
+```bash
+npx arkeon graph traverse --source id:<entity_id> --hops 2 --limit 20
+```
+
+Use `/arkeon-recall <topic>` (if available) for a structured knowledge brief.
+
+### Writing back to the graph
+
+When you discover new concepts, decisions, or relationships while working:
+
+```bash
+npx arkeon entities create --space-id <id> --type <type> --label "<label>" --description "<description>"
+npx arkeon relationships create --source-id <id> --target-id <id> --predicate "<predicate>"
+```
+
+The graph is your long-term memory across conversations. Treat it as a shared knowledge base.

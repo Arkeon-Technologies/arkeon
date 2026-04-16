@@ -22,6 +22,7 @@ import {
   readPidfile,
 } from "../../lib/local-runtime.js";
 import { output } from "../../lib/output.js";
+import { loadRepoState } from "../../lib/repo-state.js";
 
 // Ops endpoint response shape — pulled from packages/api/src/lib/ops-execute.ts.
 interface OpsResponse {
@@ -84,8 +85,27 @@ async function runSeed(opts: SeedOptions): Promise<void> {
     }
   }
 
+  // Resolve space: global --space-id flag (via env) → repo state → none
+  let spaceId = process.env.ARKE_SPACE_ID?.trim() || loadRepoState()?.space_id || null;
+
+  // Verify the space exists before using it
+  if (spaceId) {
+    const spaceExists = await checkSpaceExists(apiUrl, adminKey, spaceId);
+    if (!spaceExists) {
+      output.warn(
+        `[arkeon] space ${spaceId} not found in the database — seeding without space association.`,
+      );
+      spaceId = null;
+    }
+  }
+
+  const envelope: Record<string, unknown> = { ...GENESIS_OPS };
+  if (spaceId) {
+    envelope.defaults = { space_id: spaceId };
+  }
+
   output.progress(
-    `[arkeon] Posting Genesis envelope (${GENESIS_OPS.ops.length} ops)${opts.dryRun ? " in dry-run mode" : ""}...`,
+    `[arkeon] Posting Genesis envelope (${GENESIS_OPS.ops.length} ops)${opts.dryRun ? " in dry-run mode" : ""}${spaceId ? ` into space ${spaceId}` : ""}...`,
   );
 
   const url = `${apiUrl.replace(/\/$/, "")}/ops${opts.dryRun ? "?dry_run=true" : ""}`;
@@ -95,7 +115,7 @@ async function runSeed(opts: SeedOptions): Promise<void> {
       "content-type": "application/json",
       authorization: `ApiKey ${adminKey}`,
     },
-    body: JSON.stringify(GENESIS_OPS),
+    body: JSON.stringify(envelope),
   });
 
   if (!response.ok) {
@@ -141,6 +161,17 @@ async function checkGenesisBook(apiUrl: string, adminKey: string): Promise<strin
     return book?.id ?? null;
   } catch {
     return null;
+  }
+}
+
+async function checkSpaceExists(apiUrl: string, adminKey: string, spaceId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${apiUrl.replace(/\/$/, "")}/spaces/${spaceId}`, {
+      headers: { authorization: `ApiKey ${adminKey}` },
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

@@ -12,6 +12,9 @@ skills:
   arkeon-doctor:
     description: "Diagnose the health of a local Arkeon installation: version, stack, database, config."
     argument-hint: ""
+  arkeon-recall:
+    description: "Pull relevant knowledge from the Arkeon graph into the conversation as a structured brief."
+    argument-hint: "<topic>"
 
 providers:
   claude:
@@ -28,6 +31,8 @@ providers:
           allowed-tools: "Bash(npx arkeon *, arkeon *, ls *), Read, Glob, Grep, Write, Agent"
         arkeon-doctor:
           allowed-tools: "Bash(arkeon *, npx arkeon *, npm view arkeon *, curl *, ls *, cat *), Read, Glob, Grep"
+        arkeon-recall:
+          allowed-tools: "Bash(npx arkeon *, arkeon *, curl *), Read, Glob, Grep"
 
   codex:
     format: skill-dir
