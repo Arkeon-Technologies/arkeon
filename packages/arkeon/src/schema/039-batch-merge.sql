@@ -6,12 +6,10 @@
 -- target entity in one transaction. Same 14-step logic as perform_entity_merge()
 -- but looped over multiple sources.
 --
--- CAS is checked on the first iteration only. Subsequent ver increments are
--- deterministic within the transaction.
+-- CAS is checked on the first non-skipped iteration. Sources that were already
+-- deleted (e.g., by a concurrent merge) are skipped gracefully.
 --
--- Only the final iteration writes the merged properties and a version snapshot.
--- Intermediate iterations just bump ver and log the merge activity. This avoids
--- creating noisy intermediate version entries.
+-- A single version snapshot is written after all sources are processed.
 --
 -- =============================================================================
 
@@ -34,15 +32,19 @@ DECLARE
   v_new_ver INTEGER;
   v_i INTEGER;
   v_count INTEGER;
-  v_is_last BOOLEAN;
 BEGIN
   v_expected_ver := p_start_ver;
   v_count := array_length(p_source_ids, 1);
 
   FOR v_i IN 1..v_count LOOP
     v_source_id := p_source_ids[v_i];
+
+    -- Skip sources already deleted by a concurrent merge
+    IF NOT EXISTS (SELECT 1 FROM entities WHERE id = v_source_id) THEN
+      CONTINUE;
+    END IF;
+
     v_new_ver := v_expected_ver + 1;
-    v_is_last := (v_i = v_count);
 
     -- 1. Delete self-referential edges (source <-> target)
     DELETE FROM entities WHERE id IN (
@@ -96,11 +98,10 @@ BEGIN
     -- 8. Transfer comments
     UPDATE comments SET entity_id = p_target_id WHERE entity_id = v_source_id;
 
-    -- 9. Update target entity
-    -- CAS guard on first iteration; properties only written on last iteration
-    IF v_i = 1 THEN
+    -- 9. Update target entity (CAS guard on first non-skipped iteration)
+    IF v_expected_ver = p_start_ver THEN
       UPDATE entities
-      SET properties = CASE WHEN v_is_last THEN p_merged_properties ELSE properties END,
+      SET properties = p_merged_properties,
           ver = v_new_ver,
           edited_by = p_actor_id,
           note = 'batch merge',
@@ -113,7 +114,7 @@ BEGIN
       END IF;
     ELSE
       UPDATE entities
-      SET properties = CASE WHEN v_is_last THEN p_merged_properties ELSE properties END,
+      SET properties = p_merged_properties,
           ver = v_new_ver,
           edited_by = p_actor_id,
           note = 'batch merge',
@@ -122,31 +123,36 @@ BEGIN
       RETURNING * INTO v_updated;
     END IF;
 
-    -- 10. Version snapshot only on last iteration (avoids noisy intermediates)
-    IF v_is_last THEN
-      INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
-      VALUES (p_target_id, v_new_ver, p_merged_properties, p_actor_id, 'batch merge', p_now);
-    END IF;
-
-    -- 11. Log merge activity (always — one entry per source for audit trail)
+    -- 10. Log merge activity (one entry per source for audit trail)
     INSERT INTO entity_activity (entity_id, actor_id, action, detail, ts)
     VALUES (p_target_id, p_actor_id, 'entity_merged', p_merge_details[v_i], p_now);
 
-    -- 12. Repoint existing redirects that point to source (chain resolution)
+    -- 11. Repoint existing redirects that point to source (chain resolution)
     UPDATE entity_redirects SET new_id = p_target_id WHERE new_id = v_source_id;
 
-    -- 13. Insert redirect for the source
+    -- 12. Insert redirect for the source
     INSERT INTO entity_redirects (old_id, new_id, merged_at, merged_by)
     VALUES (v_source_id, p_target_id, p_now, p_actor_id);
 
-    -- 14. Delete source entity (CASCADE handles remaining refs)
+    -- 13. Delete source entity (CASCADE handles remaining refs)
     DELETE FROM entities WHERE id = v_source_id;
 
     v_expected_ver := v_new_ver;
   END LOOP;
 
-  -- Return the final updated target
-  RETURN NEXT v_updated;
+  -- Version snapshot once after all merges
+  IF v_expected_ver > p_start_ver THEN
+    INSERT INTO entity_versions (entity_id, ver, properties, edited_by, note, created_at)
+    VALUES (p_target_id, v_expected_ver, p_merged_properties, p_actor_id, 'batch merge', p_now);
+
+    RETURN NEXT v_updated;
+  ELSE
+    -- All sources were already deleted — return target unchanged (not a CAS failure)
+    SELECT * INTO v_updated FROM entities WHERE id = p_target_id;
+    IF v_updated.id IS NOT NULL THEN
+      RETURN NEXT v_updated;
+    END IF;
+  END IF;
 END;
 $$;
 

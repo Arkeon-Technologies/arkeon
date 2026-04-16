@@ -212,7 +212,7 @@ describe("Entity Merge Batch", () => {
     expect(response.status).toBe(400);
   });
 
-  test("404 when an entity does not exist", async () => {
+  test("per-group error when an entity does not exist", async () => {
     const e1 = await createEntity(actor.apiKey, "note", { label: "real" });
 
     const { response, body } = await jsonRequest("/entities/merge-batch", {
@@ -222,10 +222,14 @@ describe("Entity Merge Batch", () => {
         groups: [{ entity_ids: [e1.id, "01ZZZZZZZZZZZZZZZZZZZZZZZZ"] }],
       },
     });
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    const result = body as any;
+    expect(result.merged).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.groups[0].error).toContain("not found");
   });
 
-  test("403 when actor lacks admin on any entity", async () => {
+  test("per-group error when actor lacks admin on any entity", async () => {
     const actorB = await createActor(adminApiKey, { maxReadLevel: 2, maxWriteLevel: 2 });
     const owned = await createEntity(actor.apiKey, "note", { label: uniqueName("o") });
     const foreign = await createEntity(actorB.apiKey, "note", { label: uniqueName("f") });
@@ -233,14 +237,69 @@ describe("Entity Merge Batch", () => {
     // Grant editor (not admin) so actor can see it
     await grantEntityPermission(actorB.apiKey, foreign.id, "actor", actor.id, "editor");
 
-    const { response } = await jsonRequest("/entities/merge-batch", {
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
       method: "POST",
       apiKey: actor.apiKey,
       json: {
         groups: [{ entity_ids: [owned.id, foreign.id] }],
       },
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    const result = body as any;
+    expect(result.merged).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(result.groups[0].error).toContain("Admin access required");
+  });
+
+  test("partial success: valid group merges while invalid group reports error", async () => {
+    const goodEntities = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        createEntity(actor.apiKey, "note", { label: uniqueName("good") }),
+      ),
+    );
+
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: {
+        groups: [
+          { entity_ids: goodEntities.map((e) => e.id) },
+          { entity_ids: ["01YYYYYYYYYYYYYYYYYYYYYYYY", "01ZZZZZZZZZZZZZZZZZZZZZZZZ"] },
+        ],
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const result = body as any;
+    expect(result.merged).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.groups[0].error).toBeNull();
+    expect(result.groups[1].error).toContain("not found");
+  });
+
+  test("source already merged by prior request is handled gracefully", async () => {
+    const e1 = await createEntity(actor.apiKey, "note", { label: uniqueName("t") });
+    const e2 = await createEntity(actor.apiKey, "note", { label: uniqueName("s1") });
+    const e3 = await createEntity(actor.apiKey, "note", { label: uniqueName("s2") });
+
+    // First merge: e2 into e1
+    await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: { groups: [{ entity_ids: [e1.id, e2.id] }] },
+    });
+
+    // Second merge: e1 + e3 (e2 is already gone, but not in this request)
+    const { response, body } = await jsonRequest("/entities/merge-batch", {
+      method: "POST",
+      apiKey: actor.apiKey,
+      json: { groups: [{ entity_ids: [e1.id, e3.id] }] },
+    });
+
+    expect(response.status).toBe(200);
+    const result = body as any;
+    expect(result.merged).toBe(1);
+    expect(result.failed).toBe(0);
   });
 
   // --- Redirect chains ---

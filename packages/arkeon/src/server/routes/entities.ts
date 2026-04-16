@@ -504,7 +504,8 @@ const mergeBatchRoute = createRoute({
   "x-arke-auth": "required",
   "x-arke-related": ["POST /entities/{id}/merge", "POST /entities/bulk"],
   "x-arke-rules": [
-    "Requires admin access on all entities in every group",
+    "Requires admin access on all entities in every group (checked per-group, not request-wide)",
+    "Missing or unauthorized entities fail only their group, not the whole batch",
     "All entities in a group must have the same kind (entity or relationship)",
     "Entity with richest properties is auto-selected as merge target",
     "Maximum 100 groups per request, 500 entities per group",
@@ -545,7 +546,7 @@ const mergeBatchRoute = createRoute({
         }),
       ),
     },
-    ...errorResponses([400, 401, 403]),
+    ...errorResponses([400, 401]),
   },
 });
 
@@ -1501,20 +1502,14 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
     entityMap.set(row.id, row);
   }
 
-  // Verify all entities exist
-  const missing = allIds.filter((id) => !entityMap.has(id));
-  if (missing.length > 0) {
-    throw new ApiError(404, "not_found", `Entities not found: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ""}`);
-  }
-
-  // Verify admin access on all entities
+  // Bulk permission check (non-fatal — results used per-group)
   const nonOwnedIds = allIds.filter((id) => {
-    const e = entityMap.get(id)!;
-    return e.owner_id !== actor.id && !actor.isAdmin;
+    const e = entityMap.get(id);
+    return e && e.owner_id !== actor.id && !actor.isAdmin;
   });
 
+  let permittedIds = new Set<string>();
   if (nonOwnedIds.length > 0) {
-    // Batch check permissions for non-owned entities
     const permResults = await sql.transaction([
       ...setActorContext(sql, actor),
       sql.query(
@@ -1527,13 +1522,9 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
       ),
     ]);
 
-    const permittedIds = new Set(
+    permittedIds = new Set(
       (permResults[ctxLen] as Array<{ entity_id: string }>).map((r) => r.entity_id),
     );
-    const unauthorized = nonOwnedIds.filter((id) => !permittedIds.has(id));
-    if (unauthorized.length > 0) {
-      throw new ApiError(403, "forbidden", `Admin access required on all entities. Missing for: ${unauthorized.slice(0, 3).join(", ")}${unauthorized.length > 3 ? ` (+${unauthorized.length - 3} more)` : ""}`);
-    }
   }
 
   const now = new Date().toISOString();
@@ -1548,7 +1539,7 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
   };
 
   // If any entities are relationships, fetch edge data for endpoint validation
-  const relationshipIds = allIds.filter((id) => entityMap.get(id)!.kind === "relationship");
+  const relationshipIds = allIds.filter((id) => entityMap.get(id)?.kind === "relationship");
   const edgeMap = new Map<string, { source_id: string; target_id: string }>();
   if (relationshipIds.length > 0) {
     const edgeResults = await sql.transaction([
@@ -1564,7 +1555,33 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
   }
 
   const processGroup = async (group: { entity_ids: string[] }): Promise<GroupResult> => {
+    // Per-group existence check
+    const missingIds = group.entity_ids.filter((id) => !entityMap.has(id));
+    if (missingIds.length > 0) {
+      return {
+        target_id: "",
+        merged_count: 0,
+        final_ver: 0,
+        error: `Entities not found: ${missingIds.slice(0, 5).join(", ")}${missingIds.length > 5 ? ` (+${missingIds.length - 5} more)` : ""}`,
+        source_ids: [],
+      };
+    }
+
     const entities = group.entity_ids.map((id) => entityMap.get(id)!);
+
+    // Per-group permission check
+    const unauthorized = entities.filter(
+      (e) => e.owner_id !== actor.id && !actor.isAdmin && !permittedIds.has(e.id),
+    );
+    if (unauthorized.length > 0) {
+      return {
+        target_id: "",
+        merged_count: 0,
+        final_ver: 0,
+        error: `Admin access required. Missing for: ${unauthorized.map((e) => e.id).slice(0, 3).join(", ")}${unauthorized.length > 3 ? ` (+${unauthorized.length - 3} more)` : ""}`,
+        source_ids: [],
+      };
+    }
 
     // Validate same kind within group
     const kinds = new Set(entities.map((e) => e.kind));
@@ -1676,9 +1693,12 @@ entitiesRouter.openapi(mergeBatchRoute, async (c) => {
         };
       }
 
+      // Ver delta reflects actual merges (sources deleted by concurrent
+      // requests are skipped inside perform_group_merge)
+      const actuallyMerged = updated.ver - target.ver;
       return {
         target_id: target.id,
-        merged_count: sourceIds.length,
+        merged_count: actuallyMerged,
         final_ver: updated.ver,
         error: null,
         source_ids: sourceIds,
