@@ -53,7 +53,7 @@ Return JSON:
 }
 
 Available ops:
-- merge: combine duplicate entities. "target" is the entity to keep (prefer richest description). "sources" are entities to delete (their relationships transfer to target).
+- merge: combine duplicate entities. "target" is the entity to keep (prefer richest description, and the more specific/canonical type — e.g. prefer "person" over "philosopher_or_author", prefer "organization" over "research_institute"). "sources" are entities to delete (their relationships transfer to target).
 - relate: add a missing relationship between two existing entities.
 
 MERGE only when two entities are the SAME real-world thing:
@@ -62,12 +62,19 @@ MERGE only when two entities are the SAME real-world thing:
 - Same org, different form: "Dept. of Defense" = "Department of Defense" = "DoD"
 - Same abbreviation: "WHO" = "World Health Organization"
 
+IMPORTANT — type differences do NOT block merging. The "type" field is just a category guess from extraction; different extractions of the same entity often disagree on type. If two entities clearly refer to the same real-world thing, MERGE them even if their types differ:
+- person "René Girard" + philosopher_or_author "Rene Girard" → MERGE (same human, accent and type-label both vary)
+- organization "Stanford University" + institution "Stanford" → MERGE (same org)
+- religious_figure "Jesus" + person "Jesus of Nazareth" → MERGE (same individual)
+When merging across types, choose the more specific or conventional type for the target (person > philosopher_or_author; organization > institution; person > religious_figure when the entity is human).
+
 NEVER merge:
 - Different things sharing a word: "United States" ≠ "United Nations"
 - A person and a country they lead: "Charles de Gaulle" ≠ "France"
 - An event about an entity: "Smith appointed Director" ≠ "William Smith"
 - Different cities: "Paris" ≠ "Lyon"
 - A policy and its violation: "Treaty" ≠ "Treaty violations"
+- A concept and an example: "Mimetic desire" ≠ "Mimetic desires run amok"
 
 If nothing needs merging, return {"ops": []}. When uncertain, don't merge.`;
 

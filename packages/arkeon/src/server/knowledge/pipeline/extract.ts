@@ -160,6 +160,12 @@ Return JSON:
       "predicate": "undergoing",
       "target_ref": "event_restructuring",
       "detail": "Acme Corp is the subject of the Q3 restructuring affecting 3 divisions."
+    },
+    {
+      "source_ref": "person_jane",
+      "predicate": "graduated_from",
+      "target_shell": { "label": "Harvard Business School", "type": "organization" },
+      "detail": "Mentioned in passing as Jane's MBA program — not central enough to define as a full entity."
     }
   ]
 }
@@ -177,7 +183,11 @@ Relationship extraction is critical — a graph with entities but no connections
 - A well-extracted document has 2-3x more relationships than entities. If you have 8 entities, aim for 16-24 relationships.
 - Every entity should connect to at least one other entity. Orphan entities with no relationships are rarely useful.
 - Use specific predicates (e.g. "founded", "led", "located_in", "participated_in") not generic ones ("relates_to")
-- source_ref and target_ref MUST match a ref from entities (or a known entity ID)
+- For each side of a relationship, use ONE of these three options:
+  1. source_ref / target_ref → a ref you defined in "entities" above (e.g. "person_jane")
+  2. source_ref / target_ref → a ULID of a known entity from the "Known entities" section
+  3. source_shell / target_shell → inline { "label": "...", "type": "...", "description": "..." } for a passing-mention entity you didn't fully extract. The system will auto-create a minimal entity for it.
+  Never invent a ref you didn't define in entities — if you want to mention something briefly, use a shell instead.
 - source_span (optional): a verbatim quote from the text where this relationship is stated
 - detail: explain the relationship fully — context, nuance, significance
 - You may include additional domain-specific properties as top-level keys on entities and relationships (alongside ref/label/type/description). If the additional instructions below request specific properties, include them on every entity or relationship as directed`;
