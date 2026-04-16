@@ -95,9 +95,16 @@ function contentWords(label: string): Set<string> {
   );
 }
 
-const ALIAS_PROMPT = `For each entity label below, list 2-3 alternative names, abbreviations, or aliases that the same thing might be called. Return JSON:
+const ALIAS_PROMPT = `For each entity label below, list 2-3 alternative names that the same thing might be called elsewhere. Return JSON:
 {"aliases": {"ID1": ["alias1", "alias2"], "ID2": ["alias1"]}}
-Only include real alternative names — not descriptions, not related concepts. If no aliases exist, omit the ID.`;
+
+Generate:
+- If it's an acronym, expand it: "NATO" → ["North Atlantic Treaty Organization"]
+- If it's a full name, give the acronym/abbreviation: "European Union" → ["EU"], "Federal Bureau of Investigation" → ["FBI"]
+- If it has a common alternate name: "Germany" → ["Deutschland", "BRD"], "Myanmar" → ["Burma"]
+- If it's a person, try short forms: "Theodore Roosevelt" → ["Teddy Roosevelt", "T. Roosevelt"]
+
+Only include real alternative names for the same thing. Omit IDs with no aliases.`;
 
 /**
  * Generate alternative label keywords for each entity via a lightweight
@@ -131,6 +138,10 @@ async function generateLabelAliases(
       }
     }
 
+    const emap = new Map(entities.map((e) => [e.id, e.label]));
+    for (const [id, alts] of aliasMap) {
+      console.log(`[knowledge:consolidate] Aliases for "${emap.get(id) ?? id}": ${JSON.stringify(alts)}`);
+    }
     appendLog(jobId, "info", `Generated aliases for ${aliasMap.size} entities`);
   } catch (err) {
     console.warn(`[knowledge:consolidate] Alias generation failed, continuing without:`, err instanceof Error ? err.message : err);
