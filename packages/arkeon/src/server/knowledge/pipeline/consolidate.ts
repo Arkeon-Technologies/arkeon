@@ -28,6 +28,19 @@ const DEBOUNCE_MS = 15_000;
 const MAX_ENTITIES_PER_BATCH = 200;
 const DESC_SNIPPET_CHARS = 150;
 
+/** Safely truncate a string without cutting multi-byte UTF-8 characters. */
+function safeTruncate(s: string, maxLen: number): string {
+  if (s.length <= maxLen) return s;
+  // Truncate and remove any trailing partial character
+  let truncated = s.slice(0, maxLen);
+  // If we cut in the middle of a surrogate pair or multi-byte sequence, trim back
+  const lastChar = truncated.charCodeAt(truncated.length - 1);
+  if (lastChar >= 0xD800 && lastChar <= 0xDBFF) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated;
+}
+
 // Words too common to be meaningful for overlap detection
 const OVERLAP_STOP_WORDS = new Set([
   "the", "a", "an", "of", "in", "on", "at", "to", "for", "from", "with",
