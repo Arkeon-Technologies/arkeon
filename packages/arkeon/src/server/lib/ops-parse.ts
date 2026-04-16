@@ -24,6 +24,7 @@ import {
   type OpsDefaults,
   type OpsEnvelope,
   type RelateOp,
+  type MergeOp,
 } from "./ops-schema";
 import { deepMergeObjects } from "./properties";
 import type { PermissionGrant } from "./entities";
@@ -81,9 +82,16 @@ export interface PlannedEdge {
   permissions: PermissionGrant[];
 }
 
+export interface PlannedMerge {
+  op_index: number;
+  target_id: string;
+  source_ids: string[];
+}
+
 export interface OpsPlan {
   entities: PlannedEntity[];
   edges: PlannedEdge[];
+  merges: PlannedMerge[];
   /** Global ULIDs referenced by edges — need an existence + read-visibility check before execute. */
   referenced_global_ids: Set<string>;
   /** True when upsert_on is set in defaults — signals executor to run pre-flight upsert lookup. */
@@ -126,6 +134,7 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   const errors: OpsParseError[] = [];
   const entities: PlannedEntity[] = [];
   const edges: PlannedEdge[] = [];
+  const merges: PlannedMerge[] = [];
   const referenced_global_ids = new Set<string>();
 
   /** @local ref → preallocated ULID */
@@ -146,7 +155,7 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   envelope.ops.forEach((op, op_index) => {
     if (op.op === "entity") {
       processEntityOp(op, op_index, defaults, localRefs, entities, errors, upsertActive, batchDedup);
-    } else {
+    } else if (op.op === "relate") {
       processRelateOp(
         op,
         op_index,
@@ -156,6 +165,8 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
         referenced_global_ids,
         errors,
       );
+    } else if (op.op === "merge") {
+      processMergeOp(op as MergeOp, op_index, localRefs, merges, referenced_global_ids, errors);
     }
   });
 
@@ -164,7 +175,7 @@ export function parseOps(envelope: OpsEnvelope): ParseResult {
   }
 
   return {
-    plan: { entities, edges, referenced_global_ids, upsert_active: upsertActive, upsert_mode: defaults.upsert_mode ?? "accumulate" },
+    plan: { entities, edges, merges, referenced_global_ids, upsert_active: upsertActive, upsert_mode: defaults.upsert_mode ?? "accumulate" },
     errors: [],
   };
 }
@@ -298,13 +309,36 @@ function processRelateOp(
   });
 }
 
+function processMergeOp(
+  op: MergeOp,
+  op_index: number,
+  localRefs: Map<string, string>,
+  merges: PlannedMerge[],
+  referenced_global_ids: Set<string>,
+  errors: OpsParseError[],
+): void {
+  // Resolve target ref
+  const resolvedTarget = resolveRef(op.target, "target", op_index, localRefs, referenced_global_ids, errors);
+  if (!resolvedTarget) return;
+
+  // Resolve source refs
+  const sourceIds: string[] = [];
+  for (const source of op.sources) {
+    const resolved = resolveRef(source, "sources", op_index, localRefs, referenced_global_ids, errors);
+    if (!resolved) return;
+    sourceIds.push(resolved.id);
+  }
+
+  merges.push({ op_index, target_id: resolvedTarget.id, source_ids: sourceIds });
+}
+
 // ---------------------------------------------------------------------------
 // Ref resolution
 // ---------------------------------------------------------------------------
 
 function resolveRef(
   ref: string,
-  field: "source" | "target",
+  field: "source" | "target" | "sources",
   op_index: number,
   localRefs: Map<string, string>,
   referenced_global_ids: Set<string>,
