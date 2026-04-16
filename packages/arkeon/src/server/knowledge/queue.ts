@@ -31,7 +31,6 @@ import { handlePdfPageGroup } from "./pipeline/pdf-page-group";
 import { handlePptxExtract } from "./pipeline/pptx-extract";
 import { handlePptxSlideGroup } from "./pipeline/pptx-slide-group";
 import { handleDocxExtract } from "./pipeline/docx-extract";
-import { handleConsolidate } from "./pipeline/consolidate";
 
 const POLL_INTERVAL_MS = 2_000;
 const JOB_TIMEOUT_MS = 300_000; // 5 minutes
@@ -59,7 +58,10 @@ const handlers: Record<string, JobHandler> = {
   "pptx.extract":       handlePptxExtract,
   "pptx.slide_group":   handlePptxSlideGroup,
   "docx.extract":       handleDocxExtract,
-  "consolidate":        handleConsolidate,
+  // The old "consolidate" job type is replaced by the persistent dedup
+  // sweeper in knowledge/dedup.ts. Pre-existing consolidate rows in the
+  // queue (from before this change) are ignored — they'll time out of
+  // pending via the job-level retry cap and transition to failed.
 };
 
 // ---------------------------------------------------------------------------
@@ -97,28 +99,6 @@ export async function createJob(opts: {
     return id;
   } catch (err: any) {
     if (err?.code === "23505") return null; // duplicate
-    throw err;
-  }
-}
-
-/**
- * Ensure a pending consolidate job exists for a space.
- * Uses the unique partial index to silently deduplicate — if one is
- * already pending for this space, the INSERT is a no-op.
- */
-export async function ensureConsolidateJob(spaceId: string): Promise<void> {
-  const id = generateUlid();
-  try {
-    await withAdminSql(async (sql) => {
-      await sql.query(
-        `INSERT INTO knowledge_jobs (id, entity_id, entity_ver, status, trigger, job_type, metadata, created_at)
-         VALUES ($1, NULL, 0, 'pending', 'system', 'consolidate', $2, NOW())`,
-        [id, JSON.stringify({ space_id: spaceId })],
-      );
-    });
-    console.log(`[knowledge:queue] Created consolidate job ${id} for space ${spaceId}`);
-  } catch (err: any) {
-    if (err?.code === "23505") return; // duplicate — one already pending for this space
     throw err;
   }
 }

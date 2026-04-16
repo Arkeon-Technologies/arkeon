@@ -28,6 +28,7 @@ import { indexEntityById } from "./meilisearch";
 import { deepMergeObjects } from "./properties";
 import { setActorContext } from "./actor-context";
 import { requireSpaceRole } from "./spaces";
+import { enqueueForDedup } from "../knowledge/dedup";
 import type { SqlClient } from "./sql";
 import type { Actor } from "../types";
 
@@ -346,6 +347,35 @@ export async function executeOps(
   }
   for (const provEdge of extractedFromEdges) {
     backgroundTask(indexEntityById(provEdge.id));
+  }
+
+  // ---- Enqueue newly-created entities for dedup (best-effort, non-fatal) --
+  //
+  // Skip:
+  //   - upserts (already went through dedup once as a 'created' row)
+  //   - entities without a space (the sweeper is per-space)
+  //   - document / text_chunk types (provenance, not graph entities)
+  //
+  // Fire via backgroundTask so dedup enqueue failures don't fail the write.
+  {
+    const toEnqueue: Array<{ entity_id: string; space_id: string; type: string }> = [];
+    for (const entity of plan.entities) {
+      if (entity.is_upsert) continue;
+      const spaceId = entity.space_id ?? null;
+      if (!spaceId) continue;
+      if (entity.type === "document" || entity.type === "text_chunk") continue;
+      toEnqueue.push({ entity_id: entity.id, space_id: spaceId, type: entity.type });
+    }
+    if (toEnqueue.length > 0) {
+      backgroundTask(
+        enqueueForDedup(toEnqueue).catch((err) => {
+          console.warn(
+            `[ops] dedup enqueue failed (non-fatal, ${toEnqueue.length} entity(s)):`,
+            err instanceof Error ? err.message : err,
+          );
+        }),
+      );
+    }
   }
 
   // ---- Post-transaction merges (independent, non-fatal) -------------------
