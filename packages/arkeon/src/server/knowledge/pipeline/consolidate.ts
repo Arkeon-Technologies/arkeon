@@ -113,13 +113,24 @@ function findOverlapGroups(entities: CompactEntity[]): CompactEntity[][] {
       const shared = new Set([...wa].filter((w) => wb.has(w)));
       if (shared.size === 0) continue;
 
-      // Connect if one is a subset of the other (abbreviation/expansion)
-      // or they share >=60% of the smaller label's content words
+      // Connect if both labels are short and one contains the other
+      // (e.g. "USSR" and "Soviet Union" share nothing, but "State Department"
+      // and "U.S. State Department" share 2 words), or they share >=50% of
+      // BOTH labels' content words (bidirectional overlap).
+      // Single-word labels only match if the other is also short (<=3 words).
+      const maxLen = Math.max(wa.size, wb.size);
       const minLen = Math.min(wa.size, wb.size);
-      const isSubset = shared.size === wa.size || shared.size === wb.size;
-      const highOverlap = shared.size >= Math.max(2, Math.ceil(minLen * 0.6));
+      const overlapPct = shared.size / maxLen;
 
-      if (isSubset || highOverlap) {
+      // Both must have significant overlap relative to their own size
+      const aOverlap = shared.size / wa.size;
+      const bOverlap = shared.size / wb.size;
+      const bidirectional = aOverlap >= 0.5 && bOverlap >= 0.5;
+
+      // Short labels (1-2 words) only match other short labels
+      const bothShort = maxLen <= 3 && shared.size >= 1;
+
+      if ((bidirectional && shared.size >= 2) || (bothShort && minLen === shared.size)) {
         union(entities[i].id, entities[j].id);
       }
     }
