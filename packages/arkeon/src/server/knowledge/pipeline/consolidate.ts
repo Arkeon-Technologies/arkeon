@@ -82,13 +82,56 @@ function contentWords(label: string): Set<string> {
   );
 }
 
+const ALIAS_PROMPT = `For each entity label below, list 2-3 alternative names, abbreviations, or aliases that the same thing might be called. Return JSON:
+{"aliases": {"ID1": ["alias1", "alias2"], "ID2": ["alias1"]}}
+Only include real alternative names — not descriptions, not related concepts. If no aliases exist, omit the ID.`;
+
+/**
+ * Generate alternative label keywords for each entity via a lightweight
+ * LLM call. This catches synonym matches like USSR/Soviet Union that
+ * share zero content words.
+ */
+async function generateLabelAliases(
+  llm: LlmClient,
+  entities: CompactEntity[],
+  jobId: string,
+): Promise<Map<string, string[]>> {
+  const aliasMap = new Map<string, string[]>();
+  if (entities.length === 0) return aliasMap;
+
+  // Build a compact label list — just IDs and labels, no descriptions
+  const labelList = entities.map((e) => ({ id: e.id, label: e.label, type: e.type }));
+
+  try {
+    const result = await llm.chatJson<{
+      aliases: Record<string, string[]>;
+    }>(
+      ALIAS_PROMPT,
+      JSON.stringify({ entities: labelList }),
+      { maxTokens: 2000 },
+    );
+
+    const aliases = result.data.aliases ?? {};
+    for (const [id, alts] of Object.entries(aliases)) {
+      if (Array.isArray(alts) && alts.length > 0) {
+        aliasMap.set(id, alts.map((a) => String(a).toLowerCase()));
+      }
+    }
+
+    appendLog(jobId, "info", `Generated aliases for ${aliasMap.size} entities`);
+  } catch (err) {
+    console.warn(`[knowledge:consolidate] Alias generation failed, continuing without:`, err instanceof Error ? err.message : err);
+  }
+
+  return aliasMap;
+}
+
 /**
  * Group entities by label overlap. Two entities are connected if one's
- * content words are a subset of the other's, or they share >=60% of
- * their content words. This is stricter than single-word overlap to
- * prevent transitive chaining into mega-groups.
+ * content words are a subset of the other's, they share >=50% of both
+ * labels' content words, OR one entity's aliases match another's label.
  */
-function findOverlapGroups(entities: CompactEntity[]): CompactEntity[][] {
+function findOverlapGroups(entities: CompactEntity[], aliasMap?: Map<string, string[]>): CompactEntity[][] {
   const parent = new Map<string, string>();
   function find(x: string): string {
     if (!parent.has(x)) parent.set(x, x);
@@ -130,7 +173,19 @@ function findOverlapGroups(entities: CompactEntity[]): CompactEntity[][] {
       // Short labels (1-2 words) only match other short labels
       const bothShort = maxLen <= 3 && shared.size >= 1;
 
-      if ((bidirectional && shared.size >= 2) || (bothShort && minLen === shared.size)) {
+      // Also check alias matches: does entity A's alias match entity B's label or vice versa?
+      let aliasMatch = false;
+      if (aliasMap) {
+        const normA = normalize(entities[i].label);
+        const normB = normalize(entities[j].label);
+        const aliasesA = aliasMap.get(entities[i].id) ?? [];
+        const aliasesB = aliasMap.get(entities[j].id) ?? [];
+        // A's aliases contain B's normalized label, or vice versa
+        aliasMatch = aliasesA.some((a) => normalize(a) === normB || normB.includes(a))
+                  || aliasesB.some((a) => normalize(a) === normA || normA.includes(a));
+      }
+
+      if ((bidirectional && shared.size >= 2) || (bothShort && minLen === shared.size) || aliasMatch) {
         union(entities[i].id, entities[j].id);
       }
     }
@@ -200,8 +255,15 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
     description: (e.description as string) || "",
   }));
 
-  // Pre-filter: find groups of entities with overlapping labels
-  const overlapGroups = findOverlapGroups(entityList);
+  // Generate alternative label keywords to catch synonym-type matches
+  // (e.g. "USSR" for "Soviet Union", "PRC" for "People's Republic of China")
+  const resolverConfig = await resolveLlmConfig("resolver");
+  const resolverLlm = new LlmClient(resolverConfig);
+
+  const aliasMap = await generateLabelAliases(resolverLlm, entityList, jobId);
+
+  // Pre-filter: find groups of entities with overlapping labels (including aliases)
+  const overlapGroups = findOverlapGroups(entityList, aliasMap);
 
   if (overlapGroups.length === 0) {
     appendLog(jobId, "info", "No overlapping label groups found — nothing to revise");
@@ -218,10 +280,7 @@ export async function handleConsolidate(job: JobRecord, _sql: SqlClient): Promis
     console.log(`[knowledge:consolidate] Group (${group.length}): ${group.map((e) => `"${e.label}"`).join(", ")}`);
   }
 
-  // LLM revision pass per group
-  const resolverConfig = await resolveLlmConfig("resolver");
-  const resolverLlm = new LlmClient(resolverConfig);
-
+  // LLM revision pass per group (reuse resolverLlm from alias step)
   let totalMergeOps = 0;
   let totalRelateOps = 0;
   let totalTokensIn = 0;
