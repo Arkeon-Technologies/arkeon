@@ -311,13 +311,16 @@ async function runUp(opts: UpOptions): Promise<void> {
     );
   }
 
-  // Wire up the CLI for the user: point at the local instance and
-  // store the admin bootstrap key as the active API key.
-  config.set("apiUrl", apiUrl);
-  credentials.save({
-    apiKey: secrets.adminBootstrapKey,
-    keyPrefix: secrets.adminBootstrapKey.slice(0, 8),
-  });
+  // Wire up the CLI for the user: for the default instance, store the URL
+  // and admin key in global config. Named instances are discovered via the
+  // instance registry — writing global config would clobber other instances.
+  if (!isNamed) {
+    config.set("apiUrl", apiUrl);
+    credentials.save({
+      apiKey: secrets.adminBootstrapKey,
+      keyPrefix: secrets.adminBootstrapKey.slice(0, 8),
+    });
+  }
 
   output.result({
     operation: "up",

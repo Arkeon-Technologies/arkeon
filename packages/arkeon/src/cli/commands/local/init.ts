@@ -20,6 +20,8 @@
 
 import type { Command } from "commander";
 import { existsSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import {
   arkeonDir,
@@ -34,6 +36,7 @@ import { output } from "../../lib/output.js";
 
 interface InitOptions extends InitLlmFlags {
   force?: boolean;
+  name?: string;
 }
 
 export function registerInitCommand(program: Command): void {
@@ -41,6 +44,7 @@ export function registerInitCommand(program: Command): void {
     .command("init")
     .description("Create ~/.arkeon, generate secrets, optionally stage an LLM provider config")
     .option("--force", "Rotate all secrets even if ~/.arkeon/secrets.json already exists")
+    .option("--name <name>", "Named instance — isolate state under ~/.arkeon/<name>/")
     .option(
       "--llm-provider <name>",
       "LLM provider label (free-form, e.g. openai, anthropic, openrouter, local)",
@@ -67,6 +71,11 @@ export function registerInitCommand(program: Command): void {
         // and then fail on the LLM step — all-or-nothing validation
         // keeps init atomic.
         const llm = buildLlmConfigFromFlags(opts);
+
+        // Named instances get isolated state under ~/.arkeon/<name>/
+        if (opts.name) {
+          process.env.ARKEON_HOME = process.env.ARKEON_HOME ?? join(homedir(), ".arkeon", opts.name);
+        }
 
         ensureArkeonDir();
 

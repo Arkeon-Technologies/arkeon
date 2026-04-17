@@ -3,6 +3,7 @@
 
 import Conf from "conf";
 
+import { getSoleLiveInstance } from "./instances.js";
 import { loadRepoState } from "./repo-state.js";
 
 type ConfigSchema = {
@@ -36,6 +37,11 @@ export const config = {
         if (key === "apiUrl") return state.api_url as ConfigSchema[K];
         if (key === "spaceId") return state.space_id as ConfigSchema[K];
       }
+    }
+    // If exactly one local instance is alive, auto-target it
+    if (key === "apiUrl") {
+      const sole = getSoleLiveInstance();
+      if (sole) return sole.api_url as ConfigSchema[K];
     }
     const value = store.get(key);
     if (key === "apiUrl" && value === LEGACY_API_URL) {
