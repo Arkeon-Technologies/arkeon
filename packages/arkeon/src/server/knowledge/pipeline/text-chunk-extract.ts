@@ -18,7 +18,7 @@ import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 import { extractFromChunk, type EntitySummary } from "./extract";
 import { claimFinalization, runGroupFinalization } from "./finalize";
 
-export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Promise<void> {
+export async function handleTextChunkExtract(job: JobRecord, _sql: SqlClient): Promise<void> {
   const jobId = job.id as string;
   const entityId = job.entity_id as string;
   const parentJobId = job.parent_job_id as string;
@@ -72,7 +72,7 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
   console.log(`[knowledge:queue] text.chunk_extract ${jobId} completed (chunk ${chunkOrdinal + 1}/${totalChunks})`);
 
   // Try to claim and run finalization
-  const claimed = await claimFinalization(parentJobId, "text.chunk_extract", sql);
+  const claimed = await claimFinalization(parentJobId, "text.chunk_extract");
   if (claimed) {
     console.log(`[knowledge:queue] All ${totalChunks} chunks complete, finalizing`);
     await runGroupFinalization(parentJobId, "text.chunk_extract", {
@@ -83,6 +83,6 @@ export async function handleTextChunkExtract(job: JobRecord, sql: SqlClient): Pr
       writeLevel,
       ownerId,
       permissions,
-    }, sql);
+    });
   }
 }
