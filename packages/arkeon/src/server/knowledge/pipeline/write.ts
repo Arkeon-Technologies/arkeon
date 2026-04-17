@@ -19,6 +19,7 @@ import {
   type OpsEnvelopeInput,
   type OpsResult,
 } from "../lib/arke-client";
+import { withAdminSql } from "../lib/admin-sql";
 import { LlmClient } from "../lib/llm";
 import type { ExtractPlan, WriteResult } from "../lib/types";
 
@@ -330,7 +331,7 @@ export async function submitOpsWithRetry(
 }
 
 // ---------------------------------------------------------------------------
-// Source entity creation (for chunks — unchanged)
+// Source entity creation (for chunks — idempotent via delete-and-recreate)
 // ---------------------------------------------------------------------------
 
 export interface SourceEntityDef {
@@ -346,6 +347,24 @@ export async function writeSourceEntities(
   parentEntityId: string,
   opts?: WriteOpts,
 ): Promise<{ sourceEntityIds: string[] }> {
+  // Delete any existing chunks for this parent before creating new ones.
+  // This makes chunk creation idempotent — re-ingesting the same doc
+  // replaces chunks instead of duplicating them. FK ON DELETE CASCADE
+  // cleans up relationships, activity, and versions automatically.
+  const deleted = await withAdminSql(async (sql) => {
+    const rows = await sql.query(
+      `DELETE FROM entities
+       WHERE type = 'text_chunk'
+         AND properties->>'source_document_id' = $1
+       RETURNING id`,
+      [parentEntityId],
+    );
+    return rows.length;
+  });
+  if (deleted > 0) {
+    console.log(`[knowledge:write] Deleted ${deleted} stale chunk(s) for parent ${parentEntityId}`);
+  }
+
   const results = await parallelLimit(
     sources, async (source) => {
       const id = await createEntity({

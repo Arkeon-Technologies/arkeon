@@ -65,6 +65,10 @@ async function pollForNewContent(): Promise<void> {
              AND ea.actor_id NOT IN (
                SELECT id FROM actors WHERE properties->>'label' = 'knowledge-service'
              )
+             AND NOT EXISTS (
+               SELECT 1 FROM entities e
+               WHERE e.id = ea.entity_id AND e.type = 'text_chunk'
+             )
            ORDER BY ea.id ASC
            LIMIT ${BATCH_SIZE}`,
           [cursor],
