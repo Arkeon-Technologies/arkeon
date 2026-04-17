@@ -21,6 +21,8 @@ import {
   uploadDirectContent,
 } from "./helpers";
 
+const PIPELINE_ENABLED = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
+
 /**
  * Generate a document that just barely exceeds the chunk threshold.
  * Default target_chunk_chars = 24,000 → need > 24,000 chars.
@@ -85,7 +87,7 @@ async function waitForJobCompletion(
   };
 }
 
-describe("Chunk Finalization E2E", () => {
+describe.skipIf(!PIPELINE_ENABLED)("Chunk Finalization E2E", () => {
   let hasLlm = false;
 
   beforeAll(async () => {
