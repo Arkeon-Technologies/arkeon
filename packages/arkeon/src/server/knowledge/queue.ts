@@ -322,6 +322,47 @@ function processJob(sql: SqlClient, job: JobRecord): void {
 }
 
 // ---------------------------------------------------------------------------
+// Stuck-parent recovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Find parents stuck in 'waiting' where all children are terminal
+ * (completed or failed) and re-trigger finalization via tryFinalizeParent.
+ * This recovers jobs orphaned by the pre-0.3.12 RLS bug or by crashes.
+ */
+async function recoverStuckWaitingParents(): Promise<void> {
+  const stuckParents = await withAdminSql(async (sql) =>
+    sql.query(
+      `SELECT p.id
+       FROM knowledge_jobs p
+       WHERE p.status = 'waiting'
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_jobs c
+           WHERE c.parent_job_id = p.id
+             AND c.status NOT IN ('completed', 'failed')
+         )
+         -- Only parents that actually have children
+         AND EXISTS (
+           SELECT 1 FROM knowledge_jobs c
+           WHERE c.parent_job_id = p.id
+         )`,
+      [],
+    ),
+  );
+
+  if (stuckParents.length === 0) return;
+
+  console.log(`[knowledge:queue] Found ${stuckParents.length} stuck waiting parent(s), recovering`);
+  for (const row of stuckParents) {
+    try {
+      await tryFinalizeParent(row.id as string);
+    } catch (err) {
+      console.error(`[knowledge:queue] Failed to recover parent ${row.id}:`, err);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
@@ -343,6 +384,13 @@ export function initKnowledgeQueue(): void {
     }
   }).catch((err: unknown) => {
     console.error(`[knowledge:queue] Failed to recover stuck jobs:`, err);
+  });
+
+  // Recover parents stuck in 'waiting' whose children are all terminal.
+  // This catches jobs orphaned by the RLS bug (pre-0.3.12) or by a crash
+  // between child completion and finalization.
+  recoverStuckWaitingParents().catch((err: unknown) => {
+    console.error(`[knowledge:queue] Failed to recover stuck waiting parents:`, err);
   });
 
   pollTimer = setInterval(() => {

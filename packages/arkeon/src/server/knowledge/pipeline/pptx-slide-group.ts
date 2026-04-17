@@ -196,7 +196,7 @@ export async function handlePptxSlideGroup(
   );
 
   // Try to claim and run finalization
-  const claimed = await claimFinalization(parentJobId, "pptx.slide_group", sql);
+  const claimed = await claimFinalization(parentJobId, "pptx.slide_group");
   if (claimed) {
     console.log(`[knowledge:queue] All ${totalGroups} slide groups complete, finalizing`);
     await runGroupFinalization(
@@ -211,7 +211,6 @@ export async function handlePptxSlideGroup(
         ownerId,
         permissions,
       },
-      sql,
     );
   }
 }

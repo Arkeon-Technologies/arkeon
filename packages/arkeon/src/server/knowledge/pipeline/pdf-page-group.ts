@@ -196,7 +196,7 @@ export async function handlePdfPageGroup(
   );
 
   // Try to claim and run finalization
-  const claimed = await claimFinalization(parentJobId, "pdf.page_group", sql);
+  const claimed = await claimFinalization(parentJobId, "pdf.page_group");
   if (claimed) {
     console.log(`[knowledge:queue] All ${totalGroups} page groups complete, finalizing`);
     await runGroupFinalization(
@@ -211,7 +211,6 @@ export async function handlePdfPageGroup(
         ownerId,
         permissions,
       },
-      sql,
     );
   }
 }
