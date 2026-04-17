@@ -20,6 +20,7 @@ import { setJobStatus, tryFinalizeParent } from "../queue";
 
 import { mergeGroupPlans } from "./merge";
 import { runExtractionPipeline, type PipelineOpts } from "./run-pipeline";
+import type { EntitySummary } from "./extract";
 
 /**
  * Atomic gate: claim finalization only if all siblings are terminal.
@@ -106,6 +107,19 @@ async function _runGroupFinalization(
     };
   });
 
+  // Collect scouted entity IDs from sibling metadata so buildOpsFromPlan
+  // can recognize ULID refs as existing entities (bare ULID vs @local ref).
+  // All siblings share the same scouted_entities (set at ingest time).
+  let knownEntityIds: Set<string> | undefined;
+  for (const j of siblingJobs) {
+    const meta = (j.metadata ?? {}) as Record<string, unknown>;
+    const scouted = meta.scouted_entities as EntitySummary[] | undefined;
+    if (scouted && scouted.length > 0) {
+      knownEntityIds = new Set(scouted.map((e) => e.id));
+      break;
+    }
+  }
+
   appendLog(parentJobId, "info", `Merging ${groupResults.length} group extraction results`);
 
   // Merge (skip if single group)
@@ -131,6 +145,7 @@ async function _runGroupFinalization(
   const pipelineResult = await runExtractionPipeline(mergedPlan, {
     ...opts,
     jobId: parentJobId,
+    knownEntityIds,
   });
 
   // Aggregate token usage from all siblings + finalization

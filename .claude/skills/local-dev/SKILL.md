@@ -149,6 +149,36 @@ Worker sandbox tests. Requires bubblewrap on Linux; macOS uses the fallback path
 ./scripts/test-sandbox.sh
 ```
 
+## Knowledge Pipeline
+
+The LLM-powered knowledge extraction pipeline is **opt-in**. It requires an OpenAI API key and an explicit env var:
+
+```bash
+ENABLE_KNOWLEDGE_PIPELINE=true OPENAI_API_KEY=sk-... npx tsx packages/arkeon/src/index.ts up
+```
+
+When enabled, ingesting documents (`arkeon ingest`) triggers entity/relationship extraction via LLM. Without it, ingestion stores raw chunks but skips extraction.
+
+### Unit tests (no LLM needed)
+
+Merge, materialize, and ops-building logic can be tested without a running stack or API key:
+
+```bash
+npm test -w packages/arkeon -- --grep merge
+```
+
+### E2E pipeline tests (LLM required)
+
+Pipeline e2e tests (`chunk-finalization.test.ts`, `ingest-idempotency.test.ts`) are gated behind `ENABLE_KNOWLEDGE_PIPELINE=true`. They are skipped by default:
+
+```bash
+ENABLE_KNOWLEDGE_PIPELINE=true \
+OPENAI_API_KEY=sk-... \
+E2E_BASE_URL=http://localhost:8000 \
+ADMIN_BOOTSTRAP_KEY="$ADMIN_KEY" \
+npm run test:e2e -w packages/arkeon
+```
+
 ## Notes
 
 - First run downloads the Meilisearch binary (~100MB) into `~/.arkeon/bin/`. Cached after that.

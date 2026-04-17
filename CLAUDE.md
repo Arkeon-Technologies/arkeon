@@ -51,6 +51,24 @@ Local-mode defaults are fine out of the box — secrets are generated on first r
 - `STORAGE_BACKEND=s3` — switch from local filesystem to S3/R2/MinIO
 - `ARKEON_HOME` — override the `~/.arkeon` state directory
 
+## Knowledge Pipeline
+
+The knowledge pipeline (`src/server/knowledge/`) extracts entities and relationships from ingested documents using LLMs. It is **opt-in** via `ENABLE_KNOWLEDGE_PIPELINE=true` + `OPENAI_API_KEY`.
+
+### Pipeline stages
+
+1. **Ingest** — document is chunked; scout identifies existing entities relevant to each chunk
+2. **Extract** — LLM extracts entities, relationships, and observations from each chunk (produces an `ExtractPlan`)
+3. **Merge** — `mergeGroupPlans()` deduplicates entities across chunks by label+type, resolves cross-chunk refs via suffix fallback, and preserves ULID refs (scouted existing entities) without namespacing
+4. **Materialize** — `materializeShellEntities()` promotes inline shell refs (e.g. `target_shell: { label, type }`) to explicit entities
+5. **Write** — `buildOpsFromPlan()` converts the merged plan into database ops; ULID refs in `knownEntityIds` are treated as existing entities (bare ID), all others get `@local` prefix
+6. **Finalize** — atomic gate claims finalization when all sibling chunk jobs complete, collects scouted entity IDs from job metadata, runs merge→materialize→write
+
+### Testing the pipeline
+
+- **Unit tests** (no LLM, no running stack): `npm test -w packages/arkeon` — covers merge, materialize, and ops-building logic
+- **E2E tests** (LLM required): gated behind `ENABLE_KNOWLEDGE_PIPELINE=true` — `chunk-finalization.test.ts`, `ingest-idempotency.test.ts`
+
 ## One package, one deps list
 
 All of arkeon's server, CLI, runtime, schema, and shared code lives in `packages/arkeon/` as a single published package. There is no splitting between them — adding a dep means one line in `packages/arkeon/package.json`, nothing else. The deps on `@arkeon-technologies/{api,runtime,schema,shared}` are gone; those subtrees are regular `src/` directories now.

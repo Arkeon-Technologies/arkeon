@@ -13,6 +13,7 @@ import type {
 } from "../lib/types";
 import type { ChatJsonResult } from "../lib/llm";
 import { normalizeLabel as normalize } from "../lib/normalize";
+import { isUlid } from "./write";
 
 function dedupeKey(label: string, type: string): string {
   return `${normalize(label || "")}::${(type || "unknown").toLowerCase()}`;
@@ -38,7 +39,8 @@ export function mergeGroupPlans(
 
     for (const entity of plan.entities ?? []) {
       if (!entity.ref || !entity.label) continue;
-      const namespacedRef = prefix + entity.ref;
+      // ULIDs are global identifiers from scout — never namespace them
+      const namespacedRef = isUlid(entity.ref) ? entity.ref : prefix + entity.ref;
       const key = dedupeKey(entity.label, entity.type);
       const existing = entityMap.get(key);
 
@@ -60,19 +62,36 @@ export function mergeGroupPlans(
     for (const rel of plan.relationships ?? []) {
       allRelationships.push({
         ...rel,
-        source_ref: prefix + rel.source_ref,
-        target_ref: prefix + rel.target_ref,
+        source_ref: isUlid(rel.source_ref) ? rel.source_ref : prefix + rel.source_ref,
+        target_ref: isUlid(rel.target_ref) ? rel.target_ref : prefix + rel.target_ref,
       });
     }
   }
 
   const entities: ExtractOpEntity[] = [...entityMap.values()];
 
+  // Build suffix→canonical map for cross-chunk ref resolution.
+  // If chunk B references "location_phnom_penh" but only chunk A defined it,
+  // the prefixed "c1_location_phnom_penh" won't be in refRewrite. Fall back to
+  // matching the bare suffix against any chunk's canonical ref.
+  const suffixToCanonical = new Map<string, string>();
+  for (const [namespacedRef, canonicalRef] of refRewrite) {
+    const bare = namespacedRef.replace(/^c\d+_/, "");
+    // First writer wins — deduped by label+type already picked the canonical
+    if (!suffixToCanonical.has(bare)) {
+      suffixToCanonical.set(bare, canonicalRef);
+    }
+  }
+
   const seenRels = new Set<string>();
   const relationships: ExtractOpRelationship[] = [];
   for (const rel of allRelationships) {
-    const resolvedSource = refRewrite.get(rel.source_ref) ?? rel.source_ref;
-    const resolvedTarget = refRewrite.get(rel.target_ref) ?? rel.target_ref;
+    const resolvedSource = refRewrite.get(rel.source_ref)
+      ?? suffixToCanonical.get(rel.source_ref.replace(/^c\d+_/, ""))
+      ?? rel.source_ref;
+    const resolvedTarget = refRewrite.get(rel.target_ref)
+      ?? suffixToCanonical.get(rel.target_ref.replace(/^c\d+_/, ""))
+      ?? rel.target_ref;
     const relKey = `${resolvedSource}::${rel.predicate}::${resolvedTarget}`;
 
     if (seenRels.has(relKey)) continue;
