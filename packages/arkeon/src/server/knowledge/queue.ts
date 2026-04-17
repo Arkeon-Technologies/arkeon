@@ -23,6 +23,8 @@ import { withAdminSql } from "./lib/admin-sql";
 import { generateUlid } from "../lib/ids";
 import { getExtractionConfig } from "./lib/config";
 import { clearJobSeq } from "./lib/logger";
+import { claimFinalization, runGroupFinalization } from "./pipeline/finalize";
+import type { PipelineOpts } from "./pipeline/run-pipeline";
 import { handleIngest } from "./pipeline/ingest";
 import { handleTextExtract } from "./pipeline/text-extract";
 import { handleTextChunkExtract } from "./pipeline/text-chunk-extract";
@@ -303,13 +305,33 @@ function processJob(sql: SqlClient, job: JobRecord): void {
     const message = err instanceof Error ? err.message : String(err);
     const attempts = job.attempts as number;
     const maxAttempts = job.max_attempts as number;
+    const newStatus = attempts < maxAttempts ? "pending" : "failed";
 
-    if (attempts < maxAttempts) {
-      await setJobStatus(jobId, "pending", { error: message });
-      console.warn(`[knowledge:queue] Job ${jobId} failed (attempt ${attempts}/${maxAttempts}), will retry: ${message}`);
-    } else {
-      await setJobStatus(jobId, "failed", { error: message });
-      console.error(`[knowledge:queue] Job ${jobId} failed permanently: ${message}`);
+    // Only override if the handler hasn't already set a terminal status.
+    // Atomic WHERE status='processing' prevents the timeout from clobbering
+    // a "completed" that the handler already committed.
+    const overridden = await withAdminSql(async (sql) =>
+      sql.query(
+        `UPDATE knowledge_jobs SET status = $1, error = $2
+         WHERE id = $3 AND status = 'processing'
+         RETURNING id`,
+        [newStatus, message, jobId],
+      ),
+    );
+
+    if (overridden.length > 0) {
+      if (newStatus === "pending") {
+        console.warn(`[knowledge:queue] Job ${jobId} failed (attempt ${attempts}/${maxAttempts}), will retry: ${message}`);
+      } else {
+        console.error(`[knowledge:queue] Job ${jobId} failed permanently: ${message}`);
+        // Child job exhausted retries — try to finalize the parent so it
+        // doesn't stay stuck in 'waiting' forever.
+        if (job.parent_job_id) {
+          tryFinalizeAfterChildFailure(job).catch((e) => {
+            console.error(`[knowledge:queue] Failed to finalize parent after child ${jobId} failure:`, e);
+          });
+        }
+      }
     }
   }).finally(() => {
     clearJobSeq(jobId);
@@ -322,18 +344,67 @@ function processJob(sql: SqlClient, job: JobRecord): void {
 }
 
 // ---------------------------------------------------------------------------
+// Child failure → parent finalization
+// ---------------------------------------------------------------------------
+
+/** Job types that use group finalization (claimFinalization + runGroupFinalization). */
+const GROUP_JOB_TYPES = new Set(["text.chunk_extract", "pdf.page_group", "pptx.slide_group"]);
+
+/**
+ * Reconstruct PipelineOpts from a child job's metadata.
+ * The ingest handler stores these fields in every child's metadata.
+ */
+function optsFromJob(job: JobRecord): PipelineOpts {
+  const metadata = (job.metadata ?? {}) as Record<string, unknown>;
+  return {
+    jobId: job.parent_job_id as string,
+    documentId: job.entity_id as string,
+    spaceId: metadata.space_id as string | undefined,
+    readLevel: metadata.read_level as number | undefined,
+    writeLevel: metadata.write_level as number | undefined,
+    ownerId: metadata.owner_id as string | undefined,
+    permissions: metadata.permissions as Array<{ grantee_type: string; grantee_id: string; role: string }> | undefined,
+  };
+}
+
+/**
+ * After a child job fails permanently, try to finalize its parent.
+ * For group job types, uses claimFinalization + runGroupFinalization
+ * (which runs the extraction pipeline). For other types, uses
+ * tryFinalizeParent (simple result aggregation).
+ */
+async function tryFinalizeAfterChildFailure(job: JobRecord): Promise<void> {
+  const parentJobId = job.parent_job_id as string;
+  const jobType = job.job_type as string;
+
+  if (GROUP_JOB_TYPES.has(jobType)) {
+    const claimed = await claimFinalization(parentJobId, jobType);
+    if (claimed) {
+      console.log(`[knowledge:queue] Claimed finalization for ${parentJobId} after child failure`);
+      await runGroupFinalization(parentJobId, jobType, optsFromJob(job));
+    }
+  } else {
+    await tryFinalizeParent(parentJobId);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stuck-parent recovery
 // ---------------------------------------------------------------------------
 
 /**
  * Find parents stuck in 'waiting' where all children are terminal
- * (completed or failed) and re-trigger finalization via tryFinalizeParent.
- * This recovers jobs orphaned by the pre-0.3.12 RLS bug or by crashes.
+ * (completed or failed) and re-trigger finalization.
+ *
+ * For group job types (text.chunk_extract, pdf.page_group, etc.) uses
+ * claimFinalization + runGroupFinalization which runs the extraction
+ * pipeline. For other types, uses tryFinalizeParent (aggregation only).
  */
 async function recoverStuckWaitingParents(): Promise<void> {
   const stuckParents = await withAdminSql(async (sql) =>
     sql.query(
-      `SELECT p.id
+      `SELECT p.id,
+              (SELECT c.job_type FROM knowledge_jobs c WHERE c.parent_job_id = p.id LIMIT 1) AS child_job_type
        FROM knowledge_jobs p
        WHERE p.status = 'waiting'
          AND NOT EXISTS (
@@ -341,7 +412,6 @@ async function recoverStuckWaitingParents(): Promise<void> {
            WHERE c.parent_job_id = p.id
              AND c.status NOT IN ('completed', 'failed')
          )
-         -- Only parents that actually have children
          AND EXISTS (
            SELECT 1 FROM knowledge_jobs c
            WHERE c.parent_job_id = p.id
@@ -354,10 +424,41 @@ async function recoverStuckWaitingParents(): Promise<void> {
 
   console.log(`[knowledge:queue] Found ${stuckParents.length} stuck waiting parent(s), recovering`);
   for (const row of stuckParents) {
+    const parentId = row.id as string;
+    const childJobType = row.child_job_type as string | null;
+
     try {
-      await tryFinalizeParent(row.id as string);
+      if (childJobType && GROUP_JOB_TYPES.has(childJobType)) {
+        // Group jobs need claimFinalization + runGroupFinalization to run
+        // the extraction pipeline (not just aggregate token counts).
+        const claimed = await claimFinalization(parentId, childJobType);
+        if (claimed) {
+          // Reconstruct opts from any completed child's metadata
+          const [child] = await withAdminSql(async (sql) =>
+            sql.query(
+              `SELECT entity_id, metadata FROM knowledge_jobs
+               WHERE parent_job_id = $1 AND status = 'completed' LIMIT 1`,
+              [parentId],
+            ),
+          );
+          if (child) {
+            const opts = optsFromJob({ ...child, parent_job_id: parentId });
+            console.log(`[knowledge:queue] Recovering group finalization for ${parentId}`);
+            await runGroupFinalization(parentId, childJobType, opts);
+          } else {
+            // All children failed — claimFinalization still succeeded,
+            // runGroupFinalization will mark parent as failed.
+            await runGroupFinalization(parentId, childJobType, {
+              jobId: parentId,
+              documentId: "",
+            });
+          }
+        }
+      } else {
+        await tryFinalizeParent(parentId);
+      }
     } catch (err) {
-      console.error(`[knowledge:queue] Failed to recover parent ${row.id}:`, err);
+      console.error(`[knowledge:queue] Failed to recover parent ${parentId}:`, err);
     }
   }
 }

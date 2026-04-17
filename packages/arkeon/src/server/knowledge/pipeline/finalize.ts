@@ -22,9 +22,12 @@ import { mergeGroupPlans } from "./merge";
 import { runExtractionPipeline, type PipelineOpts } from "./run-pipeline";
 
 /**
- * Atomic gate: claim finalization only if all siblings are done.
+ * Atomic gate: claim finalization only if all siblings are terminal.
  * Single query avoids the race where a sibling completes between
  * the claim and the check, then sees 'finalizing' and gives up.
+ *
+ * Treats both 'completed' and 'failed' as terminal — partial failure
+ * is handled by runGroupFinalization which only reads completed siblings.
  *
  * Uses withAdminSql so the query can see all knowledge_jobs rows
  * regardless of triggered_by (RLS policy requires admin context
@@ -41,7 +44,7 @@ export async function claimFinalization(
          AND NOT EXISTS (
            SELECT 1 FROM knowledge_jobs
            WHERE parent_job_id = $1 AND job_type = $2
-             AND status != 'completed'
+             AND status NOT IN ('completed', 'failed')
          )
        RETURNING id`,
       [parentJobId, siblingJobType],
@@ -85,6 +88,15 @@ async function _runGroupFinalization(
       [parentJobId, siblingJobType],
     ),
   );
+
+  // All siblings failed — no completed results to merge
+  if (siblingJobs.length === 0) {
+    appendLog(parentJobId, "error", "All child jobs failed — no completed results to finalize");
+    await setJobStatus(parentJobId, "failed", {
+      error: "All child jobs failed — no completed results to finalize",
+    });
+    return;
+  }
 
   const groupResults: ChatJsonResult<ExtractPlan>[] = siblingJobs.map((j) => {
     const result = j.result as { plan: ExtractPlan; groupOrdinal: number };
