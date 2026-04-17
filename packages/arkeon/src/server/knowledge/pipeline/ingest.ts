@@ -14,7 +14,8 @@
 
 import { LlmClient } from "../lib/llm";
 import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
-import { getEntity, getSpace, updateEntity, getEntityPermissions } from "../lib/arke-client";
+import { getEntity, getSpace, getEntityPermissions } from "../lib/arke-client";
+import { withAdminSql } from "../lib/admin-sql";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
 import { createJob, setJobStatus } from "../queue";
@@ -197,11 +198,19 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
       document_type: surveyResult.data.document_type,
     }, surveyResult.usage);
 
-    // Persist survey
+    // Persist survey via direct SQL — bypasses the HTTP API so no
+    // entity_activity row is created. This prevents the poller from
+    // re-triggering extraction of this document in a feedback loop.
     try {
-      await updateEntity(entityId, {
-        ver: entity.ver,
-        properties: { ...entity.properties, survey: surveyResult.data },
+      await withAdminSql(async (txSql) => {
+        await txSql.query(
+          `UPDATE entities
+           SET properties = properties || $1::jsonb,
+               ver = ver + 1,
+               updated_at = NOW()
+           WHERE id = $2`,
+          [JSON.stringify({ survey: surveyResult.data }), entityId],
+        );
       });
     } catch (err) {
       console.warn(`[knowledge:ingest] Failed to persist survey on ${entityId}:`, err instanceof Error ? err.message : err);
