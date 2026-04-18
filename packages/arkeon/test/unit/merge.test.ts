@@ -194,6 +194,74 @@ describe("mergeGroupPlans", () => {
     expect(worksAtOp.target).toBe(EXISTING_ID); // bare ULID, not @ULID
   });
 
+  test("drops self-referencing relationships after entity dedup", () => {
+    // Two chunks use different refs for the same entity (same label+type).
+    // A relationship between the two refs becomes a self-reference after dedup.
+    const chunk0: ExtractPlan = {
+      entities: [
+        { op: "create_entity", ref: "concept_cambodia", label: "Cambodia", type: "location", description: "A country in Southeast Asia" },
+        { op: "create_entity", ref: "person_alice", label: "Alice", type: "person", description: "" },
+      ],
+      relationships: [
+        { op: "create_relationship", source_ref: "person_alice", target_ref: "concept_cambodia", predicate: "visited", source_span: "" },
+      ],
+    };
+    const chunk1: ExtractPlan = {
+      entities: [
+        { op: "create_entity", ref: "location_cambodia", label: "Cambodia", type: "location", description: "Country" },
+      ],
+      relationships: [
+        // This relationship references two refs that both resolve to "Cambodia"
+        { op: "create_relationship", source_ref: "concept_cambodia", target_ref: "location_cambodia", predicate: "same_as", source_span: "" },
+      ],
+    };
+
+    const result = mergeGroupPlans([wrapPlan(chunk0), wrapPlan(chunk1)]);
+
+    // "Cambodia" should be deduped to 1 entity
+    const cambodiaEntities = result.plan.entities.filter((e) => e.label === "Cambodia");
+    expect(cambodiaEntities).toHaveLength(1);
+
+    // The "same_as" self-reference should be dropped
+    const sameAsRels = result.plan.relationships.filter((r) => r.predicate === "same_as");
+    expect(sameAsRels).toHaveLength(0);
+
+    // The "visited" relationship should survive
+    const visitedRels = result.plan.relationships.filter((r) => r.predicate === "visited");
+    expect(visitedRels).toHaveLength(1);
+  });
+
+  test("preserves and shallow-merges entity properties through dedup", () => {
+    const chunk0: ExtractPlan = {
+      entities: [
+        {
+          op: "create_entity", ref: "person_alice", label: "Alice", type: "person",
+          description: "Short",
+          properties: { role: "Lead", team: "Alpha" },
+        },
+      ],
+      relationships: [],
+    };
+    const chunk1: ExtractPlan = {
+      entities: [
+        {
+          op: "create_entity", ref: "person_alice", label: "Alice", type: "person",
+          description: "A researcher with longer description",
+          properties: { nationality: "French", role: "Senior" },
+        },
+      ],
+      relationships: [],
+    };
+
+    const result = mergeGroupPlans([wrapPlan(chunk0), wrapPlan(chunk1)]);
+    const alice = result.plan.entities.find((e) => e.label === "Alice");
+    expect(alice).toBeDefined();
+    // Longer description wins
+    expect(alice!.description).toBe("A researcher with longer description");
+    // Properties shallow-merged: chunk1 overwrites role, chunk0's team preserved
+    expect(alice!.properties).toEqual({ role: "Senior", team: "Alpha", nationality: "French" });
+  });
+
   test("shell entities are materialized after merge", () => {
     const chunk0: ExtractPlan = {
       entities: [

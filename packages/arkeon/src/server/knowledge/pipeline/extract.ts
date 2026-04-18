@@ -263,6 +263,12 @@ function collectExtra(obj: any, knownKeys: Set<string>): Record<string, unknown>
 const ENTITY_KNOWN_KEYS = new Set(["op", "ref", "label", "type", "description"]);
 const REL_KNOWN_KEYS = new Set(["op", "source_ref", "predicate", "target_ref", "source_span", "detail", "source_shell", "target_shell"]);
 
+/** Sanitize LLM-generated refs to match the @local ref pattern [a-zA-Z0-9_.-]+ */
+function sanitizeRef(ref: string): string {
+  if (!ref) return ref;
+  return ref.replace(/[^a-zA-Z0-9_.-]/g, "_").replace(/^_+|_+$/g, "") || ref;
+}
+
 function normalizePlan(raw: any): ExtractPlan {
   const entities: ExtractOpEntity[] = [];
   const relationships: ExtractOpRelationship[] = [];
@@ -272,7 +278,7 @@ function normalizePlan(raw: any): ExtractPlan {
     for (const e of raw.entities) {
       const properties = collectExtra(e, ENTITY_KNOWN_KEYS);
       entities.push({
-        op: "create_entity", ref: e.ref, label: e.label, type: e.type, description: e.description ?? "",
+        op: "create_entity", ref: sanitizeRef(e.ref), label: e.label, type: e.type, description: e.description ?? "",
         ...(properties ? { properties } : {}),
       });
     }
@@ -282,9 +288,9 @@ function normalizePlan(raw: any): ExtractPlan {
       const properties = collectExtra(r, REL_KNOWN_KEYS);
       relationships.push({
         op: "create_relationship",
-        source_ref: r.source_ref,
+        source_ref: sanitizeRef(r.source_ref),
         predicate: r.predicate,
-        target_ref: r.target_ref,
+        target_ref: sanitizeRef(r.target_ref),
         source_span: r.source_span ?? "",
         detail: r.detail,
         source_shell: r.source_shell,

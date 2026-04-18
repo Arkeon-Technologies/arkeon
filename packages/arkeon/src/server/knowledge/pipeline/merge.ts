@@ -51,6 +51,7 @@ export function mergeGroupPlans(
           label: entity.label,
           type: entity.type,
           description: entity.description,
+          ...(entity.properties || existing?.properties ? { properties: { ...existing?.properties, ...entity.properties } } : {}),
         });
         refRewrite.set(namespacedRef, existing ? existing.ref : namespacedRef);
         entitySourceChunk.set(existing ? existing.ref : namespacedRef, i);
@@ -92,6 +93,10 @@ export function mergeGroupPlans(
     const resolvedTarget = refRewrite.get(rel.target_ref)
       ?? suffixToCanonical.get(rel.target_ref.replace(/^c\d+_/, ""))
       ?? rel.target_ref;
+    // Entity dedup can cause two different refs to merge into one entity.
+    // A relationship between those refs becomes a self-reference — drop it.
+    if (resolvedSource === resolvedTarget) continue;
+
     const relKey = `${resolvedSource}::${rel.predicate}::${resolvedTarget}`;
 
     if (seenRels.has(relKey)) continue;
