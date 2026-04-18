@@ -231,22 +231,35 @@ describe("mergeGroupPlans", () => {
     expect(visitedRels).toHaveLength(1);
   });
 
-  test("preserves entity properties through merge", () => {
+  test("preserves and shallow-merges entity properties through dedup", () => {
     const chunk0: ExtractPlan = {
       entities: [
         {
           op: "create_entity", ref: "person_alice", label: "Alice", type: "person",
-          description: "A researcher",
-          properties: { nationality: "French", role: "Lead" },
+          description: "Short",
+          properties: { role: "Lead", team: "Alpha" },
+        },
+      ],
+      relationships: [],
+    };
+    const chunk1: ExtractPlan = {
+      entities: [
+        {
+          op: "create_entity", ref: "person_alice", label: "Alice", type: "person",
+          description: "A researcher with longer description",
+          properties: { nationality: "French", role: "Senior" },
         },
       ],
       relationships: [],
     };
 
-    const result = mergeGroupPlans([wrapPlan(chunk0)]);
+    const result = mergeGroupPlans([wrapPlan(chunk0), wrapPlan(chunk1)]);
     const alice = result.plan.entities.find((e) => e.label === "Alice");
     expect(alice).toBeDefined();
-    expect(alice!.properties).toEqual({ nationality: "French", role: "Lead" });
+    // Longer description wins
+    expect(alice!.description).toBe("A researcher with longer description");
+    // Properties shallow-merged: chunk1 overwrites role, chunk0's team preserved
+    expect(alice!.properties).toEqual({ role: "Senior", team: "Alpha", nationality: "French" });
   });
 
   test("shell entities are materialized after merge", () => {

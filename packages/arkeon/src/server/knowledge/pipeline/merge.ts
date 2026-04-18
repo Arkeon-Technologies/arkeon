@@ -51,7 +51,7 @@ export function mergeGroupPlans(
           label: entity.label,
           type: entity.type,
           description: entity.description,
-          ...(entity.properties ? { properties: entity.properties } : {}),
+          ...(entity.properties || existing?.properties ? { properties: { ...existing?.properties, ...entity.properties } } : {}),
         });
         refRewrite.set(namespacedRef, existing ? existing.ref : namespacedRef);
         entitySourceChunk.set(existing ? existing.ref : namespacedRef, i);
