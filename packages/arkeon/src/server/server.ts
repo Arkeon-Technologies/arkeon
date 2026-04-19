@@ -142,6 +142,13 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
   await startScheduler();
   startRetention();
 
+  // Ensure all in-process consumers (worker sandbox, knowledge SDK) know the
+  // actual API port — without this, named instances on non-default ports
+  // (e.g. --port 8367) would fall back to 8000.
+  if (!process.env.ARKE_API_URL) {
+    process.env.ARKE_API_URL = `http://localhost:${port}`;
+  }
+
   // Knowledge extraction service — opt-in via ENABLE_KNOWLEDGE_PIPELINE=true.
   // The LLM provider is configured at runtime via /knowledge/config (see
   // `arkeon init --llm-*` and `arkeon knowledge config update`) and stored
@@ -149,12 +156,6 @@ export async function startApi(config: ArkeonApiConfig = {}): Promise<ArkeonApi>
   // key. See docs/ADVANCED.md for cost/behavior notes.
   const knowledgeEnabled = process.env.ENABLE_KNOWLEDGE_PIPELINE === "true";
   if (knowledgeEnabled) {
-    // Ensure the knowledge SDK knows the actual API port — without this,
-    // bootstrapKnowledgeService falls back to PORT env (often unset) → 8000,
-    // which is wrong for named instances on non-default ports.
-    if (!process.env.ARKE_API_URL) {
-      process.env.ARKE_API_URL = `http://localhost:${port}`;
-    }
     await bootstrapKnowledgeService();
     initKnowledgeQueue();
     await startKnowledgePoller();
