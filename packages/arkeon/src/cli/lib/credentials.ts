@@ -3,7 +3,8 @@
 
 import Conf from "conf";
 
-import { getInstanceActor } from "./instances.js";
+import { config } from "./config.js";
+import { getInstanceActor, resolveAdminKeyForUrl } from "./instances.js";
 import { loadRepoState } from "./repo-state.js";
 
 export type StoredCredentials = {
@@ -58,7 +59,11 @@ export const credentials = {
     const repoKey = getRepoActorKey();
     if (repoKey) return repoKey;
 
-    // 3. Global credential store
+    // 3. If the resolved apiUrl points at a registered instance, use its admin key
+    const instanceKey = resolveAdminKeyForUrl(config.get("apiUrl"));
+    if (instanceKey) return instanceKey;
+
+    // 4. Global credential store
     return this.get()?.apiKey ?? null;
   },
 

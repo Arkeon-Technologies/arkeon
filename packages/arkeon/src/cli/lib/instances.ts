@@ -188,3 +188,22 @@ export function resolveAdminKeyForUrl(apiUrl: string): string | null {
     return null;
   }
 }
+
+/**
+ * If exactly one live instance is registered, return it.
+ * Used by config/credentials to auto-target a sole running instance
+ * without requiring explicit CLI flags or repo-scoped state.
+ */
+export function getSoleLiveInstance(): StackInstance | null {
+  const alive = listInstances().filter((i) => pidAlive(i.pid));
+  return alive.length === 1 ? alive[0] : null;
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
