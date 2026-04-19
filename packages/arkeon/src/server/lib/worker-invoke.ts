@@ -85,6 +85,7 @@ export async function invokeWorker(
   const arkeApiKey = await decrypt(props.arke_key_encrypted);
   const apiBaseUrl =
     process.env.API_BASE_URL ??
+    process.env.ARKE_API_URL ??
     `http://localhost:${process.env.PORT ?? 8000}`;
 
   const workspace = mkdtempSync(join(tmpdir(), `arke-worker-${workerId}-`));
