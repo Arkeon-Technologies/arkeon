@@ -28,7 +28,7 @@ import {
 } from "../lib/arke-client";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { createJob, setJobStatus } from "../queue";
+import { createJob, setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 
 import { writeSourceEntities } from "./write";
@@ -118,6 +118,7 @@ export async function handlePdfExtract(
 
   if (!contentKey) throw new Error("No content_key in pdf.extract metadata");
 
+  const signal = getJobSignal(jobId);
   const extractionConfig = await getExtractionConfig();
   const inheritedMeta = {
     read_level: readLevel,
@@ -216,7 +217,7 @@ export async function handlePdfExtract(
     appendLog(jobId, "info", "Surveying document");
     const extractorConfig = await resolveLlmConfig("extractor");
     const extractorLlm = new LlmClient(extractorConfig);
-    surveyResult = await surveyDocument(extractorLlm, fullText);
+    surveyResult = await surveyDocument(extractorLlm, fullText, signal);
     appendLog(
       jobId,
       "llm_response",

@@ -37,6 +37,63 @@ export interface ChatToolResult {
   usage: LlmUsage;
 }
 
+/**
+ * Attempt to repair truncated JSON by closing unclosed arrays/objects.
+ * Works by scanning the string to track the nesting stack, trimming the
+ * last incomplete value, and appending the necessary closing brackets.
+ * Returns the parsed object on success, or null if unrecoverable.
+ */
+function repairTruncatedJson(text: string): unknown | null {
+  let trimmed = text.trimEnd();
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") stack.push("}");
+    else if (ch === "[") stack.push("]");
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+
+  if (inString) {
+    const lastQuote = trimmed.lastIndexOf('"');
+    if (lastQuote > 0) {
+      trimmed = trimmed.slice(0, lastQuote);
+    }
+  }
+
+  trimmed = trimmed.replace(/[,:\s]+$/, "");
+
+  // Re-scan after trimming
+  stack.length = 0;
+  inString = false;
+  escaped = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") stack.push("}");
+    else if (ch === "[") stack.push("]");
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+
+  const repaired = trimmed + stack.reverse().join("");
+
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return null;
+  }
+}
+
 export class LlmClient {
   private client: OpenAI;
   private model: string;
@@ -46,7 +103,7 @@ export class LlmClient {
     this.client = new OpenAI({
       baseURL: config.baseUrl,
       apiKey: config.apiKey,
-      timeout: 60_000,
+      timeout: 180_000,
     });
     this.model = config.model;
     this.maxTokens = config.maxTokens ?? 4096;
@@ -58,7 +115,7 @@ export class LlmClient {
   async chatJson<T>(
     systemPrompt: string,
     userMessage: string,
-    opts?: { maxTokens?: number },
+    opts?: { maxTokens?: number; signal?: AbortSignal },
   ): Promise<ChatJsonResult<T>> {
     return this._chatJsonInternal<T>(systemPrompt, userMessage, opts);
   }
@@ -73,7 +130,7 @@ export class LlmClient {
       | { type: "text"; text: string }
       | { type: "image_url"; image_url: { url: string } }
     >,
-    opts?: { maxTokens?: number },
+    opts?: { maxTokens?: number; signal?: AbortSignal },
   ): Promise<ChatJsonResult<T>> {
     return this._chatJsonInternal<T>(systemPrompt, content, opts);
   }
@@ -84,7 +141,7 @@ export class LlmClient {
   private async _chatJsonInternal<T>(
     systemPrompt: string,
     userContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }>,
-    opts?: { maxTokens?: number },
+    opts?: { maxTokens?: number; signal?: AbortSignal },
   ): Promise<ChatJsonResult<T>> {
     const maxTokens = opts?.maxTokens ?? this.maxTokens;
 
@@ -96,7 +153,7 @@ export class LlmClient {
       ],
       response_format: { type: "json_object" },
       max_completion_tokens: maxTokens,
-    } as any);
+    } as any, { signal: opts?.signal });
 
     const raw = response.choices[0]?.message?.content;
     const finishReason = response.choices[0]?.finish_reason;
@@ -108,7 +165,12 @@ export class LlmClient {
     };
 
     if (finishReason === "length") {
-      throw new Error(`LLM response truncated (finish_reason=length, model=${this.model}, tokens_out=${usage.tokensOut}). Increase max_tokens or reduce input size.`);
+      const repaired = repairTruncatedJson(body);
+      if (repaired !== null) {
+        console.warn(`[llm] Response truncated (finish_reason=length, model=${this.model}, tokens_out=${usage.tokensOut}) — parsed partial result`);
+        return { data: repaired as T, usage };
+      }
+      throw new Error(`LLM response truncated and unrecoverable (finish_reason=length, model=${this.model}, tokens_out=${usage.tokensOut}, ${body.length} chars)`);
     }
 
     try {
@@ -128,6 +190,7 @@ export class LlmClient {
     opts?: {
       toolChoice?: ChatCompletionToolChoiceOption;
       maxTokens?: number;
+      signal?: AbortSignal;
     },
   ): Promise<ChatToolResult> {
     const response = await this.client.chat.completions.create({
@@ -136,7 +199,7 @@ export class LlmClient {
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? (opts?.toolChoice ?? "auto") : undefined,
       max_completion_tokens: opts?.maxTokens ?? this.maxTokens,
-    } as any);
+    } as any, { signal: opts?.signal });
 
     const message = response.choices[0]?.message;
     if (!message) {

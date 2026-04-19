@@ -43,6 +43,12 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let drainResolve: (() => void) | null = null;
 let stopped = false;
 
+const jobAbortControllers = new Map<string, AbortController>();
+
+export function getJobSignal(jobId: string): AbortSignal | undefined {
+  return jobAbortControllers.get(jobId)?.signal;
+}
+
 // ---------------------------------------------------------------------------
 // Handler registry
 // ---------------------------------------------------------------------------
@@ -295,8 +301,14 @@ function processJob(sql: SqlClient, job: JobRecord): void {
 
   console.log(`[knowledge:queue] Processing ${jobType} job ${jobId}`);
 
+  const controller = new AbortController();
+  jobAbortControllers.set(jobId, controller);
+
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Job processing timeout (5 minutes)")), JOB_TIMEOUT_MS),
+    setTimeout(() => {
+      controller.abort();
+      reject(new Error("Job processing timeout (5 minutes)"));
+    }, JOB_TIMEOUT_MS),
   );
 
   Promise.race([handler(job, sql), timeoutPromise]).then(async () => {
@@ -334,6 +346,7 @@ function processJob(sql: SqlClient, job: JobRecord): void {
       }
     }
   }).finally(() => {
+    jobAbortControllers.delete(jobId);
     clearJobSeq(jobId);
     running--;
     if (running === 0 && drainResolve) {

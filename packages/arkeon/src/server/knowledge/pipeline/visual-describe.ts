@@ -89,6 +89,7 @@ export async function describePageImage(
   contentKey: string,
   imageMimeType: string,
   pageNumber: number,
+  signal?: AbortSignal,
 ): Promise<DescribePageResult> {
   const imageBytes = await getEntityContentBytes(entityId, contentKey);
   if (imageBytes.length > MAX_IMAGE_BYTES) {
@@ -111,7 +112,7 @@ export async function describePageImage(
   const result = await visualLlm.chatVision<VisualPageDescription>(
     VISUAL_DESCRIBE_PROMPT,
     content,
-    { maxTokens: 16_384 },
+    { maxTokens: 16_384, signal },
   );
 
   const pageDescription = result.data;

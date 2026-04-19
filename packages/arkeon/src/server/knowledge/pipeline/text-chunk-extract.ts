@@ -11,7 +11,7 @@ import { LlmClient } from "../lib/llm";
 import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { setJobStatus } from "../queue";
+import { setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 
@@ -38,6 +38,8 @@ export async function handleTextChunkExtract(job: JobRecord, _sql: SqlClient): P
   if (!chunkText) throw new Error("No chunk_text in job metadata");
   if (!parentJobId) throw new Error("No parent_job_id for chunk_extract job");
 
+  const signal = getJobSignal(jobId);
+
   // Extract from this chunk
   const extractorConfig = await resolveLlmConfig("extractor");
   const extractorLlm = new LlmClient(extractorConfig);
@@ -48,7 +50,7 @@ export async function handleTextChunkExtract(job: JobRecord, _sql: SqlClient): P
     survey,
     chunkOrdinal,
     totalChunks,
-  }, extractionConfig, spaceExtractionConfig, scoutedEntities);
+  }, extractionConfig, spaceExtractionConfig, scoutedEntities, signal);
 
   appendLog(jobId, "llm_response", {
     stage: "chunk_extract",

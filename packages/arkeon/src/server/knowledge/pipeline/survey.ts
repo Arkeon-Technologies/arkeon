@@ -97,9 +97,10 @@ function pickRandomPositions(range: number, count: number): number[] {
 export async function surveyDocument(
   llm: LlmClient,
   text: string,
+  signal?: AbortSignal,
 ): Promise<ChatJsonResult<DocumentSurvey>> {
   const sample = sampleDocument(text);
   return llm.chatJson<DocumentSurvey>(SURVEY_PROMPT, sample, {
-    maxTokens: 2048,
+    maxTokens: 2048, signal,
   });
 }
