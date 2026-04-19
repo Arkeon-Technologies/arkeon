@@ -43,7 +43,7 @@ export interface ChatToolResult {
  * last incomplete value, and appending the necessary closing brackets.
  * Returns the parsed object on success, or null if unrecoverable.
  */
-function repairTruncatedJson(text: string): unknown | null {
+export function repairTruncatedJson(text: string): unknown | null {
   let trimmed = text.trimEnd();
 
   const stack: string[] = [];
@@ -62,9 +62,18 @@ function repairTruncatedJson(text: string): unknown | null {
   }
 
   if (inString) {
-    const lastQuote = trimmed.lastIndexOf('"');
-    if (lastQuote > 0) {
-      trimmed = trimmed.slice(0, lastQuote);
+    // We're inside a string — the text was truncated mid-value.
+    // Trim back to the last complete element boundary: a closing } or ]
+    // that finishes a complete object/array, or a comma between elements.
+    // Simply trimming to lastIndexOf('"') can land on an opening quote.
+    let cutPoint = -1;
+    for (let i = trimmed.length - 1; i >= 0; i--) {
+      const ch = trimmed[i];
+      if (ch === "}" || ch === "]") { cutPoint = i + 1; break; }
+      if (ch === ",") { cutPoint = i; break; }
+    }
+    if (cutPoint > 0) {
+      trimmed = trimmed.slice(0, cutPoint);
     }
   }
 

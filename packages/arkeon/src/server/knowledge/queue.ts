@@ -304,12 +304,14 @@ function processJob(sql: SqlClient, job: JobRecord): void {
   const controller = new AbortController();
   jobAbortControllers.set(jobId, controller);
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`[knowledge:queue] Job ${jobId} timed out after ${JOB_TIMEOUT_MS / 1000}s, aborting`);
       controller.abort();
       reject(new Error("Job processing timeout (5 minutes)"));
-    }, JOB_TIMEOUT_MS),
-  );
+    }, JOB_TIMEOUT_MS);
+  });
 
   Promise.race([handler(job, sql), timeoutPromise]).then(async () => {
     // Handler is responsible for setting its own status
@@ -346,6 +348,7 @@ function processJob(sql: SqlClient, job: JobRecord): void {
       }
     }
   }).finally(() => {
+    clearTimeout(timeoutId!);
     jobAbortControllers.delete(jobId);
     clearJobSeq(jobId);
     running--;
