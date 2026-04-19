@@ -43,6 +43,12 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let drainResolve: (() => void) | null = null;
 let stopped = false;
 
+const jobAbortControllers = new Map<string, AbortController>();
+
+export function getJobSignal(jobId: string): AbortSignal | undefined {
+  return jobAbortControllers.get(jobId)?.signal;
+}
+
 // ---------------------------------------------------------------------------
 // Handler registry
 // ---------------------------------------------------------------------------
@@ -295,9 +301,17 @@ function processJob(sql: SqlClient, job: JobRecord): void {
 
   console.log(`[knowledge:queue] Processing ${jobType} job ${jobId}`);
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("Job processing timeout (5 minutes)")), JOB_TIMEOUT_MS),
-  );
+  const controller = new AbortController();
+  jobAbortControllers.set(jobId, controller);
+
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`[knowledge:queue] Job ${jobId} timed out after ${JOB_TIMEOUT_MS / 1000}s, aborting`);
+      controller.abort();
+      reject(new Error("Job processing timeout (5 minutes)"));
+    }, JOB_TIMEOUT_MS);
+  });
 
   Promise.race([handler(job, sql), timeoutPromise]).then(async () => {
     // Handler is responsible for setting its own status
@@ -334,6 +348,8 @@ function processJob(sql: SqlClient, job: JobRecord): void {
       }
     }
   }).finally(() => {
+    clearTimeout(timeoutId!);
+    jobAbortControllers.delete(jobId);
     clearJobSeq(jobId);
     running--;
     if (running === 0 && drainResolve) {

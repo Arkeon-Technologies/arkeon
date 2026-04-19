@@ -18,7 +18,7 @@ import { getEntity, getSpace, getEntityPermissions } from "../lib/arke-client";
 import { withAdminSql } from "../lib/admin-sql";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { createJob, setJobStatus } from "../queue";
+import { createJob, setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { SpaceExtractionConfig } from "../lib/types";
 
@@ -151,13 +151,14 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
   appendLog(jobId, "info", `Routed ${text.length} chars of text (mime: ${contentResult.mimeType ?? "inline"})`);
 
   // Scout for existing entities in the graph to enable cross-document connectivity
+  const signal = getJobSignal(jobId);
   const extractorConfig = await resolveLlmConfig("extractor");
   const extractorLlm = new LlmClient(extractorConfig);
 
   appendLog(jobId, "info", "Scouting for existing graph entities");
   let scoutedEntities: Array<{ id: string; label: string; type: string; description: string }> = [];
   try {
-    const scoutResult = await scoutEntities(extractorLlm, text, spaceId);
+    const scoutResult = await scoutEntities(extractorLlm, text, spaceId, signal);
     scoutedEntities = scoutResult.entities;
     if (scoutedEntities.length > 0) {
       appendLog(jobId, "info", `Found ${scoutedEntities.length} existing entities for context`);
@@ -191,7 +192,7 @@ export async function handleIngest(job: JobRecord, sql: SqlClient): Promise<void
     appendLog(jobId, "info", `Large document (~${tokens} tokens), chunking`);
 
     appendLog(jobId, "info", "Surveying document");
-    const surveyResult = await surveyDocument(extractorLlm, text);
+    const surveyResult = await surveyDocument(extractorLlm, text, signal);
     appendLog(jobId, "llm_response", {
       stage: "survey",
       title: surveyResult.data.title,

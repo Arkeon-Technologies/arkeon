@@ -51,13 +51,14 @@ export async function scoutEntities(
   llm: LlmClient,
   text: string,
   spaceId?: string,
+  signal?: AbortSignal,
 ): Promise<{ entities: EntitySummary[]; usage: LlmUsage }> {
   const sample = text.slice(0, SCOUT_SAMPLE_CHARS);
 
   const result = await llm.chatJson<{ queries: string[] }>(
     SCOUT_PROMPT,
     sample,
-    { maxTokens: 500 },
+    { maxTokens: 500, signal },
   );
 
   const queries = (result.data.queries ?? [])
@@ -320,11 +321,12 @@ export async function extractFromDocument(
   config: ExtractionConfig,
   spaceConfig?: SpaceExtractionConfig,
   existingEntities?: EntitySummary[],
+  signal?: AbortSignal,
 ): Promise<ChatJsonResult<ExtractPlan>> {
   const systemPrompt = buildSystemPrompt(config, undefined, spaceConfig, existingEntities);
 
   const result = await llm.chatJson<any>(systemPrompt, documentText, {
-    maxTokens: 16_384,
+    maxTokens: 16_384, signal,
   });
 
   return { data: normalizePlan(result.data), usage: result.usage };
@@ -366,6 +368,7 @@ export async function extractFromChunk(
   config: ExtractionConfig,
   spaceConfig?: SpaceExtractionConfig,
   existingEntities?: EntitySummary[],
+  signal?: AbortSignal,
 ): Promise<ChatJsonResult<ExtractPlan>> {
   const systemPrompt = buildChunkSystemPrompt(
     config,
@@ -377,7 +380,7 @@ export async function extractFromChunk(
   );
 
   const result = await llm.chatJson<any>(systemPrompt, chunkText, {
-    maxTokens: 16_384,
+    maxTokens: 16_384, signal,
   });
 
   return { data: normalizePlan(result.data), usage: result.usage };

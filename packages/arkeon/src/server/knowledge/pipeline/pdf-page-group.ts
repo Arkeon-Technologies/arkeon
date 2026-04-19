@@ -18,7 +18,7 @@ import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
 import { getEntity } from "../lib/arke-client";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { setJobStatus } from "../queue";
+import { setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 
@@ -51,6 +51,8 @@ export async function handlePdfPageGroup(
 
   if (!pageEntityIds?.length) throw new Error("No page_entity_ids in pdf.page_group metadata");
   if (!parentJobId) throw new Error("No parent_job_id for pdf.page_group job");
+
+  const signal = getJobSignal(jobId);
 
   // Track vision LLM usage across pages
   let visionTokensIn = 0;
@@ -86,6 +88,7 @@ export async function handlePdfPageGroup(
           "page_image",
           "image/jpeg",
           pageNumber,
+          signal,
         );
 
         // For pages with thin/no text, the vision text replaces it.
@@ -170,6 +173,8 @@ export async function handlePdfPageGroup(
       },
       extractionConfig,
       spaceExtractionConfig,
+      undefined,
+      signal,
     );
 
     appendLog(jobId, "llm_response", {

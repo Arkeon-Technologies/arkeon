@@ -23,7 +23,7 @@ import {
 } from "../lib/arke-client";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { createJob, setJobStatus } from "../queue";
+import { createJob, setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 
 import { estimateTokens, chunkText } from "./chunk";
@@ -52,6 +52,8 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
   const spaceExtractionConfig = metadata.space_extraction_config;
 
   if (!contentKey) throw new Error("No content_key in job metadata");
+
+  const signal = getJobSignal(jobId);
 
   // Inherited metadata for child jobs
   const inheritedMeta = {
@@ -134,6 +136,7 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
           imageKey,
           img.contentType,
           i + 1,
+          signal,
         );
 
         // Replace placeholder with description
@@ -194,7 +197,7 @@ export async function handleDocxExtract(job: JobRecord, sql: SqlClient): Promise
     const extractorLlm = new LlmClient(extractorConfig);
 
     appendLog(jobId, "info", "Surveying document");
-    const surveyResult = await surveyDocument(extractorLlm, text);
+    const surveyResult = await surveyDocument(extractorLlm, text, signal);
     appendLog(jobId, "llm_response", {
       stage: "survey",
       title: surveyResult.data.title,

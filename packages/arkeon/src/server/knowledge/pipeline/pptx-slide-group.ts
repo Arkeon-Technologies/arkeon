@@ -18,7 +18,7 @@ import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
 import { getEntity } from "../lib/arke-client";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { setJobStatus } from "../queue";
+import { setJobStatus, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { DocumentSurvey, SpaceExtractionConfig } from "../lib/types";
 
@@ -51,6 +51,8 @@ export async function handlePptxSlideGroup(
 
   if (!slideEntityIds?.length) throw new Error("No slide_entity_ids in pptx.slide_group metadata");
   if (!parentJobId) throw new Error("No parent_job_id for pptx.slide_group job");
+
+  const signal = getJobSignal(jobId);
 
   // Track vision LLM usage across slides
   let visionTokensIn = 0;
@@ -88,6 +90,7 @@ export async function handlePptxSlideGroup(
           "slide_image",
           imageMimeType,
           slideNumber,
+          signal,
         );
 
         // For slides with thin/no text, the vision text replaces it.
@@ -170,6 +173,8 @@ export async function handlePptxSlideGroup(
       },
       extractionConfig,
       spaceExtractionConfig,
+      undefined,
+      signal,
     );
 
     appendLog(jobId, "llm_response", {

@@ -10,7 +10,7 @@ import { LlmClient, type LlmUsage } from "../lib/llm";
 import { resolveLlmConfig, getExtractionConfig } from "../lib/config";
 import { appendLog } from "../lib/logger";
 import type { JobRecord } from "../queue";
-import { setJobStatus, tryFinalizeParent } from "../queue";
+import { setJobStatus, tryFinalizeParent, getJobSignal } from "../queue";
 import type { SqlClient } from "../../lib/sql";
 import type { SpaceExtractionConfig } from "../lib/types";
 
@@ -33,6 +33,8 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
 
   if (!text) throw new Error("No text in job metadata");
 
+  const signal = getJobSignal(jobId);
+
   // Extract
   const extractorConfig = await resolveLlmConfig("extractor");
   const extractorLlm = new LlmClient(extractorConfig);
@@ -42,7 +44,7 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   let existingEntities = scoutedEntities;
   if (!existingEntities) {
     appendLog(jobId, "info", "Scouting for existing graph entities");
-    const scoutResult = await scoutEntities(extractorLlm, text, spaceId);
+    const scoutResult = await scoutEntities(extractorLlm, text, spaceId, signal);
     existingEntities = scoutResult.entities;
     if (existingEntities.length > 0) {
       appendLog(jobId, "info", `Found ${existingEntities.length} existing entities for context`);
@@ -50,7 +52,7 @@ export async function handleTextExtract(job: JobRecord, _sql: SqlClient): Promis
   }
 
   appendLog(jobId, "info", `Extracting from ${text.length} chars`);
-  const extractResult = await extractFromDocument(extractorLlm, text, extractionConfig, spaceExtractionConfig, existingEntities);
+  const extractResult = await extractFromDocument(extractorLlm, text, extractionConfig, spaceExtractionConfig, existingEntities, signal);
   appendLog(jobId, "llm_response", {
     stage: "extract",
     entities: extractResult.data.entities.length,
