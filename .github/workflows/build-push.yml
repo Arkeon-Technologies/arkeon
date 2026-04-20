@@ -103,7 +103,7 @@ jobs:
       - name: Extract admin key
         id: adminkey
         run: |
-          key=$(grep "Admin API key" /tmp/arkeon.log | tail -1 | awk '{print $NF}')
+          key=$(grep "Admin key:" /tmp/arkeon.log | tail -1 | awk '{print $NF}')
           echo "ADMIN_BOOTSTRAP_KEY=$key" >> "$GITHUB_ENV"
 
       - name: Run API e2e tests

@@ -94,9 +94,44 @@ A healthy build produces:
 - `dist/schema/*.sql` — ~200 KB, all 38 migration files
 - Total: ~2.5-3 MB
 
+## CI Checks
+
+Every push to `main` and every PR triggers these checks. **All must pass before merging.** Do not assume a run passed — verify with `gh pr checks <number>` or `gh run list`.
+
+### Workflows
+
+| Workflow | Jobs | What it checks |
+|---|---|---|
+| **Test and Check CLI Drift** (`build-push.yml`) | `test-and-push` | Typecheck, unit tests, e2e tests against a live stack (port 8000) |
+| | `check-cli-spec-drift` | OpenAPI snapshot and generated CLI commands are up to date |
+| | `smoke-pack` | `npm pack` → install in clean dir → full lifecycle (up, seed, entities, down) on port 19000 |
+| **License Headers** (`license-headers.yml`) | `check` | Every `.ts`/`.js` file has an SPDX header |
+| **Publish** (`publish.yml`) | `publish` | Triggered only by `arkeon-v*` / `sdk-v*` GitHub releases |
+
+### How to verify CI
+
+```bash
+gh pr checks 81                          # Check status of all jobs on a PR
+gh run list --limit 5                    # Recent runs across all workflows
+gh run view <run-id> --log               # Full logs for a run
+gh api repos/Arkeon-Technologies/arkeon/actions/jobs/<job-id>/logs  # Logs for a specific job
+```
+
+When watching CI after a push or release:
+1. Wait for **all jobs** to reach a terminal state (not just the first one that finishes)
+2. `smoke-pack` and `test-and-push` run in parallel — one can pass while the other fails
+3. If `smoke-pack` fails, check the admin key extraction and Phase 7 CLI tests first — these are the most fragile part (they parse `secrets.json` and log output)
+4. If `check-cli-spec-drift` fails, rebuild: `npm run build -w packages/sdk-ts && npm run build -w packages/arkeon` and commit the updated generated files
+
+### Common CI gotchas
+
+- **`set -euo pipefail` in shell scripts**: Any command returning non-zero (including `grep` with no match) kills the script. Always use `|| true` for grep commands that might not match.
+- **Pretty-printed JSON**: `secrets.json` uses `JSON.stringify(secrets, null, 2)` — grep patterns must allow optional whitespace after colons.
+- **`arkeon start` vs `arkeon up`**: `start` prints the admin key to stdout; `up` (daemonized) does not. Scripts extracting the key from logs must account for which command was used.
+
 ## Fresh-install smoke testing
 
-Before every release, manually verify the published tarball in a clean scratch directory. CI does NOT test this path — CI uses the monorepo dev flow via `tsx`, which never exercises a real `npm install`. Packaging bugs only surface in a real install cycle, which is how 0.3.0 and 0.3.1 shipped broken.
+CI now runs `scripts/smoke-pack.sh` on every push (the `smoke-pack` job), which packs, installs, and runs the full lifecycle in a clean scratch directory. For manual verification before a release:
 
 ```bash
 cd packages/arkeon && npm pack
@@ -111,8 +146,6 @@ curl http://localhost:8000/health
 curl http://localhost:8000/explore
 ARKEON_HOME=./state npx arkeon down
 ```
-
-Do not skip this step.
 
 ## Lockfile hygiene after structural changes
 
@@ -241,11 +274,12 @@ Tags like `v0.3.6` (without the `arkeon-` prefix) will NOT trigger a publish. Th
 
 1. Bump `version` in `packages/arkeon/package.json` (or `packages/sdk-ts/package.json` for SDK)
 2. Commit and push to main
-3. Create a GitHub release with the correct tag prefix:
+3. **Wait for CI to pass** — run `gh run list --limit 3` and confirm all jobs in `Test and Check CLI Drift` (test-and-push, check-cli-spec-drift, smoke-pack) are green. Do not proceed until every job shows `completed success`.
+4. Create a GitHub release with the correct tag prefix:
    ```bash
    gh release create arkeon-v0.3.6 --title "arkeon v0.3.6" --generate-notes
    ```
-4. The publish workflow runs automatically — check Actions to confirm
-5. Verify on npm: `npm view arkeon version`
+5. **Wait for the Publish workflow** — `gh run list --limit 1` should show `Publish` with `completed success`
+6. Verify on npm: `npm view arkeon version`
 
 Do NOT create releases with bare `v*` tags — they won't publish.
