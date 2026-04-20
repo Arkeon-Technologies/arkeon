@@ -244,9 +244,9 @@ fi
 step "Phase 7: CLI command tests"
 
 # Extract admin key for authenticated commands
-ADMIN_KEY=$(grep "Admin API key" "$LOGFILE" | tail -1 | awk '{print $NF}')
+ADMIN_KEY=$(grep "Admin key:" "$LOGFILE" | tail -1 | awk '{print $NF}')
 if [ -z "$ADMIN_KEY" ]; then
-  ADMIN_KEY=$(cat "$ARKEON_HOME/secrets.json" 2>/dev/null | grep -o '"adminKey":"[^"]*"' | cut -d'"' -f4)
+  ADMIN_KEY=$(cat "$ARKEON_HOME/secrets.json" 2>/dev/null | grep -o '"adminBootstrapKey":"[^"]*"' | cut -d'"' -f4)
 fi
 
 if [ -z "$ADMIN_KEY" ]; then
